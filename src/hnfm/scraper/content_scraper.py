@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ScrapedContent:
     """Represents scraped content from a URL."""
+
     title: str
     content: str
     url: str
@@ -21,7 +22,9 @@ class ScrapedContent:
 class ContentScraper:
     """Scrapes content from URLs using Firecrawl."""
 
-    def __init__(self, api_key: str = None, base_url: str = "https://api.firecrawl.dev"):
+    def __init__(
+        self, api_key: str = None, base_url: str = "https://api.firecrawl.dev"
+    ):
         """Initialize the content scraper.
 
         Args:
@@ -29,7 +32,7 @@ class ContentScraper:
             base_url: Firecrawl API base URL
         """
         self.api_key = api_key
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
 
         # Fallback to local Firecrawl instance if no API key
         if not self.api_key:
@@ -40,16 +43,12 @@ class ContentScraper:
         scraped = self.scrape_url(url)
         if scraped.success:
             return {
-                'title': scraped.title,
-                'content': scraped.content,
-                'url': scraped.url
+                "title": scraped.title,
+                "content": scraped.content,
+                "url": scraped.url,
             }
         else:
-            return {
-                'title': 'Error',
-                'content': '',
-                'url': url
-            }
+            return {"title": "Error", "content": "", "url": url}
 
     def scrape_url(self, url: str) -> ScrapedContent:
         """Scrape content from a URL.
@@ -73,31 +72,24 @@ class ContentScraper:
         except Exception as e:
             logger.error(f"Failed to scrape {url}: {e}")
             return ScrapedContent(
-                title="Error",
-                content="",
-                url=url,
-                success=False,
-                error=str(e)
+                title="Error", content="", url=url, success=False, error=str(e)
             )
 
     def _scrape_with_firecrawl_api(self, url: str) -> ScrapedContent:
         """Scrape using Firecrawl API."""
         headers = {
             "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json"
+            "Content-Type": "application/json",
         }
 
         data = {
             "url": url,
             "includeTags": ["h1", "h2", "h3", "p", "article"],
-            "excludeTags": ["nav", "footer", "aside", "script", "style"]
+            "excludeTags": ["nav", "footer", "aside", "script", "style"],
         }
 
         response = requests.post(
-            f"{self.base_url}/v0/scrape",
-            headers=headers,
-            json=data,
-            timeout=30
+            f"{self.base_url}/v0/scrape", headers=headers, json=data, timeout=30
         )
 
         if response.status_code != 200:
@@ -106,10 +98,10 @@ class ContentScraper:
         result = response.json()
 
         return ScrapedContent(
-            title=result.get('data', {}).get('title', 'Unknown Title'),
-            content=result.get('data', {}).get('markdown', ''),
+            title=result.get("data", {}).get("title", "Unknown Title"),
+            content=result.get("data", {}).get("markdown", ""),
             url=url,
-            success=True
+            success=True,
         )
 
     def _scrape_with_local_firecrawl(self, url: str) -> ScrapedContent:
@@ -117,14 +109,10 @@ class ContentScraper:
         data = {
             "url": url,
             "includeTags": ["h1", "h2", "h3", "p", "article"],
-            "excludeTags": ["nav", "footer", "aside", "script", "style"]
+            "excludeTags": ["nav", "footer", "aside", "script", "style"],
         }
 
-        response = requests.post(
-            f"{self.base_url}/v0/scrape",
-            json=data,
-            timeout=30
-        )
+        response = requests.post(f"{self.base_url}/v0/scrape", json=data, timeout=30)
 
         if response.status_code != 200:
             raise RuntimeError(f"Local Firecrawl error: {response.status_code}")
@@ -132,8 +120,8 @@ class ContentScraper:
         result = response.json()
 
         return ScrapedContent(
-            title=result.get('data', {}).get('title', 'Unknown Title'),
-            content=result.get('data', {}).get('markdown', ''),
+            title=result.get("data", {}).get("title", "Unknown Title"),
+            content=result.get("data", {}).get("markdown", ""),
             url=url,
-            success=True
+            success=True,
         )

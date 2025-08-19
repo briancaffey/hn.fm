@@ -27,7 +27,7 @@ class AudioProcessor:
             file_path = Path(file_path)
             file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(file_path, 'wb') as f:
+            with open(file_path, "wb") as f:
                 f.write(audio_data)
 
             logger.info(f"Saved audio to: {file_path}")
@@ -36,7 +36,9 @@ class AudioProcessor:
             logger.error(f"Failed to save audio: {e}")
             raise RuntimeError(f"Audio save failed: {e}")
 
-    def combine_audio_files(self, audio_files: List[bytes], output_path: Union[str, Path]):
+    def combine_audio_files(
+        self, audio_files: List[bytes], output_path: Union[str, Path]
+    ):
         """Combine multiple audio files into one.
 
         Args:
@@ -47,15 +49,56 @@ class AudioProcessor:
             output_path = Path(output_path)
             output_path.parent.mkdir(parents=True, exist_ok=True)
 
-            # For now, just save the first audio file
-            # In a real implementation, this would concatenate the audio
-            if audio_files:
-                with open(output_path, 'wb') as f:
-                    f.write(audio_files[0])
-
-                logger.info(f"Combined {len(audio_files)} audio files into: {output_path}")
-            else:
+            if not audio_files:
                 logger.warning("No audio files to combine")
+                return
+
+            logger.info(f"Combining {len(audio_files)} audio files...")
+
+            # Read the first file to get audio parameters
+            first_audio = io.BytesIO(audio_files[0])
+            with wave.open(first_audio, "rb") as first_wav:
+                channels = first_wav.getnchannels()
+                sample_width = first_wav.getsampwidth()
+                sample_rate = first_wav.getframerate()
+
+            # Create output WAV file
+            with wave.open(str(output_path), "wb") as output_wav:
+                output_wav.setnchannels(channels)
+                output_wav.setsampwidth(sample_width)
+                output_wav.setframerate(sample_rate)
+
+                # Combine all audio files
+                total_frames = 0
+                for i, audio_data in enumerate(audio_files):
+                    audio_io = io.BytesIO(audio_data)
+                    with wave.open(audio_io, "rb") as input_wav:
+                        # Verify audio parameters match
+                        if (
+                            input_wav.getnchannels() != channels
+                            or input_wav.getsampwidth() != sample_width
+                            or input_wav.getframerate() != sample_rate
+                        ):
+                            logger.warning(
+                                f"Audio file {i+1} has different parameters, skipping"
+                            )
+                            continue
+
+                        # Read and write frames
+                        frames = input_wav.readframes(input_wav.getnframes())
+                        output_wav.writeframes(frames)
+                        total_frames += input_wav.getnframes()
+
+                        logger.debug(
+                            f"Added audio file {i+1}: {input_wav.getnframes()} frames"
+                        )
+
+            logger.info(
+                f"Successfully combined {len(audio_files)} audio files into: {output_path}"
+            )
+            logger.info(
+                f"Total frames: {total_frames}, Duration: {total_frames/sample_rate:.1f}s"
+            )
 
         except Exception as e:
             logger.error(f"Failed to combine audio files: {e}")

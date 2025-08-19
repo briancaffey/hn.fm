@@ -80,7 +80,7 @@ apis:
 
 # Development Configuration
 development:
-  debug: true
-  log_level: "DEBUG"
+  debug: false
+  log_level: "INFO"
   enable_progress_bars: true
   parallel_processing: false

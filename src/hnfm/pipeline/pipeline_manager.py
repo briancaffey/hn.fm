@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class PipelineStep:
     """Represents a pipeline step."""
+
     name: str
     description: str
     dependencies: List[str]
@@ -38,6 +39,7 @@ class PipelineStep:
 @dataclass
 class PipelineState:
     """Represents the current state of the pipeline."""
+
     story_id: str
     story_title: str
     current_step: str
@@ -56,7 +58,9 @@ class PipelineManager:
         Args:
             cache_dir: Cache directory path
         """
-        self.cache_dir = Path(cache_dir or config_manager.get("pipeline.cache.directory", "cache"))
+        self.cache_dir = Path(
+            cache_dir or config_manager.get("pipeline.cache.directory", "cache")
+        )
         self.cache_dir.mkdir(exist_ok=True)
 
         # Initialize services lazily to avoid dependency issues
@@ -80,7 +84,9 @@ class PipelineManager:
             elif service_name == "content_scraper":
                 # For local Firecrawl, don't pass API key
                 base_url = config_manager.get("apis.firecrawl.base_url")
-                self._services[service_name] = ContentScraper(api_key=None, base_url=base_url)
+                self._services[service_name] = ContentScraper(
+                    api_key=None, base_url=base_url
+                )
             elif service_name == "content_processor":
                 self._services[service_name] = ContentProcessor()
             elif service_name == "script_generator":
@@ -104,50 +110,50 @@ class PipelineManager:
                 description="Scrape Hacker News articles",
                 dependencies=[],
                 cache_key="hn_articles",
-                output_files=["hn_articles.json"]
+                output_files=["hn_articles.json"],
             ),
             "firecrawl_content": PipelineStep(
                 name="firecrawl_content",
                 description="Extract content using Firecrawl",
                 dependencies=["hn_scraping"],
                 cache_key="firecrawl_content",
-                output_files=["raw_content.md", "processed_content.json"]
+                output_files=["raw_content.md", "processed_content.json"],
             ),
             "content_processing": PipelineStep(
                 name="content_processing",
                 description="Process and clean content",
                 dependencies=["firecrawl_content"],
                 cache_key="processed_content",
-                output_files=["cleaned_content.md", "meaningful_paragraphs.json"]
+                output_files=["cleaned_content.md", "meaningful_paragraphs.json"],
             ),
             "script_generation": PipelineStep(
                 name="script_generation",
                 description="Generate podcast script",
                 dependencies=["content_processing"],
                 cache_key="script",
-                output_files=["script.txt", "tts_lines.txt", "script_meta.json"]
+                output_files=["script.txt", "tts_lines.txt", "script_meta.json"],
             ),
             "tts_generation": PipelineStep(
                 name="tts_generation",
                 description="Generate TTS audio",
                 dependencies=["script_generation"],
                 cache_key="tts_audio",
-                output_files=["batch_*.wav"]
+                output_files=["batch_*.wav"],
             ),
             "audio_cleaning": PipelineStep(
                 name="audio_cleaning",
                 description="Clean audio using Studio Voice",
                 dependencies=["tts_generation"],
                 cache_key="cleaned_audio",
-                output_files=["cleaned_batch_*.wav"]
+                output_files=["cleaned_batch_*.wav"],
             ),
             "audio_assembly": PipelineStep(
                 name="audio_assembly",
                 description="Assemble final audio",
                 dependencies=["audio_cleaning"],
                 cache_key="final_audio",
-                output_files=["final_audio.wav"]
-            )
+                output_files=["final_audio.wav"],
+            ),
         }
 
     def _generate_cache_key(self, step_name: str, inputs: Dict[str, Any]) -> str:
@@ -195,7 +201,9 @@ class PipelineManager:
 
         # Check expiration
         cache_age = datetime.now() - datetime.fromtimestamp(cache_path.stat().st_mtime)
-        max_age = timedelta(hours=config_manager.get("pipeline.cache.expiration_hours", 24))
+        max_age = timedelta(
+            hours=config_manager.get("pipeline.cache.expiration_hours", 24)
+        )
 
         return cache_age < max_age
 
@@ -211,7 +219,7 @@ class PipelineManager:
         cache_path = self._get_cache_path(cache_key)
 
         try:
-            with open(cache_path, 'r') as f:
+            with open(cache_path, "r") as f:
                 data = json.load(f)
                 logger.info(f"Loaded from cache: {cache_key}")
                 return data
@@ -230,14 +238,18 @@ class PipelineManager:
 
         try:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(cache_path, 'w') as f:
+            with open(cache_path, "w") as f:
                 json.dump(data, f, indent=2)
             logger.info(f"Saved to cache: {cache_key}")
         except Exception as e:
             logger.error(f"Failed to save to cache {cache_key}: {e}")
 
-    def _execute_step(self, step_name: str, inputs: Dict[str, Any],
-                     start_from_step: Optional[str] = None) -> Dict[str, Any]:
+    def _execute_step(
+        self,
+        step_name: str,
+        inputs: Dict[str, Any],
+        start_from_step: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """Execute a single pipeline step.
 
         Args:
@@ -251,14 +263,16 @@ class PipelineManager:
         step = self.pipeline_steps[step_name]
 
         # Check if we should skip this step
-        if start_from_step and step_name in config_manager.get("pipeline.skippable_steps", []):
+        if start_from_step and step_name in config_manager.get(
+            "pipeline.skippable_steps", []
+        ):
             # Check cache
             cache_key = self._generate_cache_key(step_name, inputs)
             if self._is_cache_valid(cache_key):
                 cached_data = self._load_from_cache(cache_key)
                 if cached_data:
                     step.completed = True
-                    logger.info(f"Skipping {step_name} (using cached data)")
+                    logger.info(f"⏭️  Skipping {step_name} (using cached data)")
                     return cached_data
 
         # Mark step as started
@@ -266,7 +280,10 @@ class PipelineManager:
         step.completed = False
         step.error = None
 
-        logger.info(f"🚀 Executing step: {step_name}")
+        # Clear, high-level step start logging
+        print(f"\n🔵 STEP {step_name.upper().replace('_', ' ')}")
+        print(f"   {'=' * (len(step_name) + 6)}")
+        logger.info(f"🚀 Starting {step_name} step...")
 
         try:
             # Execute the step
@@ -295,19 +312,28 @@ class PipelineManager:
             cache_key = self._generate_cache_key(step_name, inputs)
             self._save_to_cache(cache_key, output)
 
-            logger.info(f"✅ Completed step: {step_name}")
+            # Clear, high-level step completion logging
+            duration = step.end_time - step.start_time
+            print(
+                f"✅ {step_name.upper().replace('_', ' ')} COMPLETED ({duration.total_seconds():.1f}s)"
+            )
+            logger.info(
+                f"✅ Completed {step_name} step in {duration.total_seconds():.1f}s"
+            )
             return output
 
         except Exception as e:
             step.error = str(e)
             step.end_time = datetime.now()
-            logger.error(f"❌ Failed step {step_name}: {e}")
+            print(f"❌ {step_name.upper().replace('_', ' ')} FAILED")
+            logger.error(f"❌ Failed {step_name} step: {e}")
             raise
 
     def _execute_hn_scraping(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Execute Hacker News scraping step."""
         try:
             hn_scraper = self._get_service("hn_scraper")
+            print("   📰 Fetching Hacker News front page...")
             logger.info("📰 Fetching Hacker News front page...")
 
             # Get front page articles
@@ -318,24 +344,36 @@ class PipelineManager:
 
             # Select a random article (avoiding stickied posts and requiring URLs)
             import random
-            valid_articles = [a for a in articles if not a.get('sticky', False) and a.get('url')]
+
+            valid_articles = [
+                a for a in articles if not a.get("sticky", False) and a.get("url")
+            ]
             if not valid_articles:
                 # Fallback to any article with a URL
-                valid_articles = [a for a in articles if a.get('url')]
+                valid_articles = [a for a in articles if a.get("url")]
 
             if not valid_articles:
                 raise RuntimeError("No articles with URLs found on HN front page")
 
             selected_article = random.choice(valid_articles)
 
-            logger.info(f"🎯 Selected article: {selected_article.get('title', 'Unknown')}")
+            # Clear, high-level story selection logging
+            print(f"   🎯 Selected: {selected_article.get('title', 'Unknown')[:80]}...")
+            print(f"   🔗 URL: {selected_article.get('url', 'Unknown')}")
+            print(
+                f"   📊 Score: {selected_article.get('score', 'Unknown')} | Comments: {selected_article.get('descendants', 'Unknown')}"
+            )
+
+            logger.info(
+                f"🎯 Selected article: {selected_article.get('title', 'Unknown')}"
+            )
             logger.info(f"🔗 URL: {selected_article.get('url', 'Unknown')}")
             logger.info(f"📊 Score: {selected_article.get('score', 'Unknown')}")
 
             return {
                 "articles": articles,
                 "selected_article": selected_article,
-                "article_count": len(articles)
+                "article_count": len(articles),
             }
 
         except Exception as e:
@@ -356,6 +394,8 @@ class PipelineManager:
             if not url:
                 raise RuntimeError("No URL found in selected article")
 
+            print(f"   🌐 Extracting content from: {url}")
+            print(f"   📖 Article title: {title}")
             logger.info(f"🌐 Extracting content from: {url}")
             logger.info(f"📖 Article title: {title}")
 
@@ -373,16 +413,21 @@ class PipelineManager:
 
             # Save raw content to markdown file
             raw_content_path = content_dir / "raw_content.md"
-            with open(raw_content_path, 'w', encoding='utf-8') as f:
+            with open(raw_content_path, "w", encoding="utf-8") as f:
                 f.write(extracted_content.get("content", ""))
 
             # Save processed content data
             processed_content_path = content_dir / "processed_content.json"
-            with open(processed_content_path, 'w', encoding='utf-8') as f:
+            with open(processed_content_path, "w", encoding="utf-8") as f:
                 json.dump(extracted_content, f, indent=2, ensure_ascii=False)
 
+            # Clear, high-level content extraction logging
+            content_length = len(extracted_content.get("content", ""))
+            print(f"   ✅ Content extracted: {content_length:,} characters")
+            print(f"   📁 Saved to: {Path(content_dir).name}")
+
             logger.info(f"✅ Content extracted successfully")
-            logger.info(f"📝 Content length: {len(extracted_content.get('content', ''))} characters")
+            logger.info(f"📝 Content length: {content_length} characters")
             logger.info(f"📁 Saved to: {content_dir}")
 
             return {
@@ -392,7 +437,7 @@ class PipelineManager:
                 "story_dir": str(story_dir),
                 "content_dir": str(content_dir),
                 "raw_content_path": str(raw_content_path),
-                "processed_content_path": str(processed_content_path)
+                "processed_content_path": str(processed_content_path),
             }
 
         except Exception as e:
@@ -410,6 +455,7 @@ class PipelineManager:
             if not content_dir:
                 raise RuntimeError("No content directory found in inputs")
 
+            print("   🧹 Processing and cleaning content...")
             logger.info("🧹 Processing and cleaning content...")
 
             # Use the existing content processor
@@ -419,21 +465,36 @@ class PipelineManager:
             cleaned_content = content_processor._clean_markdown(raw_content)
 
             # Extract meaningful paragraphs
-            meaningful_paragraphs = content_processor.extract_meaningful_paragraphs(cleaned_content)
+            meaningful_paragraphs = content_processor.extract_meaningful_paragraphs(
+                cleaned_content
+            )
 
             # Save cleaned content to markdown file
             cleaned_content_path = Path(content_dir) / "cleaned_content.md"
-            with open(cleaned_content_path, 'w', encoding='utf-8') as f:
+            with open(cleaned_content_path, "w", encoding="utf-8") as f:
                 f.write(cleaned_content)
 
             # Save meaningful paragraphs to JSON file
-            meaningful_paragraphs_path = Path(content_dir) / "meaningful_paragraphs.json"
-            with open(meaningful_paragraphs_path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "paragraphs": meaningful_paragraphs,
-                    "count": len(meaningful_paragraphs),
-                    "processed_at": datetime.now().isoformat()
-                }, f, indent=2, ensure_ascii=False)
+            meaningful_paragraphs_path = (
+                Path(content_dir) / "meaningful_paragraphs.json"
+            )
+            with open(meaningful_paragraphs_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "paragraphs": meaningful_paragraphs,
+                        "count": len(meaningful_paragraphs),
+                        "processed_at": datetime.now().isoformat(),
+                    },
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+            # Clear, high-level content processing logging
+            print(
+                f"   ✅ Content processed: {len(cleaned_content):,} chars → {len(meaningful_paragraphs)} paragraphs"
+            )
+            print(f"   📁 Saved to: {Path(content_dir).name}")
 
             logger.info(f"✅ Content processed successfully")
             logger.info(f"📝 Cleaned content length: {len(cleaned_content)} characters")
@@ -444,7 +505,7 @@ class PipelineManager:
                 "cleaned_content": cleaned_content,
                 "meaningful_paragraphs": meaningful_paragraphs,
                 "cleaned_content_path": str(cleaned_content_path),
-                "meaningful_paragraphs_path": str(meaningful_paragraphs_path)
+                "meaningful_paragraphs_path": str(meaningful_paragraphs_path),
             }
 
         except Exception as e:
@@ -463,6 +524,7 @@ class PipelineManager:
             if not content_dir:
                 raise RuntimeError("No content directory found in inputs")
 
+            print("   📝 Generating podcast script using LLM...")
             logger.info("📝 Generating podcast script...")
 
             # Use the existing script generator
@@ -475,28 +537,41 @@ class PipelineManager:
 
             # Save script to markdown file
             script_path = Path(content_dir) / "script.md"
-            with open(script_path, 'w', encoding='utf-8') as f:
+            with open(script_path, "w", encoding="utf-8") as f:
                 f.write(script_data.get("script", ""))
 
             # Save TTS lines to text file
             tts_lines_path = Path(content_dir) / "tts_lines.txt"
-            with open(tts_lines_path, 'w', encoding='utf-8') as f:
+            with open(tts_lines_path, "w", encoding="utf-8") as f:
                 for line in script_data.get("tts_lines", []):
-                    f.write(line + '\n')
+                    f.write(line + "\n")
 
             # Save script metadata to JSON file
             script_meta_path = Path(content_dir) / "script_meta.json"
-            with open(script_meta_path, 'w', encoding='utf-8') as f:
-                json.dump({
-                    "title": title,
-                    "script_length": len(script_data.get("script", "")),
-                    "tts_lines_count": len(script_data.get("tts_lines", [])),
-                    "generated_at": datetime.now().isoformat()
-                }, f, indent=2, ensure_ascii=False)
+            with open(script_meta_path, "w", encoding="utf-8") as f:
+                json.dump(
+                    {
+                        "title": title,
+                        "script_length": len(script_data.get("script", "")),
+                        "tts_lines_count": len(script_data.get("tts_lines", [])),
+                        "generated_at": datetime.now().isoformat(),
+                    },
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
+                )
+
+            # Clear, high-level script generation logging
+            script_length = len(script_data.get("script", ""))
+            tts_lines_count = len(script_data.get("tts_lines", []))
+            print(
+                f"   ✅ Script generated: {script_length:,} chars, {tts_lines_count} TTS lines"
+            )
+            print(f"   📁 Saved to: {Path(content_dir).name}")
 
             logger.info(f"✅ Script generated successfully")
-            logger.info(f"📝 Script length: {len(script_data.get('script', ''))} characters")
-            logger.info(f"🎙️ TTS lines: {len(script_data.get('tts_lines', []))}")
+            logger.info(f"📝 Script length: {script_length} characters")
+            logger.info(f"🎙️ TTS lines: {tts_lines_count}")
             logger.info(f"📁 Saved to: {content_dir}")
 
             return {
@@ -504,7 +579,7 @@ class PipelineManager:
                 "tts_lines": script_data.get("tts_lines", []),
                 "script_path": str(script_path),
                 "tts_lines_path": str(tts_lines_path),
-                "script_meta_path": str(script_meta_path)
+                "script_meta_path": str(script_meta_path),
             }
 
         except Exception as e:
@@ -523,6 +598,15 @@ class PipelineManager:
             if not story_dir:
                 raise RuntimeError("No story directory found in inputs")
 
+            print(f"   🎵 Generating TTS audio for {len(tts_lines)} lines...")
+            print(f"   📝 Lines to process:")
+            for i, line in enumerate(tts_lines[:3], 1):  # Show first 3 lines
+                first_words = line[:50].replace("\n", " ").strip()
+                if len(first_words) >= 50:
+                    first_words = first_words[:47] + "..."
+                print(f"      {i}. {first_words}")
+            if len(tts_lines) > 3:
+                print(f"      ... and {len(tts_lines) - 3} more lines")
             logger.info("🎵 Generating TTS audio...")
 
             # Create audio directory
@@ -533,9 +617,11 @@ class PipelineManager:
             import tempfile
             import os
 
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.txt', delete=False) as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".txt", delete=False
+            ) as f:
                 for line in tts_lines:
-                    f.write(line + '\n')
+                    f.write(line + "\n")
                 temp_tts_file = f.name
 
             try:
@@ -551,6 +637,7 @@ class PipelineManager:
 
                 if final_audio_path.exists():
                     import shutil
+
                     shutil.move(str(final_audio_path), str(final_audio_dest))
                     final_audio_path = final_audio_dest
 
@@ -564,8 +651,16 @@ class PipelineManager:
                 if story_output_dir.exists():
                     for batch_file in story_output_dir.glob("audio/batch_*.wav"):
                         batch_files.append(str(batch_file))
-                    for cleaned_batch_file in story_output_dir.glob("audio/cleaned_batch_*.wav"):
+                    for cleaned_batch_file in story_output_dir.glob(
+                        "audio/cleaned_batch_*.wav"
+                    ):
                         cleaned_batch_files.append(str(cleaned_batch_file))
+
+                # Clear, high-level TTS completion logging
+                print(
+                    f"   ✅ TTS completed: {len(batch_files)} batches, {len(cleaned_batch_files)} cleaned"
+                )
+                print(f"   🎵 Final audio: {Path(final_audio_path).name}")
 
                 logger.info(f"✅ TTS generation completed successfully")
                 logger.info(f"🎵 Final audio: {final_audio_path}")
@@ -578,7 +673,7 @@ class PipelineManager:
                     "batch_files": batch_files,
                     "cleaned_audio_files": [str(f) for f in cleaned_batch_files],
                     "batch_count": len(batch_files),
-                    "audio_dir": str(audio_dir)
+                    "audio_dir": str(audio_dir),
                 }
 
             finally:
@@ -605,7 +700,10 @@ class PipelineManager:
 
             # Calculate total size of cleaned files
             import os
-            total_size = sum(os.path.getsize(f) for f in cleaned_audio_files if os.path.exists(f))
+
+            total_size = sum(
+                os.path.getsize(f) for f in cleaned_audio_files if os.path.exists(f)
+            )
             total_size_mb = total_size / (1024 * 1024)
 
             logger.info(f"✅ Audio cleaning validation completed")
@@ -617,8 +715,8 @@ class PipelineManager:
                 "enhancement_stats": {
                     "processed_chunks": batch_count,
                     "total_files": len(cleaned_audio_files),
-                    "total_size_mb": total_size_mb
-                }
+                    "total_size_mb": total_size_mb,
+                },
             }
 
         except Exception as e:
@@ -635,31 +733,72 @@ class PipelineManager:
             if not final_audio or not os.path.exists(final_audio):
                 raise RuntimeError("Final audio file not found")
 
+            print("   🎵 Validating final audio assembly...")
             logger.info("🎵 Validating final audio assembly...")
 
             # Get file metadata
             file_size = os.path.getsize(final_audio)
             file_size_mb = file_size / (1024 * 1024)
 
-            # TODO: Calculate actual duration using audio processing library
-            # For now, estimate based on file size (rough approximation)
-            estimated_duration = file_size_mb * 0.5  # Rough estimate: 0.5 MB per minute
+            # Calculate actual duration using wave library
+            actual_duration = self._get_audio_duration(final_audio)
+            if actual_duration:
+                duration_minutes = actual_duration / 60
+                print(f"   ✅ Final audio: {Path(final_audio).name}")
+                print(f"   💾 File size: {file_size_mb:.2f} MB")
+                print(
+                    f"   ⏱️  Duration: {duration_minutes:.1f} minutes ({actual_duration:.1f}s)"
+                )
+            else:
+                # Fallback to estimation
+                estimated_duration = (
+                    file_size_mb * 0.5
+                )  # Rough estimate: 0.5 MB per minute
+                print(f"   ✅ Final audio: {Path(final_audio).name}")
+                print(f"   💾 File size: {file_size_mb:.2f} MB")
+                print(f"   ⏱️  Estimated duration: {estimated_duration:.1f} minutes")
 
             logger.info(f"✅ Audio assembly validation completed")
             logger.info(f"🎵 Final audio: {final_audio}")
             logger.info(f"💾 File size: {file_size_mb:.2f} MB")
-            logger.info(f"⏱️ Estimated duration: {estimated_duration:.1f} minutes")
+            if actual_duration:
+                logger.info(
+                    f"⏱️ Actual duration: {actual_duration:.1f} seconds ({actual_duration/60:.1f} minutes)"
+                )
+            else:
+                logger.info(f"⏱️ Estimated duration: {estimated_duration:.1f} minutes")
 
             return {
                 "final_audio": final_audio,
-                "total_duration": estimated_duration,
+                "total_duration": actual_duration or estimated_duration,
                 "file_size_mb": file_size_mb,
-                "status": "completed"
+                "status": "completed",
             }
 
         except Exception as e:
             logger.error(f"Failed to validate audio assembly: {e}")
             raise RuntimeError(f"Audio assembly validation failed: {e}")
+
+    def _get_audio_duration(self, file_path: str) -> Optional[float]:
+        """Get the duration of a WAV file in seconds.
+
+        Args:
+            file_path: Path to the WAV file
+
+        Returns:
+            Duration in seconds or None if failed
+        """
+        try:
+            import wave
+
+            with wave.open(file_path, "rb") as wav_file:
+                frames = wav_file.getnframes()
+                rate = wav_file.getframerate()
+                duration = frames / float(rate)
+                return duration
+        except Exception as e:
+            logger.debug(f"Could not determine audio duration: {e}")
+            return None
 
     def _create_story_directory(self, story_title: str) -> Path:
         """Create a directory for a story, ensuring it's unique."""
@@ -668,14 +807,17 @@ class PipelineManager:
 
         # Generate a unique name for the story directory
         # Clean the title to only allow letters and underscores
-        safe_title = "".join(c.lower() for c in story_title if c.isalpha() or c == ' ').rstrip()
-        safe_title = safe_title.replace(' ', '_')
+        safe_title = "".join(
+            c.lower() for c in story_title if c.isalpha() or c == " "
+        ).rstrip()
+        safe_title = safe_title.replace(" ", "_")
 
         # Remove any consecutive underscores and leading/trailing underscores
-        safe_title = '_'.join(filter(None, safe_title.split('_')))
+        safe_title = "_".join(filter(None, safe_title.split("_")))
 
         # Add timestamp-based hex suffix for uniqueness
         import time
+
         timestamp_hex = hex(int(time.time()))[2:8]  # 6-character hex from timestamp
 
         final_title = f"{safe_title}_{timestamp_hex}"
@@ -685,9 +827,13 @@ class PipelineManager:
 
         return story_dir
 
-    def run_pipeline(self, story_id: str, story_title: str,
-                    start_from_step: Optional[str] = None,
-                    inputs: Optional[Dict[str, Any]] = None) -> PipelineState:
+    def run_pipeline(
+        self,
+        story_id: str,
+        story_title: str,
+        start_from_step: Optional[str] = None,
+        inputs: Optional[Dict[str, Any]] = None,
+    ) -> PipelineState:
         """Run the complete pipeline.
 
         Args:
@@ -707,7 +853,7 @@ class PipelineManager:
             steps=self.pipeline_steps.copy(),
             metadata=inputs or {},
             created_at=datetime.now(),
-            updated_at=datetime.now()
+            updated_at=datetime.now(),
         )
 
         logger.info(f"🎬 Starting pipeline for story: {story_title}")
@@ -722,7 +868,11 @@ class PipelineManager:
         for step_name in self.pipeline_steps:
             # Skip steps before start_from_step
             if start_from_step and step_name != start_from_step:
-                if step_name not in [start_from_step] + self.pipeline_steps[start_from_step].dependencies:
+                if (
+                    step_name
+                    not in [start_from_step]
+                    + self.pipeline_steps[start_from_step].dependencies
+                ):
                     continue
 
             try:

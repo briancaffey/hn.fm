@@ -27,8 +27,13 @@ class ScriptGenerator:
         self.audio_processor = AudioProcessor()
         self.studio_voice_service = StudioVoiceService()
 
-    def process_tts_lines(self, tts_lines_file: str, story_name: str,
-                          batch_size: int = 2, story_dir: Optional[str] = None) -> Path:
+    def process_tts_lines(
+        self,
+        tts_lines_file: str,
+        story_name: str,
+        batch_size: int = 2,
+        story_dir: Optional[str] = None,
+    ) -> Path:
         """Process TTS lines and generate audio.
 
         Args:
@@ -41,7 +46,7 @@ class ScriptGenerator:
         """
         try:
             # Read TTS lines
-            with open(tts_lines_file, 'r', encoding='utf-8') as f:
+            with open(tts_lines_file, "r", encoding="utf-8") as f:
                 lines = [line.strip() for line in f.readlines() if line.strip()]
 
             if not lines:
@@ -64,25 +69,29 @@ class ScriptGenerator:
 
             # Save TTS lines to content directory
             tts_lines_path = content_dir / "tts_lines.txt"
-            with open(tts_lines_path, 'w', encoding='utf-8') as f:
+            with open(tts_lines_path, "w", encoding="utf-8") as f:
                 for line in lines:
-                    f.write(line + '\n')
+                    f.write(line + "\n")
 
             all_audio_data = []
             all_cleaned_audio_data = []
 
             for i in range(0, len(lines), batch_size):
-                batch_lines = lines[i:i + batch_size]
+                batch_lines = lines[i : i + batch_size]
                 batch_text = " ".join(batch_lines)
 
-                logger.info(f"Processing batch {i//batch_size + 1}: {len(batch_lines)} lines")
+                logger.info(
+                    f"Processing batch {i//batch_size + 1}: {len(batch_lines)} lines"
+                )
 
                 try:
                     # Generate audio for this batch
                     audio_data = self.tts_service.generate_speech(batch_text)
 
                     if not audio_data:
-                        logger.warning(f"No audio generated for batch {i//batch_size + 1}")
+                        logger.warning(
+                            f"No audio generated for batch {i//batch_size + 1}"
+                        )
                         continue
 
                     all_audio_data.append(audio_data)
@@ -94,18 +103,28 @@ class ScriptGenerator:
 
                     # Clean audio using Studio Voice
                     logger.info(f"🧹 Cleaning audio for batch {i//batch_size + 1}")
-                    cleaned_audio_data = self.studio_voice_service.enhance_audio(audio_data)
+                    cleaned_audio_data = self.studio_voice_service.enhance_audio(
+                        audio_data
+                    )
                     all_cleaned_audio_data.append(cleaned_audio_data)
 
                     # Save cleaned batch audio to audio directory
-                    cleaned_batch_filename = f"cleaned_batch_{i//batch_size + 1:03d}.wav"
+                    cleaned_batch_filename = (
+                        f"cleaned_batch_{i//batch_size + 1:03d}.wav"
+                    )
                     cleaned_batch_path = audio_dir / cleaned_batch_filename
-                    self.audio_processor.save_audio_data(cleaned_audio_data, cleaned_batch_path)
+                    self.audio_processor.save_audio_data(
+                        cleaned_audio_data, cleaned_batch_path
+                    )
 
-                    logger.info(f"✅ Batch {i//batch_size + 1} completed: TTS + cleaning")
+                    logger.info(
+                        f"✅ Batch {i//batch_size + 1} completed: TTS + cleaning"
+                    )
 
                 except Exception as e:
-                    logger.error(f"Failed to generate audio for batch {i//batch_size + 1}: {e}")
+                    logger.error(
+                        f"Failed to generate audio for batch {i//batch_size + 1}: {e}"
+                    )
                     continue
 
             if not all_cleaned_audio_data:
@@ -113,7 +132,9 @@ class ScriptGenerator:
 
             # Combine all cleaned audio files
             final_audio_path = audio_dir / f"{story_name}_final.wav"
-            self.audio_processor.combine_audio_files(all_cleaned_audio_data, final_audio_path)
+            self.audio_processor.combine_audio_files(
+                all_cleaned_audio_data, final_audio_path
+            )
 
             logger.info(f"Successfully generated final audio: {final_audio_path}")
             return final_audio_path
@@ -178,13 +199,20 @@ class ScriptGenerator:
             {content_text}
 
             Requirements:
-            - Use [S1] and [S2] speaker tags for dialogue
+            - Use [S1] and [S2] speaker tags for dialogue (NOT **S1:** format)
             - Make it conversational and engaging
             - Break into natural speaking segments (2-3 sentences max per line)
             - Maintain the key insights and information
             - Keep total length reasonable for a podcast segment (3-5 minutes)
+            - Use straight quotes (") and apostrophes (') instead of curly quotes (") and apostrophes (')
+            - Avoid special characters that might cause TTS issues
+            - Each line should start with [S1] or [S2] followed by the dialogue
 
-            Format the output as a script with [S1] and [S2] tags.
+            Format the output as a script with [S1] and [S2] tags, one per line.
+            Example:
+            [S1] Hey there, welcome to the podcast!
+            [S2] Today we're talking about an interesting topic.
+            [S1] Let's dive right in.
             """
 
             script = llm_service.generate_content(script_prompt)
@@ -194,16 +222,18 @@ class ScriptGenerator:
 
             # Split script into TTS lines
             tts_lines = []
-            for line in script.split('\n'):
+            for line in script.split("\n"):
                 line = line.strip()
-                if line and (line.startswith('[S1]') or line.startswith('[S2]')):
+                if line and (line.startswith("[S1]") or line.startswith("[S2]")):
                     tts_lines.append(line)
 
             if not tts_lines:
                 # Fallback: create simple lines from paragraphs
                 tts_lines = []
-                for i, para in enumerate(paragraphs[:10]):  # Limit to first 10 paragraphs
-                    speaker = '[S1]' if i % 2 == 0 else '[S2]'
+                for i, para in enumerate(
+                    paragraphs[:10]
+                ):  # Limit to first 10 paragraphs
+                    speaker = "[S1]" if i % 2 == 0 else "[S2]"
                     # Truncate long paragraphs
                     if len(para) > 200:
                         para = para[:200] + "..."
@@ -220,8 +250,8 @@ class ScriptGenerator:
                     "title": title,
                     "paragraph_count": len(paragraphs),
                     "script_length": len(script),
-                    "tts_line_count": len(tts_lines)
-                }
+                    "tts_line_count": len(tts_lines),
+                },
             }
 
         except Exception as e:
@@ -229,7 +259,7 @@ class ScriptGenerator:
             # Fallback: create simple script from paragraphs
             tts_lines = []
             for i, para in enumerate(paragraphs[:8]):  # Limit to first 8 paragraphs
-                speaker = '[S1]' if i % 2 == 0 else '[S2]'
+                speaker = "[S1]" if i % 2 == 0 else "[S2]"
                 if len(para) > 150:
                     para = para[:150] + "..."
                 tts_lines.append(f"{speaker} {para}")
@@ -242,6 +272,6 @@ class ScriptGenerator:
                     "paragraph_count": len(paragraphs),
                     "script_length": len("\n".join(tts_lines)),
                     "tts_line_count": len(tts_lines),
-                    "fallback": True
-                }
+                    "fallback": True,
+                },
             }

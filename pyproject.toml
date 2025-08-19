@@ -70,4 +70,9 @@ target-version = ['py39']
 profile = "black"
 line_length = 88
 
+[dependency-groups]
+dev = [
+    "black>=25.1.0",
+]
+
 

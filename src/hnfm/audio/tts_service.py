@@ -20,7 +20,7 @@ class TTSService:
         Args:
             base_url: Base URL for the TTS API
         """
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         self.max_attempts = 3
         self.delay_between_attempts = 2
 
@@ -52,9 +52,11 @@ class TTSService:
             logger.warning("Empty text provided for TTS")
             return None
 
-        logger.info(f"🎵 Generating audio for text: {text[:50]}...")
-        logger.info(f"📝 Complete text being sent to API: {text}")
-        logger.info(f"📝 Text length: {len(text)} characters")
+        # Show progress for each line being processed
+        first_words = text[:60].replace("\n", " ").strip()
+        if len(first_words) >= 60:
+            first_words = first_words[:57] + "..."
+        logger.info(f"🎵 Generating audio: {first_words}")
 
         for attempt in range(1, self.max_attempts + 1):
             try:
@@ -68,7 +70,9 @@ class TTSService:
                 audio_data = self._call_tts_api(text, voice, seed)
 
                 if audio_data:
-                    logger.info(f"✅ Successfully generated audio: {len(audio_data)} bytes")
+                    logger.info(
+                        f"✅ Successfully generated audio: {len(audio_data)} bytes"
+                    )
                     return audio_data
 
             except Exception as e:
@@ -97,23 +101,59 @@ class TTSService:
             try:
                 from gradio_client import Client
             except ImportError:
-                logger.error("gradio_client not installed. Install with: pip install gradio-client")
+                logger.error(
+                    "gradio_client not installed. Install with: pip install gradio-client"
+                )
                 return None
 
-            # Initialize the client
+            # Initialize the client silently
             client = Client(self.base_url)
-            logger.info(f"🔌 Connected to Gradio API at {self.base_url}")
+
+            # Clean the text for TTS (replace problematic characters)
+            cleaned_text = self._clean_text_for_tts(text)
+
+            # Log the text cleaning process
+            logger.info(
+                f"🧹 Text cleaning: '{text[:50]}...' → '{cleaned_text[:50]}...'"
+            )
 
             # Prepare the text input - append "That's it." to prevent early cutoff
-            full_text = text + " That's it."
+            full_text = cleaned_text + " That's it."
             logger.info(f"📝 Full text being sent: {full_text[:100]}...")
             logger.info(f"🎲 Using seed: {seed}")
+
+            # Load voice sample files for voice consistency
+            voice_sample_text = self._load_voice_sample_text(voice)
+            voice_sample_audio_path = self._load_voice_sample_audio(voice)
+
+            logger.info(f"🎤 Using voice: {voice}")
+            if voice_sample_text:
+                logger.info(f"📝 Voice sample text: {voice_sample_text[:50]}...")
+            else:
+                logger.warning(f"⚠️  No voice sample text found for voice: {voice}")
+            if voice_sample_audio_path:
+                logger.info(f"🎵 Voice sample audio: {voice_sample_audio_path}")
+            else:
+                logger.warning(f"⚠️  No voice sample audio found for voice: {voice}")
+
+            # Import handle_file for proper audio file handling
+            try:
+                from gradio_client import handle_file
+            except ImportError:
+                logger.error(
+                    "gradio_client not installed. Install with: pip install gradio-client"
+                )
+                return None
 
             # Make the API call with the correct structure based on your working implementation
             result = client.predict(
                 text_input=full_text,
-                audio_prompt_text_input="",  # Empty for text-only generation
-                audio_prompt_input=None,     # No audio prompt
+                audio_prompt_text_input=voice_sample_text or "",  # Voice sample text
+                audio_prompt_input=(
+                    handle_file(voice_sample_audio_path)
+                    if voice_sample_audio_path
+                    else None
+                ),  # Voice sample audio file
                 max_new_tokens=3072,
                 cfg_scale=3,
                 temperature=1.8,
@@ -121,7 +161,7 @@ class TTSService:
                 cfg_filter_top_k=45,
                 speed_factor=1,
                 seed=seed,
-                api_name="/generate_audio"
+                api_name="/generate_audio",
             )
 
             logger.info(f"📥 Received result from API")
@@ -134,12 +174,17 @@ class TTSService:
             else:
                 result_path = result
 
-            # The result should be a file path to the generated audio
+                # The result should be a file path to the generated audio
             if result_path and os.path.exists(result_path):
                 logger.info(f"📁 Audio file generated at: {result_path}")
 
+                # Get audio duration
+                duration = self._get_audio_duration(result_path)
+                if duration:
+                    logger.info(f"⏱️  Audio duration: {duration:.1f}s")
+
                 # Read the audio file and return as bytes
-                with open(result_path, 'rb') as f:
+                with open(result_path, "rb") as f:
                     audio_data = f.read()
 
                 logger.info(f"✅ Successfully read audio file: {len(audio_data)} bytes")
@@ -150,6 +195,109 @@ class TTSService:
 
         except Exception as e:
             logger.error(f"TTS API call failed: {e}")
+            return None
+
+    def _load_voice_sample_text(self, voice: str) -> Optional[str]:
+        """Load the voice sample text from the voices directory.
+
+        Args:
+            voice: Voice name (e.g., 'notebooklm')
+
+        Returns:
+            Voice sample text or None if not found
+        """
+        try:
+            voice_dir = Path("voices") / voice
+            sample_text_path = voice_dir / "sample.txt"
+
+            if sample_text_path.exists():
+                with open(sample_text_path, "r", encoding="utf-8") as f:
+                    return f.read().strip()
+            else:
+                logger.warning(f"Voice sample text not found: {sample_text_path}")
+                return None
+
+        except Exception as e:
+            logger.warning(f"Failed to load voice sample text: {e}")
+            return None
+
+    def _load_voice_sample_audio(self, voice: str) -> Optional[str]:
+        """Load the voice sample audio file path from the voices directory.
+
+        Args:
+            voice: Voice name (e.g., 'notebooklm')
+
+        Returns:
+            Path to voice sample audio file or None if not found
+        """
+        try:
+            voice_dir = Path("voices") / voice
+            sample_audio_path = voice_dir / "sample.wav"
+
+            if sample_audio_path.exists():
+                return str(sample_audio_path)
+            else:
+                logger.warning(f"Voice sample audio not found: {sample_audio_path}")
+                return None
+
+        except Exception as e:
+            logger.warning(f"Failed to load voice sample audio: {e}")
+            return None
+
+    def _clean_text_for_tts(self, text: str) -> str:
+        """Clean text for better TTS results by replacing problematic characters.
+
+        Args:
+            text: Raw text to clean
+
+        Returns:
+            Cleaned text suitable for TTS
+        """
+        logger.info(f"🧹 Cleaning text: '{text[:100]}...'")
+
+        # Replace curly quotes and apostrophes with straight ones
+        cleaned = text.replace("“", '"').replace(
+            "”", '"'
+        )  # Curly double quotes to straight quotes
+        cleaned = cleaned.replace("‘", "'").replace(
+            "’", "'"
+        )  # Curly single quotes/apostrophes to straight ones
+
+        # Replace other problematic characters
+        cleaned = cleaned.replace("–", "-")  # En dash to hyphen
+        cleaned = cleaned.replace("—", "-")  # Em dash to hyphen
+        cleaned = cleaned.replace("…", "...")  # Ellipsis to three dots
+
+        # Remove any other non-ASCII characters that might cause issues
+        cleaned = cleaned.encode("ascii", "replace").decode("ascii")
+
+        logger.info(
+            f"🧹 Text cleaning complete: {len(text)} chars → {len(cleaned)} chars"
+        )
+        logger.info(f"🧹 Before: '{text[:100]}...'")
+        logger.info(f"🧹 After:  '{cleaned[:100]}...'")
+
+        return cleaned
+
+    def _get_audio_duration(self, file_path: str) -> Optional[float]:
+        """Get the duration of a WAV file in seconds.
+
+        Args:
+            file_path: Path to the WAV file
+
+        Returns:
+            Duration in seconds or None if failed
+        """
+        try:
+            import wave
+
+            with wave.open(file_path, "rb") as wav_file:
+                frames = wav_file.getnframes()
+                rate = wav_file.getframerate()
+                duration = frames / float(rate)
+                return duration
+        except Exception as e:
+            logger.debug(f"Could not determine audio duration: {e}")
             return None
 
     def _wait_for_completion(self, session_hash: str) -> Optional[bytes]:
@@ -166,16 +314,18 @@ class TTSService:
             while True:
                 response = requests.get(
                     f"{self.base_url}/gradio_api/queue/data?session_hash={session_hash}",
-                    stream=True
+                    stream=True,
                 )
 
                 if response.status_code != 200:
-                    raise RuntimeError(f"Failed to get job status: {response.status_code}")
+                    raise RuntimeError(
+                        f"Failed to get job status: {response.status_code}"
+                    )
 
                 # Check for completion
                 for line in response.iter_lines():
                     if line:
-                        line_str = line.decode('utf-8')
+                        line_str = line.decode("utf-8")
                         if '"msg": "process_completed"' in line_str:
                             # Get the result
                             audio_data = self._get_audio_result(session_hash)
@@ -204,10 +354,14 @@ class TTSService:
 
             if response.status_code == 200:
                 logger.info("📥 Received result from API")
-                logger.info(f"📦 API returned tuple with {len(response.content)} elements")
+                logger.info(
+                    f"📦 API returned tuple with {len(response.content)} elements"
+                )
                 return response.content
             else:
-                raise RuntimeError(f"Failed to get audio result: {response.status_code}")
+                raise RuntimeError(
+                    f"Failed to get audio result: {response.status_code}"
+                )
 
         except Exception as e:
             logger.error(f"Failed to get audio result: {e}")

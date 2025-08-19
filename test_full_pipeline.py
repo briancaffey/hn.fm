@@ -8,6 +8,7 @@ from hnfm.content.content_processor import ContentProcessor
 from hnfm.content.script_generator import ScriptGenerator
 from hnfm.utils.config import Config
 
+
 def test_full_pipeline():
     """Test the complete pipeline from HN scraping to script generation."""
     print("🚀 Testing Full hn.fm Pipeline\n")
@@ -22,8 +23,8 @@ def test_full_pipeline():
         return
 
     story = stories[0]
-    url = story.get('url')
-    title = story.get('title', 'Unknown')
+    url = story.get("url")
+    title = story.get("title", "Unknown")
 
     print(f"   Found: {title}")
     print(f"   URL: {url}")
@@ -84,7 +85,7 @@ def test_full_pipeline():
 
     # Show sample of generated script
     print(f"\n📝 Sample of generated script:")
-    speaker_lines = script.get('speaker_lines', [])
+    speaker_lines = script.get("speaker_lines", [])
     for i, line in enumerate(speaker_lines[:6], 1):
         print(f"   {i:2d}. {line}")
 
@@ -105,20 +106,25 @@ def test_full_pipeline():
 
     return script
 
+
 def main():
     """Main test function."""
     try:
         script = test_full_pipeline()
         if script:
             print(f"\n✅ Full pipeline test completed successfully!")
-            print(f"🎙️ Ready for TTS processing with {script.get('total_lines', 0)} speaker lines!")
+            print(
+                f"🎙️ Ready for TTS processing with {script.get('total_lines', 0)} speaker lines!"
+            )
         else:
             print(f"\n❌ Pipeline test failed")
 
     except Exception as e:
         print(f"\n❌ Test failed with error: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     main()

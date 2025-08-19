@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ProcessedContent:
     """Represents processed content."""
+
     title: str
     cleaned_content: str
     meaningful_paragraphs: List[str]
@@ -61,7 +62,7 @@ class ContentProcessor:
                 cleaned_content=cleaned_content,
                 meaningful_paragraphs=meaningful_paragraphs,
                 word_count=word_count,
-                estimated_reading_time=estimated_reading_time
+                estimated_reading_time=estimated_reading_time,
             )
 
         except Exception as e:
@@ -81,18 +82,18 @@ class ContentProcessor:
             return ""
 
         # Remove HTML tags
-        content = re.sub(r'<[^>]+>', '', content)
+        content = re.sub(r"<[^>]+>", "", content)
 
         # Remove markdown formatting
-        content = re.sub(r'#{1,6}\s+', '', content)  # Headers
-        content = re.sub(r'\*\*(.*?)\*\*', r'\1', content)  # Bold
-        content = re.sub(r'\*(.*?)\*', r'\1', content)  # Italic
-        content = re.sub(r'`(.*?)`', r'\1', content)  # Code
-        content = re.sub(r'\[(.*?)\]\(.*?\)', r'\1', content)  # Links
+        content = re.sub(r"#{1,6}\s+", "", content)  # Headers
+        content = re.sub(r"\*\*(.*?)\*\*", r"\1", content)  # Bold
+        content = re.sub(r"\*(.*?)\*", r"\1", content)  # Italic
+        content = re.sub(r"`(.*?)`", r"\1", content)  # Code
+        content = re.sub(r"\[(.*?)\]\(.*?\)", r"\1", content)  # Links
 
         # Remove extra whitespace
-        content = re.sub(r'\n\s*\n', '\n\n', content)
-        content = re.sub(r' +', ' ', content)
+        content = re.sub(r"\n\s*\n", "\n\n", content)
+        content = re.sub(r" +", " ", content)
 
         # Remove leading/trailing whitespace
         content = content.strip()
@@ -112,7 +113,7 @@ class ContentProcessor:
             return []
 
         # Split into paragraphs
-        paragraphs = content.split('\n\n')
+        paragraphs = content.split("\n\n")
 
         # Filter meaningful paragraphs
         meaningful = []
@@ -145,11 +146,11 @@ class ContentProcessor:
             return False
 
         # Must not be just whitespace or special characters
-        if not re.search(r'[a-zA-Z]', paragraph):
+        if not re.search(r"[a-zA-Z]", paragraph):
             return False
 
         # Must not be just numbers or symbols
-        if re.match(r'^[\d\s\W]+$', paragraph):
+        if re.match(r"^[\d\s\W]+$", paragraph):
             return False
 
         return True

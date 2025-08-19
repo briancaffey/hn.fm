@@ -215,6 +215,42 @@ src/hnfm/
 3. **Add to configuration** in `config.yaml`
 4. **Update dependencies** as needed
 
+### Code Formatting
+
+This project uses [Black](https://black.readthedocs.io/) for consistent Python code formatting. Black is already configured in your environment and `pyproject.toml`.
+
+#### **Using Makefile (Recommended)**
+
+```bash
+# Format all Python code
+make black
+
+# Check formatting without making changes
+make black-check
+
+# See all available commands
+make help
+```
+
+#### **Direct Commands**
+
+```bash
+# Format all Python files
+uv run black . --line-length 88 --exclude .venv
+
+# Format specific directories
+uv run black src/ --line-length 88
+uv run black *.py --line-length 88
+
+# Check formatting without making changes
+uv run black . --line-length 88 --exclude .venv --check
+```
+
+**Black Configuration** (already set in `pyproject.toml`):
+- Line length: 88 characters
+- Target Python version: 3.9+
+- Profile: Black-compatible
+
 ### Testing
 
 ```bash

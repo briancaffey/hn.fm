@@ -33,67 +33,42 @@ Examples:
 
   # Show pipeline status
   python run_pipeline.py --status --story-id "story-123"
-        """
+        """,
     )
 
     # Pipeline options
-    parser.add_argument(
-        "--story-id",
-        help="Unique identifier for the story"
-    )
+    parser.add_argument("--story-id", help="Unique identifier for the story")
 
-    parser.add_argument(
-        "--story-title",
-        help="Title of the story"
-    )
+    parser.add_argument("--story-title", help="Title of the story")
 
     parser.add_argument(
         "--start-from",
         choices=config_manager.get("pipeline.skippable_steps", []),
-        help="Step to start from (resume pipeline)"
+        help="Step to start from (resume pipeline)",
     )
 
     # Configuration options
-    parser.add_argument(
-        "--config",
-        help="Path to custom configuration file"
-    )
+    parser.add_argument("--config", help="Path to custom configuration file")
 
     # Pipeline management options
     parser.add_argument(
-        "--list-steps",
-        action="store_true",
-        help="List available pipeline steps"
+        "--list-steps", action="store_true", help="List available pipeline steps"
     )
 
-    parser.add_argument(
-        "--status",
-        action="store_true",
-        help="Show pipeline status"
-    )
+    parser.add_argument("--status", action="store_true", help="Show pipeline status")
 
     # Output options
-    parser.add_argument(
-        "--output-dir",
-        help="Custom output directory"
-    )
+    parser.add_argument("--output-dir", help="Custom output directory")
 
-    parser.add_argument(
-        "--cache-dir",
-        help="Custom cache directory"
-    )
+    parser.add_argument("--cache-dir", help="Custom cache directory")
 
     # Development options
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode"
-    )
+    parser.add_argument("--debug", action="store_true", help="Enable debug mode")
 
     parser.add_argument(
         "--dry-run",
         action="store_true",
-        help="Show what would be executed without running"
+        help="Show what would be executed without running",
     )
 
     args = parser.parse_args()
@@ -147,7 +122,7 @@ Examples:
         state = pipeline_manager.run_pipeline(
             story_id=args.story_id,
             story_title=args.story_title,
-            start_from_step=args.start_from
+            start_from_step=args.start_from,
         )
 
         # Show results
@@ -196,12 +171,18 @@ def show_dry_run_info(args, pipeline_manager):
 
     print(f"\nConfiguration:")
     print(f"  TTS Service: {config_manager.get('tts.base_url', 'Not configured')}")
-    print(f"  Studio Voice: {config_manager.get('studio_voice.target', 'Not configured')}")
+    print(
+        f"  Studio Voice: {config_manager.get('studio_voice.target', 'Not configured')}"
+    )
     print(f"  Default Voice: {config_manager.get('voice.default', 'Not configured')}")
     print(f"  Batch Size: {config_manager.get('tts.batch_size', 'Not configured')}")
 
-    print(f"\nOutput Directory: {args.output_dir or config_manager.get('output.base_directory', 'outputs')}")
-    print(f"Cache Directory: {args.cache_dir or config_manager.get('pipeline.cache.directory', 'cache')}")
+    print(
+        f"\nOutput Directory: {args.output_dir or config_manager.get('output.base_directory', 'outputs')}"
+    )
+    print(
+        f"Cache Directory: {args.cache_dir or config_manager.get('pipeline.cache.directory', 'cache')}"
+    )
 
     if args.debug:
         print(f"Debug Mode: Enabled")

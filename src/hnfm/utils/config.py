@@ -29,7 +29,7 @@ class ConfigManager:
                 logger.warning(f"Config file {config_file} not found, using defaults")
                 return self._get_default_config()
 
-            with open(config_path, 'r') as f:
+            with open(config_path, "r") as f:
                 config = yaml.safe_load(f)
 
             # Replace environment variables
@@ -48,7 +48,9 @@ class ConfigManager:
             return {k: self._replace_env_vars(v) for k, v in config.items()}
         elif isinstance(config, list):
             return [self._replace_env_vars(item) for item in config]
-        elif isinstance(config, str) and config.startswith("${") and config.endswith("}"):
+        elif (
+            isinstance(config, str) and config.startswith("${") and config.endswith("}")
+        ):
             env_var = config[2:-1]
             return os.getenv(env_var, config)
         else:
@@ -59,14 +61,14 @@ class ConfigManager:
         return {
             "voice": {
                 "default": "notebooklm",
-                "available_voices": ["notebooklm", "studio_voice"]
+                "available_voices": ["notebooklm", "studio_voice"],
             },
             "tts": {
                 "base_url": "http://localhost:7860",
                 "default_voice": "notebooklm",
                 "batch_size": 2,
                 "max_attempts": 3,
-                "delay_between_batches": 2
+                "delay_between_batches": 2,
             },
             "studio_voice": {
                 "enabled": True,
@@ -74,13 +76,13 @@ class ConfigManager:
                 "model_type": "48k-hq",
                 "streaming": False,
                 "ssl_mode": None,
-                "sample_rate": 48000
+                "sample_rate": 48000,
             },
             "content": {
                 "max_episode_length": 15,
                 "include_comments": True,
                 "quality_threshold": 0.8,
-                "max_paragraphs": 10
+                "max_paragraphs": 10,
             },
             "pipeline": {
                 "skippable_steps": [
@@ -90,39 +92,32 @@ class ConfigManager:
                     "script_generation",
                     "tts_generation",
                     "audio_cleaning",
-                    "audio_assembly"
+                    "audio_assembly",
                 ],
                 "cache": {
                     "enabled": True,
                     "directory": "cache",
-                    "expiration_hours": 24
-                }
+                    "expiration_hours": 24,
+                },
             },
             "output": {
                 "base_directory": "outputs",
                 "organize_by_story": True,
                 "keep_intermediate_files": True,
                 "audio_format": "wav",
-                "audio_quality": "high"
+                "audio_quality": "high",
             },
             "apis": {
-                "firecrawl": {
-                    "base_url": "https://api.firecrawl.dev",
-                    "api_key": ""
-                },
-                "openai": {
-                    "api_key": ""
-                },
-                "hn": {
-                    "user_agent": "hn.fm/0.1.0 (briancaffey)"
-                }
+                "firecrawl": {"base_url": "https://api.firecrawl.dev", "api_key": ""},
+                "openai": {"api_key": ""},
+                "hn": {"user_agent": "hn.fm/0.1.0 (briancaffey)"},
             },
             "development": {
                 "debug": False,
                 "log_level": "INFO",
                 "enable_progress_bars": True,
-                "parallel_processing": False
-            }
+                "parallel_processing": False,
+            },
         }
 
     def reload(self):
@@ -140,7 +135,7 @@ class ConfigManager:
             Configuration value
         """
         try:
-            keys = key.split('.')
+            keys = key.split(".")
             value = self.config
 
             for k in keys:
@@ -161,7 +156,7 @@ class ConfigManager:
             value: Value to set
         """
         try:
-            keys = key.split('.')
+            keys = key.split(".")
             config = self.config
 
             # Navigate to the parent of the target key

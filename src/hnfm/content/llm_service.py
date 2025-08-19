@@ -30,9 +30,11 @@ class LLMService:
                 # Configure OpenAI client to use local endpoint
                 self.client = openai.OpenAI(
                     api_key="not-needed",  # Local models typically don't require API keys
-                    base_url=self.base_url
+                    base_url=self.base_url,
                 )
-                logger.info(f"Local LLM client initialized successfully for {self.base_url}")
+                logger.info(
+                    f"Local LLM client initialized successfully for {self.base_url}"
+                )
             except Exception as e:
                 logger.error(f"Failed to initialize local LLM client: {e}")
                 self.client = None
@@ -44,7 +46,9 @@ class LLMService:
                 logger.error(f"Failed to initialize OpenAI client: {e}")
                 self.client = None
         else:
-            logger.warning("No LLM configuration found, using fallback script generation")
+            logger.warning(
+                "No LLM configuration found, using fallback script generation"
+            )
             self.client = None
 
     def generate_content(self, prompt: str) -> Optional[str]:
@@ -66,14 +70,15 @@ class LLMService:
             response = self.client.chat.completions.create(
                 model=model_name,
                 messages=[
-                    {"role": "system", "content": "You are a helpful AI assistant that generates high-quality content based on user requests."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "You are a helpful AI assistant that generates high-quality content based on user requests.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
                 max_tokens=2000,
-                temperature=0.7
+                temperature=0.7,
             )
-
-
 
             content = response.choices[0].message.content
             provider = "Local LLM" if self.use_local else "OpenAI"
@@ -99,9 +104,11 @@ class LLMService:
         # Extract title from prompt if possible
         title = "Article"
         if "Article Title:" in prompt:
-            title_line = [line for line in prompt.split('\n') if line.startswith('Article Title:')]
+            title_line = [
+                line for line in prompt.split("\n") if line.startswith("Article Title:")
+            ]
             if title_line:
-                title = title_line[0].replace('Article Title:', '').strip()
+                title = title_line[0].replace("Article Title:", "").strip()
 
         # Generate a simple fallback script
         fallback_script = f"""[S1] Welcome to today's episode where we discuss {title}.

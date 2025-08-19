@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class HNStory:
     """Represents a Hacker News story."""
+
     id: int
     title: str
     url: str
@@ -55,14 +56,14 @@ class HNScraper:
                     if story:
                         # Convert to dictionary
                         story_dict = {
-                            'id': story.id,
-                            'title': story.title,
-                            'url': story.url,
-                            'score': story.score,
-                            'by': story.by,
-                            'time': story.time,
-                            'descendants': story.descendants,
-                            'sticky': False  # Add sticky field for compatibility
+                            "id": story.id,
+                            "title": story.title,
+                            "url": story.url,
+                            "score": story.score,
+                            "by": story.by,
+                            "time": story.time,
+                            "descendants": story.descendants,
+                            "sticky": False,  # Add sticky field for compatibility
                         }
                         stories.append(story_dict)
                 except Exception as e:
@@ -90,17 +91,17 @@ class HNScraper:
             response.raise_for_status()
             data = response.json()
 
-            if not data or data.get('type') != 'story':
+            if not data or data.get("type") != "story":
                 return None
 
             return HNStory(
-                id=data.get('id'),
-                title=data.get('title', 'Unknown Title'),
-                url=data.get('url', ''),
-                score=data.get('score', 0),
-                by=data.get('by', 'Unknown'),
-                time=data.get('time', 0),
-                descendants=data.get('descendants', 0)
+                id=data.get("id"),
+                title=data.get("title", "Unknown Title"),
+                url=data.get("url", ""),
+                score=data.get("score", 0),
+                by=data.get("by", "Unknown"),
+                time=data.get("time", 0),
+                descendants=data.get("descendants", 0),
             )
 
         except Exception as e:

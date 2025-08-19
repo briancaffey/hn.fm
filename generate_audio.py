@@ -17,23 +17,21 @@ def main():
         description="Generate audio from TTS lines using hn.fm TTS pipeline"
     )
     parser.add_argument(
-        "tts_file",
-        help="Path to TTS lines file (e.g., outputs/tts_lines_*.txt)"
+        "tts_file", help="Path to TTS lines file (e.g., outputs/tts_lines_*.txt)"
     )
     parser.add_argument(
         "--batch-size",
         type=int,
         default=2,
-        help="Number of lines to process at once (default: 2)"
+        help="Number of lines to process at once (default: 2)",
     )
     parser.add_argument(
         "--output-dir",
         default="outputs",
-        help="Base output directory (default: outputs)"
+        help="Base output directory (default: outputs)",
     )
     parser.add_argument(
-        "--story-name",
-        help="Custom story name (default: extracted from filename)"
+        "--story-name", help="Custom story name (default: extracted from filename)"
     )
 
     args = parser.parse_args()
@@ -64,7 +62,7 @@ def main():
         final_audio_path = script_generator.process_tts_lines(
             tts_lines_file=str(tts_file),
             story_name=story_name,
-            batch_size=args.batch_size
+            batch_size=args.batch_size,
         )
 
         print(f"\n✅ Successfully generated audio!")
@@ -81,6 +79,7 @@ def main():
     except Exception as e:
         print(f"\n❌ Error generating audio: {e}")
         import traceback
+
         traceback.print_exc()
         sys.exit(1)
 

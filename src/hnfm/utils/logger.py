@@ -14,7 +14,7 @@ def setup_logging(level: str = "INFO", log_file: str = None):
     """
     # Create formatter
     formatter = logging.Formatter(
-        '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     )
 
     # Setup root logger
@@ -39,7 +39,7 @@ def setup_logging(level: str = "INFO", log_file: str = None):
         root_logger.addHandler(file_handler)
 
     # Set specific logger levels
-    logging.getLogger('urllib3').setLevel(logging.WARNING)
-    logging.getLogger('httpcore').setLevel(logging.WARNING)
-    logging.getLogger('httpx').setLevel(logging.WARNING)
-    logging.getLogger('openai').setLevel(logging.WARNING)
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("httpx").setLevel(logging.WARNING)
+    logging.getLogger("openai").setLevel(logging.WARNING)
