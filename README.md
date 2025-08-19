@@ -1,230 +1,296 @@
-# 🎙️ hn.fm 🟧
+# hn.fm - AI-Powered Podcast Pipeline
 
-> **Transform Hacker News into Your Personalized AI-Powered Podcast**
+Transform Hacker News into your personalized AI-powered podcast using a sophisticated pipeline that combines content scraping, AI processing, text-to-speech, and audio enhancement.
 
-[![OpenAI Hackathon](https://img.shields.io/badge/OpenAI-Hackathon-10A37F?style=for-the-badge&logo=openai)](https://hackathon.openai.com/)
-[![GPT-OSS](https://img.shields.io/badge/GPT--OSS-20B-FF6B35?style=for-the-badge)](https://github.com/openai/gpt-oss)
-[![License](https://img.shields.io/badge/License-MIT-blue.svg?style=for-the-badge)](LICENSE)
+## 🚀 Features
 
-## 🚀 What is hn.fm?
+- **Complete Pipeline Workflow**: From HN scraping to final audio assembly
+- **AI-Powered Content Processing**: Intelligent content extraction and script generation
+- **High-Quality TTS**: Voice cloning with customizable voices
+- **Audio Enhancement**: Studio Voice integration for professional audio quality
+- **Smart Caching**: Resume from any step using cached data
+- **YAML Configuration**: Easy configuration management
+- **Modular Architecture**: Extensible pipeline with pluggable components
 
-**hn.fm** is an AI-powered content transformation engine that automatically converts the Hacker News feed into engaging, personalized podcast episodes with stunning visuals. Think of it as having your own AI news anchor that never sleeps, constantly curating and narrating the most interesting tech stories from the internet.
+## 🏗️ Architecture
 
-### ✨ Key Features
-
-- 🎧 **AI-Generated Podcasts**: Transform HN threads into professional-quality audio content
-- 🖼️ **Dynamic Visual Content**: AI-generated images and videos for multiple platforms
-- 🎭 **Customizable Host Personas**: Configure your AI host's voice, style, and focus
-- 🔄 **Quality Assurance**: Multi-stage validation ensures audio and content quality
-- 📱 **Multi-Format Output**: Podcasts, short-form videos, and web content
-- 🎵 **AI Music Generation**: Optional background music for enhanced listening experience
-
-## 🏗️ Architecture Overview
+The system follows a step-by-step pipeline architecture:
 
 ```
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   Hacker News  │───▶│   AI Scraping   │───▶│  Content Agent  │
-│     Feed       │    │   (Firecrawl)   │    │   Workflow      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │                       │
-                                ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│   TTS Service  │◀───│  Script Chunks  │◀───│  Podcast Script │
-│  (nari-labs)   │    │                 │    │   Generation    │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │                       │
-                                ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│  Quality Check │───▶│  Studio Voice   │───▶│  Final Audio    │
-│   (ASR + LLM)  │    │   Processing    │    │   Assembly      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
-                                │                       │
-                                ▼                       ▼
-┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
-│ Image Prompts  │───▶│ Flux Kontext    │───▶│ Video Assembly  │
-│   Generation   │    │   NVIDIA NIM    │    │   & Export      │
-└─────────────────┘    └─────────────────┘    └─────────────────┘
+1. HN Scraping → 2. Firecrawl Content → 3. Content Processing →
+4. Script Generation → 5. TTS Generation → 6. Audio Cleaning → 7. Audio Assembly
 ```
 
-## 🛠️ Tech Stack
+Each step can be:
+- **Executed independently** for testing
+- **Cached and reused** to avoid recomputation
+- **Resumed from** any point in the workflow
 
-### 🤖 AI & Machine Learning
-- **GPT-OSS 20B**: OpenAI's open-source model for content generation and quality control
-- **Local TTS**: nari-labs/dia for high-quality text-to-speech
-- **ASR Service**: NVIDIA Parakeet for speech-to-text validation
-- **AI Scraping**: Firecrawl (self-hosted) powered by GPT-OSS
+## 📋 Prerequisites
 
-### 🎵 Audio & Video
-- **Audio Processing**: Studio-quality voice enhancement
-- **Image Generation**: Flux Kontext NVIDIA NIM for accelerated image creation
-- **Video Production**: AI-driven video assembly from audio and images
-- **Music Generation**: Local AI music generation services
-
-### 🔧 Infrastructure
-- **Content Pipeline**: Agentic workflow for intelligent content curation
-- **Quality Assurance**: Multi-stage validation and regeneration
-- **Multi-Format Export**: Podcast, video, and web content generation
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- Modern PC/laptop capable of running GPT-OSS 20B
-- Docker for containerized services
-- NVIDIA GPU (optional, for accelerated image generation)
 - Python 3.9+
+- TTS Service running on `http://192.168.5.96:7860`
+- Studio Voice (NVIDIA NIM) service on `192.168.5.96:8001`
+- Voice samples in `voices/` directory
 
-### Installation
+## 🛠️ Installation
 
-```bash
-# Clone the repository
-git clone https://github.com/yourusername/hn.fm.git
-cd hn.fm
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd hn.fm
+   ```
 
-# Install dependencies
-pip install -r requirements.txt
+2. **Install dependencies**:
+   ```bash
+   uv add pydub gradio-client grpcio grpcio-tools soundfile scipy numpy pyyaml
+   ```
 
-# Set up environment variables
-cp .env.example .env
-# Edit .env with your configuration
+3. **Configure environment**:
+   ```bash
+   cp env.example .env
+   # Edit .env with your API keys and service URLs
+   ```
 
-# Start the services
-docker-compose up -d
+4. **Configure voices**:
+   ```bash
+   # Ensure you have voice samples in voices/notebooklm/
+   ls voices/notebooklm/
+   # Should show: sample.txt, sample.wav
+   ```
 
-# Run the main application
-python main.py
-```
+## ⚙️ Configuration
 
-### Configuration
+### YAML Configuration (`config.yaml`)
 
-Set up your environment variables by copying the example file:
-
-```bash
-cp env.example .env
-```
-
-Edit `.env` with your API keys:
-- `OPENAI_API_KEY`: Your OpenAI API key for GPT-4 script generation
-- `ANTHROPIC_API_KEY`: Your Anthropic API key for Claude script generation
-- `FIRECRAWL_API_KEY`: Your Firecrawl API key for content scraping
-
-The system will automatically use OpenAI by default, but you can specify a different provider when initializing the ScriptGenerator.
-
-**Important**: The system now requires a working LLM service to generate podcast scripts. There are no fallback templates - all content is generated by the AI model.
+The system uses a comprehensive YAML configuration file:
 
 ```yaml
-host:
-  name: "TechNews AI"
-  voice: "professional"
-  style: "enthusiastic"
-  focus: "startup culture and AI trends"
+# Voice Configuration
+voice:
+  default: "notebooklm"
+  available_voices: ["notebooklm", "studio_voice"]
 
-content:
-  max_episode_length: "15 minutes"
-  include_comments: true
-  quality_threshold: 0.8
+# TTS Service Configuration
+tts:
+  base_url: "http://192.168.5.96:7860"
+  default_voice: "notebooklm"
+  batch_size: 2
+  max_attempts: 3
 
-output:
-  formats: ["podcast", "short_video", "web"]
-  image_aspect_ratios: ["16:9", "9:16", "1:1"]
+# Studio Voice Configuration
+studio_voice:
+  enabled: true
+  target: "192.168.5.96:8001"
+  model_type: "48k-hq"  # 48k-hq, 48k-ll, 16k-hq
+  sample_rate: 48000
+
+# Pipeline Configuration
+pipeline:
+  skippable_steps: ["hn_scraping", "firecrawl_content", "content_processing",
+                    "script_generation", "tts_generation", "audio_cleaning", "audio_assembly"]
+  cache:
+    enabled: true
+    directory: "cache"
+    expiration_hours: 24
 ```
 
-## 📖 How It Works
+### Environment Variables
 
-### 1. **Content Discovery**
-- Scrapes Hacker News feed for trending stories
-- Extracts URLs and HN comments
-- Prioritizes content based on engagement and relevance
+Key environment variables (automatically loaded from `.env`):
 
-### 2. **Intelligent Processing**
-- AI-powered content scraping with Firecrawl
-- LLM-powered podcast script generation (OpenAI GPT-4 or Anthropic Claude)
-- Agentic workflow generates natural, conversational scripts
-- Incorporates community insights from HN comments
+```bash
+# TTS Service
+TTS_BASE_URL=http://192.168.5.96:7860
+TTS_DEFAULT_VOICE=notebooklm
 
-### 3. **Audio Generation**
-- Script chunking for optimal TTS processing
-- Local TTS generation with nari-labs/dia
-- Quality validation through ASR comparison
-- Studio-quality voice enhancement
+# Studio Voice
+STUDIO_VOICE_TARGET=192.168.5.96:8001
+STUDIO_VOICE_MODEL_TYPE=48k-hq
 
-### 4. **Visual Creation**
-- AI-generated image prompts based on content
-- Accelerated image generation with Flux Kontext
-- Multiple aspect ratios for different platforms
+# API Keys
+FIRECRAWL_API_KEY=your_key_here
+OPENAI_API_KEY=your_key_here
+```
 
-### 5. **Content Assembly**
-- Automated video production
-- Podcast episode compilation
-- Web content generation
-- Optional AI-generated background music
+## 🎯 Usage
 
-## 🎯 Use Cases
+### Quick Start
 
-- **Content Creators**: Automate podcast and video production
-- **News Enthusiasts**: Stay updated with AI-curated tech news
-- **Developers**: Discover trending tech stories in audio format
-- **Content Marketers**: Generate engaging social media content
-- **Podcast Networks**: Scale content production with AI
+Generate audio from existing TTS lines:
 
-## 🔮 Future Roadmap
+```bash
+# Generate audio for a story
+uv run python generate_audio.py outputs/tts_lines_How_to_Start_Making_Games_in_J.txt
 
-- [ ] **Multi-Language Support**: Generate content in different languages
-- [ ] **Custom RSS Feeds**: Subscribe to specific topics or sources
-- [ ] **Interactive Elements**: Add Q&A segments and listener engagement
-- [ ] **Advanced Analytics**: Track content performance and engagement
-- [ ] **API Access**: Allow third-party integrations
-- [ ] **Mobile App**: Native iOS and Android applications
+# Customize batch size and output
+uv run python generate_audio.py outputs/tts_lines_*.txt --batch-size 3 --story-name "Custom Story"
+```
+
+### Full Pipeline
+
+Run the complete pipeline workflow:
+
+```bash
+# Run full pipeline
+uv run python run_pipeline.py --story-id "game-dev-js" --story-title "How to Start Making Games in JavaScript"
+
+# Resume from a specific step
+uv run python run_pipeline.py --story-id "game-dev-js" --story-title "How to Start Making Games in JavaScript" --start-from "tts_generation"
+
+# Dry run to see what would be executed
+uv run python run_pipeline.py --story-id "test" --story-title "Test Story" --dry-run
+
+# List available pipeline steps
+uv run python run_pipeline.py --list-steps
+```
+
+### Pipeline Steps
+
+1. **`hn_scraping`**: Scrape Hacker News articles
+2. **`firecrawl_content`**: Extract content using Firecrawl
+3. **`content_processing`**: Process and clean content
+4. **`script_generation`**: Generate podcast script with [S1]/[S2] tags
+5. **`tts_generation`**: Generate TTS audio in batches
+6. **`audio_cleaning`**: Clean audio using Studio Voice
+7. **`audio_assembly`**: Combine all audio into final file
+
+## 🎵 Audio Processing
+
+### TTS Generation
+
+- **Batch Processing**: Configurable batch sizes (default: 2 lines)
+- **Voice Cloning**: Uses your voice samples for consistency
+- **Retry Logic**: Up to 3 attempts with different seeds
+- **Progress Tracking**: Detailed logging throughout the process
+
+### Audio Enhancement
+
+- **Sample Rate Conversion**: Automatic conversion to 48kHz
+- **Studio Voice Integration**: Professional audio enhancement
+- **Quality Options**: High-quality (48k-hq) or low-latency (48k-ll) models
+- **Streaming Support**: Both transactional and streaming modes
+
+## 📁 Output Structure
+
+```
+outputs/
+  Story Name/
+    batch_001.wav              # Raw TTS audio
+    cleaned_batch_001.wav      # Enhanced audio
+    batch_002.wav
+    cleaned_batch_002.wav
+    ...
+    Story Name_final.wav       # Final combined audio
+```
+
+## 🔧 Development
+
+### Project Structure
+
+```
+src/hnfm/
+  ├── audio/                   # Audio processing services
+  │   ├── tts_service.py      # TTS integration
+  │   ├── studio_voice_service.py  # Audio enhancement
+  │   └── audio_processor.py  # Audio manipulation
+  ├── content/                 # Content processing
+  │   ├── content_processor.py
+  │   ├── script_generator.py
+  │   └── llm_service.py
+  ├── pipeline/                # Pipeline management
+  │   └── pipeline_manager.py
+  ├── scraper/                 # Content scraping
+  │   ├── hn_scraper.py
+  │   └── content_scraper.py
+  └── utils/                   # Utilities
+      ├── config.py            # Configuration management
+      └── logger.py
+```
+
+### Adding New Pipeline Steps
+
+1. **Define the step** in `PipelineManager._define_pipeline_steps()`
+2. **Implement execution** in `PipelineManager._execute_<step_name>()`
+3. **Add to configuration** in `config.yaml`
+4. **Update dependencies** as needed
+
+### Testing
+
+```bash
+# Test individual components
+uv run python -c "from src.hnfm.audio.tts_service import TTSService; print('✅ TTS Service')"
+uv run python -c "from src.hnfm.audio.studio_voice_service import StudioVoiceService; print('✅ Studio Voice Service')"
+
+# Test pipeline
+uv run python run_pipeline.py --story-id "test" --story-title "Test" --dry-run
+```
+
+## 🚨 Troubleshooting
+
+### Common Issues
+
+1. **TTS Service Unavailable**
+   - Check if service is running at configured URL
+   - Verify network connectivity
+
+2. **Studio Voice Connection Failed**
+   - Ensure gRPC service is running
+   - Check target IP and port
+   - Verify model type compatibility
+
+3. **Audio Processing Errors**
+   - Check pydub installation
+   - Verify audio file formats
+   - Ensure sufficient disk space
+
+### Debug Mode
+
+Enable detailed logging:
+
+```bash
+# Set environment variables
+export DEBUG=true
+export LOG_LEVEL=DEBUG
+
+# Or use CLI flag
+uv run python run_pipeline.py --debug --story-id "test" --story-title "Test" --dry-run
+```
+
+## 🔮 Future Enhancements
+
+- [ ] **Multiple Voice Support**: Easy switching between voices
+- [ ] **Audio Post-Processing**: Normalization, effects, music integration
+- [ ] **Progress Persistence**: Save/restore pipeline state
+- [ ] **Parallel Processing**: Execute independent steps concurrently
+- [ ] **Quality Metrics**: Audio quality assessment and optimization
+- [ ] **Web Interface**: GUI for pipeline management
+- [ ] **Cloud Integration**: Deploy pipeline to cloud services
+
+## 📚 Documentation
+
+- [TTS Pipeline Guide](TTS_PIPELINE_README.md) - Detailed TTS usage
+- [Configuration Guide](config.yaml) - Configuration options
+- [API Reference](src/hnfm/) - Code documentation
 
 ## 🤝 Contributing
 
-We're building something amazing together! Here's how you can help:
-
-1. **Fork** the repository
-2. **Create** a feature branch (`git checkout -b feature/amazing-feature`)
-3. **Commit** your changes (`git commit -m 'Add amazing feature'`)
-4. **Push** to the branch (`git push origin feature/amazing-feature`)
-5. **Open** a Pull Request
-
-### Development Setup
-
-```bash
-# Install development dependencies
-pip install -r requirements-dev.txt
-
-# Run tests
-pytest
-
-# Run linting
-flake8 src/
-black src/
-```
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests if applicable
+5. Submit a pull request
 
 ## 📄 License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT License - see [LICENSE](LICENSE) for details.
 
 ## 🙏 Acknowledgments
 
-- **OpenAI** for GPT-OSS and the hackathon opportunity
-- **Hacker News** community for the amazing content
-- **nari-labs** for the excellent TTS service
-- **NVIDIA** for accelerated AI tools
-- **Firecrawl** for intelligent web scraping
-
-## 📞 Support & Community
-
-- **Discord**: [Join our community](https://discord.gg/hnfm)
-- **Twitter**: [@hnfm_ai](https://twitter.com/hnfm_ai)
-- **Email**: hello@hn.fm
-- **Issues**: [GitHub Issues](https://github.com/yourusername/hn.fm/issues)
-
-## ⭐ Star History
-
-[![Star History Chart](https://api.star-history.com/svg?repos=yourusername/hn.fm&type=Date)](https://star-history.com/#yourusername/hn.fm&Date)
+- **NVIDIA Studio Voice** for audio enhancement
+- **Gradio** for TTS service integration
+- **Hacker News** for content inspiration
 
 ---
 
-**Made with ❤️ for the OpenAI Open Model Hackathon**
-
-*Transform the way you consume tech news. One AI-powered podcast at a time.*
+**Ready to create your AI-powered podcast?** Start with the [Quick Start](#quick-start) section and explore the [Pipeline Steps](#pipeline-steps) to understand the complete workflow!

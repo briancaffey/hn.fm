@@ -1,90 +1,139 @@
-"""Content scraper for hn.fm using Firecrawl."""
+"""Content scraper for hn.fm."""
 
 import requests
-import json
-import os
-from typing import Dict, Any, Optional
 import logging
+from typing import Dict, Any, Optional
+from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class ScrapedContent:
+    """Represents scraped content from a URL."""
+    title: str
+    content: str
+    url: str
+    success: bool
+    error: Optional[str] = None
 
 
 class ContentScraper:
     """Scrapes content from URLs using Firecrawl."""
 
-    def __init__(self, api_key: str, base_url: Optional[str] = None):
+    def __init__(self, api_key: str = None, base_url: str = "https://api.firecrawl.dev"):
         """Initialize the content scraper.
 
         Args:
             api_key: Firecrawl API key
-            base_url: Firecrawl API base URL (defaults to env var or cloud URL)
+            base_url: Firecrawl API base URL
         """
         self.api_key = api_key
-        self.base_url = base_url or os.getenv(
-            "FIRECRAWL_BASE_URL", "https://api.firecrawl.dev"
-        )
-        self.session = requests.Session()
-        self.session.headers.update(
-            {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-        )
+        self.base_url = base_url.rstrip('/')
 
-    def scrape_url(self, url: str) -> Optional[Dict[str, Any]]:
+        # Fallback to local Firecrawl instance if no API key
+        if not self.api_key:
+            self.base_url = "http://localhost:3002"
+
+    def extract_content(self, url: str) -> Dict[str, Any]:
+        """Extract content from URL (alias for scrape_url)."""
+        scraped = self.scrape_url(url)
+        if scraped.success:
+            return {
+                'title': scraped.title,
+                'content': scraped.content,
+                'url': scraped.url
+            }
+        else:
+            return {
+                'title': 'Error',
+                'content': '',
+                'url': url
+            }
+
+    def scrape_url(self, url: str) -> ScrapedContent:
         """Scrape content from a URL.
 
         Args:
             url: URL to scrape
 
         Returns:
-            Scraped content dictionary or None if error
+            ScrapedContent object
         """
         try:
-            payload = {
-                "url": url,
-                "pageOptions": {
-                    "onlyMainContent": True,
-                    "includeHtml": False,
-                    "includeMarkdown": True,
-                },
-            }
+            logger.info(f"Extracting content from: {url}")
 
-            response = self.session.post(f"{self.base_url}/v0/scrape", json=payload)
-            response.raise_for_status()
-
-            result = response.json()
-
-            # Check if the request was successful
-            if result.get("success") and result.get("data"):
-                return result["data"]
+            if self.api_key:
+                # Use Firecrawl API
+                return self._scrape_with_firecrawl_api(url)
             else:
-                logger.error(f"Firecrawl request failed: {result}")
-                return None
+                # Use local Firecrawl instance
+                return self._scrape_with_local_firecrawl(url)
 
         except Exception as e:
-            logger.error(f"Error scraping URL {url}: {e}")
-            return None
+            logger.error(f"Failed to scrape {url}: {e}")
+            return ScrapedContent(
+                title="Error",
+                content="",
+                url=url,
+                success=False,
+                error=str(e)
+            )
 
-    def save_markdown(self, content: Dict[str, Any], filename: str) -> bool:
-        """Save scraped markdown content to a file.
+    def _scrape_with_firecrawl_api(self, url: str) -> ScrapedContent:
+        """Scrape using Firecrawl API."""
+        headers = {
+            "Authorization": f"Bearer {self.api_key}",
+            "Content-Type": "application/json"
+        }
 
-        Args:
-            content: Scraped content dictionary
-            filename: Output filename
+        data = {
+            "url": url,
+            "includeTags": ["h1", "h2", "h3", "p", "article"],
+            "excludeTags": ["nav", "footer", "aside", "script", "style"]
+        }
 
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            markdown_content = content.get("markdown", "")
-            if not markdown_content:
-                logger.warning("No markdown content found")
-                return False
+        response = requests.post(
+            f"{self.base_url}/v0/scrape",
+            headers=headers,
+            json=data,
+            timeout=30
+        )
 
-            with open(filename, "w", encoding="utf-8") as f:
-                f.write(markdown_content)
+        if response.status_code != 200:
+            raise RuntimeError(f"Firecrawl API error: {response.status_code}")
 
-            logger.info(f"Markdown saved to {filename}")
-            return True
+        result = response.json()
 
-        except Exception as e:
-            logger.error(f"Error saving markdown to {filename}: {e}")
-            return False
+        return ScrapedContent(
+            title=result.get('data', {}).get('title', 'Unknown Title'),
+            content=result.get('data', {}).get('markdown', ''),
+            url=url,
+            success=True
+        )
+
+    def _scrape_with_local_firecrawl(self, url: str) -> ScrapedContent:
+        """Scrape using local Firecrawl instance."""
+        data = {
+            "url": url,
+            "includeTags": ["h1", "h2", "h3", "p", "article"],
+            "excludeTags": ["nav", "footer", "aside", "script", "style"]
+        }
+
+        response = requests.post(
+            f"{self.base_url}/v0/scrape",
+            json=data,
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            raise RuntimeError(f"Local Firecrawl error: {response.status_code}")
+
+        result = response.json()
+
+        return ScrapedContent(
+            title=result.get('data', {}).get('title', 'Unknown Title'),
+            content=result.get('data', {}).get('markdown', ''),
+            url=url,
+            success=True
+        )

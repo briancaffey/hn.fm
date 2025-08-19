@@ -25,6 +25,14 @@ dependencies = [
     "tqdm>=4.66.0",
     "pyyaml>=6.0.0",
     "feedparser>=6.0.0",
+    # Audio Processing Dependencies
+    "pydub>=0.25.1",
+    "gradio-client>=0.10.0",
+    "grpcio>=1.60.0",
+    "grpcio-tools>=1.60.0",
+    "soundfile>=0.12.0",
+    "scipy>=1.11.0",
+    "numpy>=1.24.0",
     # LLM and Agent Dependencies
     "langchain>=0.2.0",
     "langchain-openai>=0.1.0",

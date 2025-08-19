@@ -1,0 +1,86 @@
+# hn.fm Pipeline Configuration
+
+# Voice Configuration
+voice:
+  default: "notebooklm"
+  available_voices:
+    - "notebooklm"
+    - "studio_voice"
+
+# TTS Service Configuration
+tts:
+  base_url: "http://192.168.5.96:7860"
+  default_voice: "notebooklm"
+  batch_size: 2
+  max_attempts: 3
+  delay_between_batches: 2  # seconds
+
+# Studio Voice Configuration (NVIDIA NIM)
+studio_voice:
+  enabled: true
+  target: "192.168.5.96:8001"
+  model_type: "48k-hq"  # 48k-hq, 48k-ll, 16k-hq
+  streaming: false
+  ssl_mode: null
+  sample_rate: 48000
+
+# Local LLM Configuration (LM Studio)
+# Successfully connected to local gpt-oss model via LM Studio
+llm:
+  enabled: true
+  base_url: "http://192.168.5.173:1234/v1"  # Primary endpoint
+  fallback_url: "http://192.168.5.96:1234"  # Fallback endpoint
+  model: "openai/gpt-oss-20b"
+  provider: "local"
+
+# Content Processing Configuration
+content:
+  max_episode_length: 15
+  include_comments: true
+  quality_threshold: 0.8
+  max_paragraphs: 10
+
+# Pipeline Configuration
+pipeline:
+  # Steps that can be skipped (using cached data)
+  skippable_steps:
+    - "hn_scraping"
+    - "firecrawl_content"
+    - "content_processing"
+    - "script_generation"
+    - "tts_generation"
+    - "audio_cleaning"
+    - "audio_assembly"
+
+  # Cache configuration
+  cache:
+    enabled: true
+    directory: "cache"
+    expiration_hours: 24
+
+# Output Configuration
+output:
+  base_directory: "outputs"
+  organize_by_story: true
+  keep_intermediate_files: true
+  audio_format: "wav"
+  audio_quality: "high"
+
+# API Configuration
+apis:
+  firecrawl:
+    base_url: "http://localhost:3002"
+    api_key: "${FIRECRAWL_API_KEY}"
+
+  openai:
+    api_key: "${OPENAI_API_KEY}"
+
+  hn:
+    user_agent: "hn.fm/0.1.0 (briancaffey)"
+
+# Development Configuration
+development:
+  debug: true
+  log_level: "DEBUG"
+  enable_progress_bars: true
+  parallel_processing: false

@@ -1,325 +1,247 @@
-"""Script generator for hn.fm that creates podcast scripts from processed content."""
+"""Script generation and audio processing for hn.fm."""
 
-import json
 import os
-from typing import Dict, Any, List, Optional
-import logging
 from pathlib import Path
-from .llm_service import LLMService
+from typing import List, Optional
+import logging
+
+from ..audio.tts_service import TTSService
+from ..audio.audio_processor import AudioProcessor
+from ..audio.studio_voice_service import StudioVoiceService
+from ..utils.config import config_manager
 
 logger = logging.getLogger(__name__)
 
 
 class ScriptGenerator:
-    """Generates podcast scripts from processed content."""
+    """Generates audio from script lines."""
 
-    def __init__(self, prompts_file: Optional[str] = None, llm_provider: Optional[str] = None):
+    def __init__(self, output_dir: str = "outputs"):
         """Initialize the script generator.
 
         Args:
-            prompts_file: Path to custom prompts file (optional)
-            llm_provider: LLM provider to use ("openai", "anthropic", or "local")
+            output_dir: Base output directory
         """
-        self.prompts = self._load_prompts(prompts_file)
-        self.output_dir = Path("outputs")
-        self.output_dir.mkdir(exist_ok=True)
+        self.output_dir = Path(output_dir)
+        self.tts_service = TTSService()
+        self.audio_processor = AudioProcessor()
+        self.studio_voice_service = StudioVoiceService()
 
-        # Determine LLM provider from environment or parameter
-        if llm_provider is None:
-            llm_provider = os.getenv("LLM_PROVIDER", "openai")
+    def process_tts_lines(self, tts_lines_file: str, story_name: str,
+                          batch_size: int = 2, story_dir: Optional[str] = None) -> Path:
+        """Process TTS lines and generate audio.
 
-        # Initialize LLM service
+        Args:
+            tts_lines_file: Path to TTS lines file
+            story_name: Name of the story
+            batch_size: Number of lines to process per batch
+
+        Returns:
+            Path to final combined audio file
+        """
         try:
-            self.llm_service = LLMService(provider=llm_provider)
-            logger.info(f"LLM service initialized with provider: {llm_provider}")
+            # Read TTS lines
+            with open(tts_lines_file, 'r', encoding='utf-8') as f:
+                lines = [line.strip() for line in f.readlines() if line.strip()]
+
+            if not lines:
+                raise RuntimeError("No TTS lines found in file")
+
+            logger.info(f"Processing {len(lines)} TTS lines for story: {story_name}")
+
+            # Use provided story directory or create default one
+            if story_dir:
+                story_output_dir = Path(story_dir)
+            else:
+                story_output_dir = Path("outputs") / story_name
+                story_output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create content and audio subdirectories
+            content_dir = story_output_dir / "content"
+            audio_dir = story_output_dir / "audio"
+            content_dir.mkdir(exist_ok=True)
+            audio_dir.mkdir(exist_ok=True)
+
+            # Save TTS lines to content directory
+            tts_lines_path = content_dir / "tts_lines.txt"
+            with open(tts_lines_path, 'w', encoding='utf-8') as f:
+                for line in lines:
+                    f.write(line + '\n')
+
+            all_audio_data = []
+            all_cleaned_audio_data = []
+
+            for i in range(0, len(lines), batch_size):
+                batch_lines = lines[i:i + batch_size]
+                batch_text = " ".join(batch_lines)
+
+                logger.info(f"Processing batch {i//batch_size + 1}: {len(batch_lines)} lines")
+
+                try:
+                    # Generate audio for this batch
+                    audio_data = self.tts_service.generate_speech(batch_text)
+
+                    if not audio_data:
+                        logger.warning(f"No audio generated for batch {i//batch_size + 1}")
+                        continue
+
+                    all_audio_data.append(audio_data)
+
+                    # Save raw batch audio to audio directory
+                    batch_filename = f"batch_{i//batch_size + 1:03d}.wav"
+                    batch_path = audio_dir / batch_filename
+                    self.audio_processor.save_audio_data(audio_data, batch_path)
+
+                    # Clean audio using Studio Voice
+                    logger.info(f"🧹 Cleaning audio for batch {i//batch_size + 1}")
+                    cleaned_audio_data = self.studio_voice_service.enhance_audio(audio_data)
+                    all_cleaned_audio_data.append(cleaned_audio_data)
+
+                    # Save cleaned batch audio to audio directory
+                    cleaned_batch_filename = f"cleaned_batch_{i//batch_size + 1:03d}.wav"
+                    cleaned_batch_path = audio_dir / cleaned_batch_filename
+                    self.audio_processor.save_audio_data(cleaned_audio_data, cleaned_batch_path)
+
+                    logger.info(f"✅ Batch {i//batch_size + 1} completed: TTS + cleaning")
+
+                except Exception as e:
+                    logger.error(f"Failed to generate audio for batch {i//batch_size + 1}: {e}")
+                    continue
+
+            if not all_cleaned_audio_data:
+                raise RuntimeError("No audio was generated and cleaned successfully")
+
+            # Combine all cleaned audio files
+            final_audio_path = audio_dir / f"{story_name}_final.wav"
+            self.audio_processor.combine_audio_files(all_cleaned_audio_data, final_audio_path)
+
+            logger.info(f"Successfully generated final audio: {final_audio_path}")
+            return final_audio_path
+
         except Exception as e:
-            logger.warning(f"Failed to initialize LLM service: {e}")
-            self.llm_service = None
+            logger.error(f"Failed to process TTS lines: {e}")
+            raise RuntimeError(f"TTS processing failed: {e}")
 
-    def _load_prompts(self, prompts_file: Optional[str] = None) -> Dict[str, str]:
-        """Load prompts from file or use defaults.
+    def get_story_name_from_filename(self, filename: str) -> str:
+        """Extract story name from filename.
 
         Args:
-            prompts_file: Path to custom prompts file
+            filename: TTS lines filename
 
         Returns:
-            Dictionary of prompts
+            Extracted story name
         """
-        if prompts_file and os.path.exists(prompts_file):
-            try:
-                with open(prompts_file, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-            except Exception as e:
-                logger.warning(f"Could not load custom prompts: {e}")
+        # Remove common prefixes and suffixes
+        name = filename.replace("tts_lines_", "").replace(".txt", "")
+        # Convert to title case and replace underscores with spaces
+        name = name.replace("_", " ").title()
+        return name
 
-        # Default prompts - easy to customize
-        return {
-            "system_prompt": """You are a professional podcast script writer for a tech news show called "hn.fm".
-Your job is to convert technical articles into engaging, conversational podcast scripts.
-
-IMPORTANT RULES:
-1. ALWAYS prefix each line with speaker tags: [S1] for Host 1, [S2] for Host 2
-2. Keep lines short and natural for speaking (max 2-3 sentences per line)
-3. Make technical content accessible to a general tech audience
-4. Include natural conversation flow between hosts
-5. Add humor and personality where appropriate
-6. Structure as a conversation, not a monologue
-7. Include transitions and segues between topics
-8. End with a call to action or thought-provoking question
-
-Example format:
-[S1] Welcome to hn.fm, where we turn the best of Hacker News into your daily tech podcast!
-[S2] That's right! Today we're diving into something really interesting...
-[S1] Absolutely! And here's what caught my attention...""",
-
-            "content_prompt": """Convert the following technical article into a focused, conversational podcast discussion.
-
-ARTICLE TITLE: {title}
-ARTICLE CONTENT:
-{meaningful_paragraphs}
-
-REQUIREMENTS:
-- Jump straight into discussing the article content - NO intro fluff
-- Create natural conversation between two hosts about the actual article content
-- Each host should discuss specific points from the article
-- Include reactions, insights, and practical perspectives
-- Make it sound like two developers discussing something they just read
-- Keep it focused and meaningful - every line should add value
-- NO wrap-up or conclusion - just end when the content is covered
-
-Remember: Every line must start with [S1] or [S2] for the TTS system.""",
-
-            "intro_prompt": """Create a compelling podcast intro for this episode.
-
-TITLE: {title}
-TOPIC: {topic}
-
-Make it engaging, mention the source, and set up what listeners will learn.""",
-
-            "outro_prompt": """Create a podcast outro that wraps up the episode.
-
-TITLE: {title}
-KEY TAKEAWAYS: {takeaways}
-
-Include a call to action, mention the source, and encourage engagement."""
-        }
-
-    def generate_script(self, processed_content: Dict[str, Any]) -> Dict[str, Any]:
-        """Generate a podcast script from processed content.
+    def generate_script_from_content(self, title: str, paragraphs: List[str]) -> dict:
+        """Generate a podcast script from content paragraphs.
 
         Args:
-            processed_content: Processed content dictionary
+            title: Article title
+            paragraphs: List of content paragraphs
 
         Returns:
-            Generated script dictionary
+            Dictionary with script, tts_lines, and metadata
         """
         try:
-            # Generate only the main content - no intro/outro fluff
-            main_content = self._generate_main_content(processed_content)
+            from ..content.llm_service import LLMService
 
-            # Create script object
-            script = {
-                'title': processed_content.get('title', 'Unknown'),
-                'url': processed_content.get('url', ''),
-                'main_content': main_content,
-                'full_script': main_content,
-                'speaker_lines': self._extract_speaker_lines(main_content),
-                'total_lines': len(self._extract_speaker_lines(main_content))
+            logger.info(f"📝 Generating podcast script for: {title}")
+
+            # Get LLM configuration from config
+            llm_config = config_manager.get("llm", {})
+
+            # Initialize LLM service with configuration
+            if llm_config.get("enabled", False):
+                base_url = llm_config.get("base_url")
+                model = llm_config.get("model", "gpt-oss")
+                logger.info(f"Using local LLM: {base_url} with model: {model}")
+                llm_service = LLMService(base_url=base_url, model=model)
+            else:
+                logger.info("Using OpenAI LLM (fallback)")
+                llm_service = LLMService()
+
+            # Prepare content for script generation
+            content_text = "\n\n".join(paragraphs)
+
+            # Generate script using LLM
+            script_prompt = f"""
+            Create a natural, engaging podcast script from this article.
+
+            Article Title: {title}
+
+            Content:
+            {content_text}
+
+            Requirements:
+            - Use [S1] and [S2] speaker tags for dialogue
+            - Make it conversational and engaging
+            - Break into natural speaking segments (2-3 sentences max per line)
+            - Maintain the key insights and information
+            - Keep total length reasonable for a podcast segment (3-5 minutes)
+
+            Format the output as a script with [S1] and [S2] tags.
+            """
+
+            script = llm_service.generate_content(script_prompt)
+
+            if not script:
+                raise RuntimeError("Failed to generate script from LLM")
+
+            # Split script into TTS lines
+            tts_lines = []
+            for line in script.split('\n'):
+                line = line.strip()
+                if line and (line.startswith('[S1]') or line.startswith('[S2]')):
+                    tts_lines.append(line)
+
+            if not tts_lines:
+                # Fallback: create simple lines from paragraphs
+                tts_lines = []
+                for i, para in enumerate(paragraphs[:10]):  # Limit to first 10 paragraphs
+                    speaker = '[S1]' if i % 2 == 0 else '[S2]'
+                    # Truncate long paragraphs
+                    if len(para) > 200:
+                        para = para[:200] + "..."
+                    tts_lines.append(f"{speaker} {para}")
+
+            logger.info(f"✅ Script generated successfully")
+            logger.info(f"📝 Script length: {len(script)} characters")
+            logger.info(f"🎙️ TTS lines: {len(tts_lines)}")
+
+            return {
+                "script": script,
+                "tts_lines": tts_lines,
+                "meta": {
+                    "title": title,
+                    "paragraph_count": len(paragraphs),
+                    "script_length": len(script),
+                    "tts_line_count": len(tts_lines)
+                }
             }
 
-            # Save the script
-            self._save_script(script, processed_content)
-
-            logger.info(f"Generated script with {script['total_lines']} speaker lines")
-            return script
-
         except Exception as e:
-            logger.error(f"Error generating script: {e}")
-            return {}
+            logger.error(f"Failed to generate script: {e}")
+            # Fallback: create simple script from paragraphs
+            tts_lines = []
+            for i, para in enumerate(paragraphs[:8]):  # Limit to first 8 paragraphs
+                speaker = '[S1]' if i % 2 == 0 else '[S2]'
+                if len(para) > 150:
+                    para = para[:150] + "..."
+                tts_lines.append(f"{speaker} {para}")
 
-    def _generate_intro(self, content: Dict[str, Any]) -> str:
-        """Generate podcast intro using LLM.
-
-        Args:
-            content: Processed content
-
-        Returns:
-            Generated intro text
-        """
-        user_prompt = self.prompts["intro_prompt"].format(
-            title=content.get('title', 'Unknown'),
-            topic=self._extract_topic(content.get('cleaned_text', ''))
-        )
-
-        # Require LLM service for intro generation
-        if not self.llm_service:
-            raise RuntimeError("LLM service is required for intro generation")
-
-        try:
-            intro = self.llm_service.generate_script(
-                system_prompt=self.prompts["system_prompt"],
-                user_prompt=user_prompt,
-                temperature=0.7,
-                max_tokens=500
-            )
-            return intro
-        except Exception as e:
-            logger.error(f"LLM intro generation failed: {e}")
-            raise RuntimeError(f"Failed to generate intro: {e}")
-
-    def _generate_main_content(self, content: Dict[str, Any]) -> str:
-        """Generate main content script from meaningful paragraphs using LLM.
-
-        Args:
-            content: Processed content
-
-        Returns:
-            Generated main content script
-        """
-        meaningful_paragraphs = content.get('meaningful_paragraphs', [])
-
-        if not meaningful_paragraphs:
-            raise ValueError("No meaningful paragraphs found in content")
-
-        # Format the prompt with article content
-        user_prompt = self.prompts["content_prompt"].format(
-            title=content.get('title', 'Unknown'),
-            meaningful_paragraphs='\n\n'.join(meaningful_paragraphs)
-        )
-
-        # Require LLM service for script generation
-        if not self.llm_service:
-            raise RuntimeError("LLM service is required for script generation")
-
-        try:
-            logger.info("Generating script using LLM service...")
-            script = self.llm_service.generate_script(
-                system_prompt=self.prompts["system_prompt"],
-                user_prompt=user_prompt,
-                temperature=0.7,
-                max_tokens=2000
-            )
-            logger.info("Script generated successfully using LLM")
-            return script
-        except Exception as e:
-            logger.error(f"LLM script generation failed: {e}")
-            raise RuntimeError(f"Failed to generate script: {e}")
-
-    def _generate_outro(self, content: Dict[str, Any]) -> str:
-        """Generate podcast outro using LLM.
-
-        Args:
-            content: Processed content
-
-        Returns:
-            Generated outro text
-        """
-        user_prompt = self.prompts["outro_prompt"].format(
-            title=content.get('title', 'Unknown'),
-            takeaways="the practical insights from this article"
-        )
-
-        # Require LLM service for outro generation
-        if not self.llm_service:
-            raise RuntimeError("LLM service is required for outro generation")
-
-        try:
-            outro = self.llm_service.generate_script(
-                system_prompt=self.prompts["system_prompt"],
-                user_prompt=user_prompt,
-                temperature=0.7,
-                max_tokens=500
-            )
-            return outro
-        except Exception as e:
-            logger.error(f"LLM outro generation failed: {e}")
-            raise RuntimeError(f"Failed to generate outro: {e}")
-
-    def _combine_script_parts(self, intro: str, main: str, outro: str) -> str:
-        """Combine script parts into full script.
-
-        Args:
-            intro: Intro text
-            main: Main content text
-            outro: Outro text
-
-        Returns:
-            Combined full script
-        """
-        return f"{intro}\n\n{main}\n\n{outro}"
-
-    def _extract_speaker_lines(self, script: str) -> List[str]:
-        """Extract individual speaker lines from script.
-
-        Args:
-            script: Full script text
-
-        Returns:
-            List of speaker lines
-        """
-        lines = [line.strip() for line in script.split('\n') if line.strip()]
-        speaker_lines = [line for line in lines if line.startswith('[S1]') or line.startswith('[S2]')]
-        return speaker_lines
-
-    def _extract_topic(self, text: str) -> str:
-        """Extract main topic from text.
-
-        Args:
-            text: Cleaned text content
-
-        Returns:
-            Extracted topic
-        """
-        # Simple topic extraction - first few words
-        words = text.split()[:10]
-        return ' '.join(words) + '...'
-
-    def _save_script(self, script: Dict[str, Any], content: Dict[str, Any]) -> None:
-        """Save generated script to files.
-
-        Args:
-            script: Generated script dictionary
-            content: Original processed content
-        """
-        # Save full script
-        script_file = self.output_dir / f"script_{content.get('title', 'unknown').replace(' ', '_')[:30]}.txt"
-        with open(script_file, 'w', encoding='utf-8') as f:
-            f.write(f"# Podcast Script: {script['title']}\n")
-            f.write(f"Source: {script['url']}\n")
-            f.write(f"Generated: {len(script['speaker_lines'])} speaker lines\n\n")
-            f.write(script['full_script'])
-
-        # Save speaker lines for TTS
-        tts_file = self.output_dir / f"tts_lines_{content.get('title', 'unknown').replace(' ', '_')[:30]}.txt"
-        with open(tts_file, 'w', encoding='utf-8') as f:
-            for line in script['speaker_lines']:
-                f.write(f"{line}\n")
-
-        # Save metadata
-        meta_file = self.output_dir / f"script_meta_{content.get('title', 'unknown').replace(' ', '_')[:30]}.json"
-        with open(meta_file, 'w', encoding='utf-8') as f:
-            json.dump(script, f, indent=2, ensure_ascii=False)
-
-        logger.info(f"Script saved to: {script_file}")
-        logger.info(f"TTS lines saved to: {tts_file}")
-        logger.info(f"Metadata saved to: {meta_file}")
-
-    def save_prompts_template(self, filename: str = "prompts_template.json") -> bool:
-        """Save prompts template for customization.
-
-        Args:
-            filename: Output filename
-
-        Returns:
-            True if successful
-        """
-        try:
-            with open(filename, 'w', encoding='utf-8') as f:
-                json.dump(self.prompts, f, indent=2, ensure_ascii=False)
-
-            logger.info(f"Prompts template saved to {filename}")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error saving prompts template: {e}")
-            return False
+            return {
+                "script": "\n".join(tts_lines),
+                "tts_lines": tts_lines,
+                "meta": {
+                    "title": title,
+                    "paragraph_count": len(paragraphs),
+                    "script_length": len("\n".join(tts_lines)),
+                    "tts_line_count": len(tts_lines),
+                    "fallback": True
+                }
+            }
