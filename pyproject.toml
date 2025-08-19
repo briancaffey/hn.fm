@@ -1,0 +1,65 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "hnfm"
+version = "0.1.0"
+description = "Transform Hacker News into your personalized AI-powered podcast"
+readme = "README.md"
+license = {text = "MIT"}
+authors = [
+    {name = "Brian Caffey", email = "brian@example.com"}
+]
+requires-python = ">=3.9"
+dependencies = [
+    "requests>=2.31.0",
+    "beautifulsoup4>=4.12.0",
+    "lxml>=4.9.0",
+    "markdown>=3.5.0",
+    "python-dotenv>=1.0.0",
+    "pydantic>=2.0.0",
+    "httpx>=0.25.0",
+    "click>=8.1.0",
+    "rich>=13.0.0",
+    "tqdm>=4.66.0",
+    "pyyaml>=6.0.0",
+    "feedparser>=6.0.0",
+    # LLM and Agent Dependencies
+    "langchain>=0.2.0",
+    "langchain-openai>=0.1.0",
+    "langchain-community>=0.2.0",
+    "langgraph>=0.2.0",
+    "openai>=1.0.0",
+    "anthropic>=0.7.0",
+    "tiktoken>=0.6.0",
+    "tenacity>=8.2.0",
+    "pydantic-settings>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "isort>=5.12.0",
+    "flake8>=6.0.0",
+    "pre-commit>=3.3.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/briancaffey/hn.fm"
+Repository = "https://github.com/briancaffey/hn.fm.git"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/hnfm"]
+
+[tool.black]
+line-length = 88
+target-version = ['py39']
+
+[tool.isort]
+profile = "black"
+line_length = 88
+
+
