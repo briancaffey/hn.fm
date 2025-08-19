@@ -50,6 +50,11 @@ Each step can be:
    ```bash
    cp env.example .env
    # Edit .env with your API keys and service URLs
+   # Required variables:
+   # - TTS_BASE_URL: Your TTS service URL
+   # - STUDIO_VOICE_TARGET: Your Studio Voice service address
+   # - LLM_BASE_URL: Your local LLM service URL
+   # - FIRECRAWL_API_KEY: Your Firecrawl API key (if using remote service)
    ```
 
 4. **Configure voices**:
@@ -104,14 +109,28 @@ Key environment variables (automatically loaded from `.env`):
 TTS_BASE_URL=http://192.168.5.96:7860
 TTS_DEFAULT_VOICE=notebooklm
 
-# Studio Voice
+# Studio Voice Configuration (NVIDIA NIM)
 STUDIO_VOICE_TARGET=192.168.5.96:8001
 STUDIO_VOICE_MODEL_TYPE=48k-hq
+
+# Local LLM Configuration
+LLM_BASE_URL=http://192.168.5.173:1234/v1
+LLM_FALLBACK_URL=http://192.168.5.96:1234
+LLM_MODEL=openai/gpt-oss-20b
 
 # API Keys
 FIRECRAWL_API_KEY=your_key_here
 OPENAI_API_KEY=your_key_here
+
+# Firecrawl Configuration
+FIRECRAWL_BASE_URL=http://localhost:3002
+
+# Development Configuration
+DEBUG=false
+LOG_LEVEL=INFO
 ```
+
+**Important**: Copy `env.example` to `.env` and fill in your actual values. Never commit the `.env` file to version control.
 
 ## 🎯 Usage
 

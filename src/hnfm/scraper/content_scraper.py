@@ -36,7 +36,7 @@ class ContentScraper:
 
         # Fallback to local Firecrawl instance if no API key
         if not self.api_key:
-            self.base_url = "http://localhost:3002"
+            self.base_url = base_url or "http://localhost:3002"
 
     def extract_content(self, url: str) -> Dict[str, Any]:
         """Extract content from URL (alias for scrape_url)."""

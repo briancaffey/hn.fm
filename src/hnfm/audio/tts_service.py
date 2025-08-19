@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 class TTSService:
     """Text-to-speech service using local Gradio API."""
 
-    def __init__(self, base_url: str = "http://192.168.5.96:7860"):
+    def __init__(self, base_url: str = None):
         """Initialize the TTS service.
 
         Args:

@@ -9,8 +9,8 @@ voice:
 
 # TTS Service Configuration
 tts:
-  base_url: "http://192.168.5.96:7860"
-  default_voice: "notebooklm"
+  base_url: "${TTS_BASE_URL}"
+  default_voice: "${TTS_DEFAULT_VOICE}"
   batch_size: 2
   max_attempts: 3
   delay_between_batches: 2  # seconds
@@ -18,8 +18,8 @@ tts:
 # Studio Voice Configuration (NVIDIA NIM)
 studio_voice:
   enabled: true
-  target: "192.168.5.96:8001"
-  model_type: "48k-hq"  # 48k-hq, 48k-ll, 16k-hq
+  target: "${STUDIO_VOICE_TARGET}"
+  model_type: "${STUDIO_VOICE_MODEL_TYPE}"
   streaming: false
   ssl_mode: null
   sample_rate: 48000
@@ -28,9 +28,9 @@ studio_voice:
 # Successfully connected to local gpt-oss model via LM Studio
 llm:
   enabled: true
-  base_url: "http://192.168.5.173:1234/v1"  # Primary endpoint
-  fallback_url: "http://192.168.5.96:1234"  # Fallback endpoint
-  model: "openai/gpt-oss-20b"
+  base_url: "${LLM_BASE_URL}"  # Primary endpoint
+  fallback_url: "${LLM_FALLBACK_URL}"  # Fallback endpoint
+  model: "${LLM_MODEL}"
   provider: "local"
 
 # Content Processing Configuration

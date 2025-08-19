@@ -25,7 +25,23 @@ class ScriptGenerator:
         self.output_dir = Path(output_dir)
         self.tts_service = TTSService()
         self.audio_processor = AudioProcessor()
-        self.studio_voice_service = StudioVoiceService()
+
+        # Get Studio Voice configuration
+        from ..utils.config import ConfigManager
+
+        config_manager = ConfigManager()
+        studio_voice_config = config_manager.get("studio_voice", {})
+        target = studio_voice_config.get("target")
+        model_type = studio_voice_config.get("studio_voice.model_type", "48k-hq")
+        streaming = studio_voice_config.get("studio_voice.streaming", False)
+        ssl_mode = studio_voice_config.get("studio_voice.ssl_mode")
+
+        if not target:
+            raise ValueError("STUDIO_VOICE_TARGET environment variable not set")
+
+        self.studio_voice_service = StudioVoiceService(
+            target=target, model_type=model_type, streaming=streaming, ssl_mode=ssl_mode
+        )
 
     def process_tts_lines(
         self,

@@ -6,6 +6,15 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 import logging
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except ImportError:
+    # dotenv not available, continue without it
+    pass
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,16 +73,16 @@ class ConfigManager:
                 "available_voices": ["notebooklm", "studio_voice"],
             },
             "tts": {
-                "base_url": "http://localhost:7860",
-                "default_voice": "notebooklm",
+                "base_url": "${TTS_BASE_URL}",
+                "default_voice": "${TTS_DEFAULT_VOICE}",
                 "batch_size": 2,
                 "max_attempts": 3,
                 "delay_between_batches": 2,
             },
             "studio_voice": {
                 "enabled": True,
-                "target": "localhost:8001",
-                "model_type": "48k-hq",
+                "target": "${STUDIO_VOICE_TARGET}",
+                "model_type": "${STUDIO_VOICE_MODEL_TYPE}",
                 "streaming": False,
                 "ssl_mode": None,
                 "sample_rate": 48000,
@@ -108,13 +117,16 @@ class ConfigManager:
                 "audio_quality": "high",
             },
             "apis": {
-                "firecrawl": {"base_url": "https://api.firecrawl.dev", "api_key": ""},
-                "openai": {"api_key": ""},
-                "hn": {"user_agent": "hn.fm/0.1.0 (briancaffey)"},
+                "firecrawl": {
+                    "base_url": "${FIRECRAWL_BASE_URL}",
+                    "api_key": "${FIRECRAWL_API_KEY}",
+                },
+                "openai": {"api_key": "${OPENAI_API_KEY}"},
+                "hn": {"user_agent": "${HN_USER_AGENT}"},
             },
             "development": {
-                "debug": False,
-                "log_level": "INFO",
+                "debug": "${DEBUG}",
+                "log_level": "${LOG_LEVEL}",
                 "enable_progress_bars": True,
                 "parallel_processing": False,
             },

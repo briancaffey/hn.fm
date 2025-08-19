@@ -94,7 +94,22 @@ class PipelineManager:
             elif service_name == "tts_service":
                 self._services[service_name] = TTSService()
             elif service_name == "studio_voice_service":
-                self._services[service_name] = StudioVoiceService()
+                # Get Studio Voice configuration
+                studio_voice_config = config_manager.get("studio_voice", {})
+                target = studio_voice_config.get("target")
+                model_type = studio_voice_config.get("model_type", "48k-hq")
+                streaming = studio_voice_config.get("streaming", False)
+                ssl_mode = studio_voice_config.get("ssl_mode")
+
+                if not target:
+                    raise ValueError("STUDIO_VOICE_TARGET environment variable not set")
+
+                self._services[service_name] = StudioVoiceService(
+                    target=target,
+                    model_type=model_type,
+                    streaming=streaming,
+                    ssl_mode=ssl_mode,
+                )
             elif service_name == "audio_processor":
                 self._services[service_name] = AudioProcessor()
             else:
