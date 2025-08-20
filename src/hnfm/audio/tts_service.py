@@ -20,6 +20,16 @@ class TTSService:
         Args:
             base_url: Base URL for the TTS API
         """
+        # Use default URL if none provided
+        if base_url is None:
+            from ..utils.config import config_manager
+            base_url = config_manager.get("tts.base_url", "http://localhost:7860")
+
+        # Handle case where base_url might still be None or empty
+        if not base_url:
+            base_url = "http://localhost:7860"
+            logger.warning("No TTS base URL configured, using default: http://localhost:7860")
+
         self.base_url = base_url.rstrip("/")
         self.max_attempts = 3
         self.delay_between_attempts = 2

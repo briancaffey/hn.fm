@@ -44,6 +44,7 @@ content:
 pipeline:
   # Steps that can be skipped (using cached data)
   skippable_steps:
+    - "system_check"
     - "hn_scraping"
     - "firecrawl_content"
     - "content_processing"

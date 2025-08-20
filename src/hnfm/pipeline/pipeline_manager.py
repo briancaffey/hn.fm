@@ -120,10 +120,17 @@ class PipelineManager:
     def _define_pipeline_steps(self) -> Dict[str, PipelineStep]:
         """Define the pipeline steps and their dependencies."""
         return {
+            "system_check": PipelineStep(
+                name="system_check",
+                description="Check all required services are running",
+                dependencies=[],
+                cache_key="system_status",
+                output_files=["system_status.json"],
+            ),
             "hn_scraping": PipelineStep(
                 name="hn_scraping",
                 description="Scrape Hacker News articles",
-                dependencies=[],
+                dependencies=["system_check"],
                 cache_key="hn_articles",
                 output_files=["hn_articles.json"],
             ),
@@ -302,7 +309,9 @@ class PipelineManager:
 
         try:
             # Execute the step
-            if step_name == "hn_scraping":
+            if step_name == "system_check":
+                output = self._execute_system_check(inputs)
+            elif step_name == "hn_scraping":
                 output = self._execute_hn_scraping(inputs)
             elif step_name == "firecrawl_content":
                 output = self._execute_firecrawl_content(inputs)
@@ -344,18 +353,123 @@ class PipelineManager:
             logger.error(f"❌ Failed {step_name} step: {e}")
             raise
 
+    def _execute_system_check(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute system check step."""
+        try:
+            from ..utils.system_checker import SystemChecker
+
+            print("   🔍 Checking system health...")
+            logger.info("🔍 Checking system health...")
+
+            # Check all services
+            system_checker = SystemChecker()
+            all_healthy, service_statuses = system_checker.check_all_services()
+
+            # Define critical services that must be online
+            critical_services = ["Local LLM", "Firecrawl"]
+            critical_offline = [s.name for s in service_statuses if s.name in critical_services and s.status != "online"]
+
+            if critical_offline:
+                # Critical services are down - fail the pipeline
+                error_msg = f"Critical services offline: {', '.join(critical_offline)}"
+                print(f"   ❌ {error_msg}")
+                logger.error(error_msg)
+
+                if logger.isEnabledFor(logging.DEBUG):
+                    for status in service_statuses:
+                        if status.name in critical_services and status.status != "online":
+                            print(f"      ❌ {status.name}: {status.status}")
+                            if status.error_message:
+                                print(f"         Error: {status.error_message}")
+
+                raise RuntimeError(error_msg)
+
+            # Show status for all services
+            if logger.isEnabledFor(logging.DEBUG):
+                # DEBUG mode: show detailed info for each service
+                print("   ✅ Critical services are online")
+                for status in service_statuses:
+                    emoji = "✅" if status.status == "online" else "⚠️"
+                    print(f"      {emoji} {status.name}: {status.status} ({status.response_time:.2f}s)")
+                    if status.details:
+                        for key, value in status.details.items():
+                            print(f"         {key}: {value}")
+                    if status.error_message:
+                        print(f"         Warning: {status.error_message}")
+            else:
+                # INFO mode: just say critical services are ready
+                print("   ✅ Critical services are online and ready")
+                offline_services = [s.name for s in service_statuses if s.status != "online"]
+                if offline_services:
+                    print(f"   ⚠️  Non-critical services offline: {', '.join(offline_services)}")
+
+            logger.info("✅ Critical services are online and ready")
+
+            # Save system status to cache
+            system_status_path = self.cache_dir / "system_status.json"
+            with open(system_status_path, "w", encoding="utf-8") as f:
+                json.dump({
+                    "timestamp": datetime.now().isoformat(),
+                    "all_healthy": all_healthy,
+                    "critical_healthy": len(critical_offline) == 0,
+                    "services": [
+                        {
+                            "name": s.name,
+                            "status": s.status,
+                            "response_time": s.response_time,
+                            "error_message": s.error_message,
+                            "details": s.details
+                        }
+                        for s in service_statuses
+                    ]
+                }, f, indent=2, ensure_ascii=False)
+
+            return {
+                "system_healthy": all_healthy,
+                "critical_services_healthy": len(critical_offline) == 0,
+                "services_status": [
+                    {
+                        "name": s.name,
+                        "status": s.status,
+                        "response_time": s.response_time,
+                        "error_message": s.error_message,
+                        "details": s.details
+                    }
+                    for s in service_statuses
+                ],
+                "timestamp": datetime.now().isoformat()
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to perform system check: {e}")
+            raise RuntimeError(f"System check failed: {e}")
+
     def _execute_hn_scraping(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute Hacker News scraping step."""
+        """Execute HN scraping step."""
         try:
             hn_scraper = self._get_service("hn_scraper")
-            print("   📰 Fetching Hacker News front page...")
-            logger.info("📰 Fetching Hacker News front page...")
 
-            # Get front page articles
-            articles = hn_scraper.get_front_page_articles()
+            # Get story type from inputs, default to "top"
+            story_type = inputs.get("story_type", "top")
+
+            print(f"   📰 Fetching Hacker News {story_type} stories...")
+            logger.info(f"📰 Fetching Hacker News {story_type} stories...")
+
+            # Get stories based on type
+            if story_type == "top":
+                articles = hn_scraper.get_top_stories()
+            elif story_type == "newest":
+                articles = hn_scraper.get_newest_stories()
+            elif story_type == "show":
+                articles = hn_scraper.get_show_stories()
+            elif story_type == "ask":
+                articles = hn_scraper.get_ask_stories()
+            else:
+                # Fallback to top stories
+                articles = hn_scraper.get_top_stories()
 
             if not articles:
-                raise RuntimeError("No articles found on HN front page")
+                raise RuntimeError(f"No {story_type} articles found on HN")
 
             # Select a random article (avoiding stickied posts and requiring URLs)
             import random
@@ -368,7 +482,7 @@ class PipelineManager:
                 valid_articles = [a for a in articles if a.get("url")]
 
             if not valid_articles:
-                raise RuntimeError("No articles with URLs found on HN front page")
+                raise RuntimeError(f"No {story_type} articles with URLs found on HN")
 
             selected_article = random.choice(valid_articles)
 
@@ -389,6 +503,7 @@ class PipelineManager:
                 "articles": articles,
                 "selected_article": selected_article,
                 "article_count": len(articles),
+                "story_type": story_type,
             }
 
         except Exception as e:
@@ -405,6 +520,11 @@ class PipelineManager:
 
             url = selected_article.get("url")
             title = selected_article.get("title", "Unknown Title")
+
+            # Debug logging
+            logger.debug(f"Selected article: {selected_article}")
+            logger.debug(f"Title extracted: {title}")
+            logger.debug(f"URL extracted: {url}")
 
             if not url:
                 raise RuntimeError("No URL found in selected article")
@@ -521,6 +641,9 @@ class PipelineManager:
                 "meaningful_paragraphs": meaningful_paragraphs,
                 "cleaned_content_path": str(cleaned_content_path),
                 "meaningful_paragraphs_path": str(meaningful_paragraphs_path),
+                "title": inputs.get("title"),  # Pass through the title
+                "story_dir": inputs.get("story_dir"),  # Pass through the story directory
+                "content_dir": inputs.get("content_dir"),  # Pass through the content directory
             }
 
         except Exception as e:
@@ -533,6 +656,12 @@ class PipelineManager:
             meaningful_paragraphs = inputs.get("meaningful_paragraphs")
             title = inputs.get("title", "Unknown Title")
             content_dir = inputs.get("content_dir")
+
+            # Debug logging to see what inputs we have
+            logger.debug(f"Script generation inputs keys: {list(inputs.keys())}")
+            logger.debug(f"Title from inputs: {title}")
+            logger.debug(f"Content dir from inputs: {content_dir}")
+            logger.debug(f"Meaningful paragraphs count: {len(meaningful_paragraphs) if meaningful_paragraphs else 'None'}")
 
             if not meaningful_paragraphs:
                 raise RuntimeError("No meaningful paragraphs found in inputs")
@@ -820,6 +949,11 @@ class PipelineManager:
         base_dir = Path("outputs")
         base_dir.mkdir(exist_ok=True)
 
+        # Safety check for None or empty title
+        if not story_title or story_title == "Unknown Title":
+            story_title = "unknown_article"
+            logger.warning("Using fallback title 'unknown_article' for directory creation")
+
         # Generate a unique name for the story directory
         # Clean the title to only allow letters and underscores
         safe_title = "".join(
@@ -846,6 +980,7 @@ class PipelineManager:
         self,
         story_id: str,
         story_title: str,
+        story_type: str = "top",
         start_from_step: Optional[str] = None,
         inputs: Optional[Dict[str, Any]] = None,
     ) -> PipelineState:
@@ -854,6 +989,7 @@ class PipelineManager:
         Args:
             story_id: Unique identifier for the story
             story_title: Title of the story
+            story_type: Type of HN stories to scrape (top, newest, show, ask)
             start_from_step: Step to start from (for resuming)
             inputs: Initial inputs for the pipeline
 
@@ -873,12 +1009,14 @@ class PipelineManager:
 
         logger.info(f"🎬 Starting pipeline for story: {story_title}")
         logger.info(f"📁 Story ID: {story_id}")
+        logger.info(f"📰 Story Type: {story_type}")
 
         if start_from_step:
             logger.info(f"🔄 Resuming from step: {start_from_step}")
 
         # Execute steps in order
         current_inputs = inputs or {}
+        current_inputs["story_type"] = story_type
 
         for step_name in self.pipeline_steps:
             # Skip steps before start_from_step

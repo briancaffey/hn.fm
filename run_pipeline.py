@@ -19,8 +19,17 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  # Run full pipeline for a story
+  # Run full pipeline for a story from top stories (default)
   python run_pipeline.py --story-id "game-dev-js" --story-title "How to Start Making Games in JavaScript"
+
+  # Run pipeline for newest stories
+  python run_pipeline.py --story-type newest --story-id "latest-news" --story-title "Latest Tech News"
+
+  # Run pipeline for Show HN stories
+  python run_pipeline.py --story-type show --story-id "show-project" --story-title "Show HN: My New Project"
+
+  # Run pipeline for Ask HN stories
+  python run_pipeline.py --story-type ask --story-id "ask-question" --story-title "Ask HN: Career Advice"
 
   # Resume from a specific step
   python run_pipeline.py --story-id "game-dev-js" --story-title "How to Start Making Games in JavaScript" --start-from "tts_generation"
@@ -40,6 +49,13 @@ Examples:
     parser.add_argument("--story-id", help="Unique identifier for the story")
 
     parser.add_argument("--story-title", help="Title of the story")
+
+    parser.add_argument(
+        "--story-type",
+        choices=["top", "newest", "show", "ask"],
+        default="top",
+        help="Type of HN stories to scrape (default: top)",
+    )
 
     parser.add_argument(
         "--start-from",
@@ -122,6 +138,7 @@ Examples:
         state = pipeline_manager.run_pipeline(
             story_id=args.story_id,
             story_title=args.story_title,
+            story_type=args.story_type,
             start_from_step=args.start_from,
         )
 
@@ -162,6 +179,7 @@ def show_dry_run_info(args, pipeline_manager):
     print("=" * 50)
     print(f"Story ID: {args.story_id}")
     print(f"Story Title: {args.story_title}")
+    print(f"Story Type: {args.story_type}")
 
     if args.start_from:
         print(f"Resume from: {args.start_from}")

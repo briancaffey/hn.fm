@@ -2,7 +2,7 @@
 
 import requests
 import logging
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Literal
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -24,6 +24,9 @@ class HNStory:
 class HNScraper:
     """Scrapes Hacker News for interesting stories."""
 
+    # Available story types
+    STORY_TYPES = Literal["top", "newest", "show", "ask"]
+
     def __init__(self):
         """Initialize the HN scraper."""
         self.base_url = "https://hacker-news.firebaseio.com/v0"
@@ -42,9 +45,66 @@ class HNScraper:
         Returns:
             List of story dictionaries
         """
+        return self.get_stories_by_type("top", limit)
+
+    def get_newest_stories(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """Get newest stories from Hacker News.
+
+        Args:
+            limit: Maximum number of stories to fetch
+
+        Returns:
+            List of story dictionaries
+        """
+        return self.get_stories_by_type("newest", limit)
+
+    def get_show_stories(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """Get Show HN stories from Hacker News.
+
+        Args:
+            limit: Maximum number of stories to fetch
+
+        Returns:
+            List of story dictionaries
+        """
+        return self.get_stories_by_type("show", limit)
+
+    def get_ask_stories(self, limit: int = 30) -> List[Dict[str, Any]]:
+        """Get Ask HN stories from Hacker News.
+
+        Args:
+            limit: Maximum number of stories to fetch
+
+        Returns:
+            List of story dictionaries
+        """
+        return self.get_stories_by_type("ask", limit)
+
+    def get_stories_by_type(self, story_type: STORY_TYPES, limit: int = 30) -> List[Dict[str, Any]]:
+        """Get stories by type from Hacker News.
+
+        Args:
+            story_type: Type of stories to fetch ("top", "newest", "show", "ask")
+            limit: Maximum number of stories to fetch
+
+        Returns:
+            List of story dictionaries
+        """
         try:
-            # Get top story IDs
-            response = requests.get(f"{self.base_url}/topstories.json")
+            # Map story type to API endpoint
+            endpoint_map = {
+                "top": "topstories",
+                "newest": "newstories",
+                "show": "showstories",
+                "ask": "askstories"
+            }
+
+            endpoint = endpoint_map.get(story_type)
+            if not endpoint:
+                raise ValueError(f"Invalid story type: {story_type}. Must be one of {list(endpoint_map.keys())}")
+
+            # Get story IDs from the appropriate endpoint
+            response = requests.get(f"{self.base_url}/{endpoint}.json")
             response.raise_for_status()
             story_ids = response.json()[:limit]
 
@@ -64,17 +124,18 @@ class HNScraper:
                             "time": story.time,
                             "descendants": story.descendants,
                             "sticky": False,  # Add sticky field for compatibility
+                            "type": story_type,  # Add story type for reference
                         }
                         stories.append(story_dict)
                 except Exception as e:
                     logger.warning(f"Failed to fetch story {story_id}: {e}")
                     continue
 
-            logger.info(f"Retrieved {len(stories)} front page articles")
+            logger.info(f"Retrieved {len(stories)} {story_type} stories")
             return stories
 
         except Exception as e:
-            logger.error(f"Failed to fetch top stories: {e}")
+            logger.error(f"Failed to fetch {story_type} stories: {e}")
             return []
 
     def _get_story(self, story_id: int) -> HNStory:
