@@ -181,16 +181,35 @@ class HNScraper:
         if not stories:
             return None
 
-        # Simple selection: highest scoring story with a URL
-        valid_stories = [s for s in stories if s.url and s.score > 0]
+        # Define problematic domains to avoid
+        problematic_domains = [
+            "biglobe.ne.jp",  # Japanese website causing Firecrawl 500 errors
+            "youtube.com",    # Video content not suitable for text processing
+            "youtu.be",       # YouTube short links
+            "paywall.com",    # Paywall sites
+            "medium.com",     # Often behind paywalls
+        ]
+
+        # Filter out stories with problematic URLs
+        def is_problematic_url(url: str) -> bool:
+            if not url:
+                return True
+            return any(domain in url.lower() for domain in problematic_domains)
+
+        # Simple selection: highest scoring story with a valid URL
+        valid_stories = [s for s in stories if s.url and s.score > 0 and not is_problematic_url(s.url)]
 
         if not valid_stories:
-            # Fallback to any story with a URL
-            valid_stories = [s for s in stories if s.url]
+            # Fallback to any story with a valid URL
+            valid_stories = [s for s in stories if s.url and not is_problematic_url(s.url)]
 
         if not valid_stories:
-            # Last resort: any story
-            valid_stories = stories
+            # Last resort: any story (but still avoid problematic URLs)
+            valid_stories = [s for s in stories if not is_problematic_url(s.url)]
+
+        if not valid_stories:
+            logger.warning("No valid stories found after filtering problematic URLs")
+            return None
 
         # Sort by score (descending) and return the best
         best_story = max(valid_stories, key=lambda s: s.score)

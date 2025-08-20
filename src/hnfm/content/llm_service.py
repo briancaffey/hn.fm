@@ -28,12 +28,21 @@ class LLMService:
         if self.use_local:
             try:
                 # Configure OpenAI client to use local endpoint
+                # Local LLM services typically use /v1/chat/completions or /completions
+                if not self.base_url.endswith('/v1'):
+                    if self.base_url.endswith('/'):
+                        api_url = self.base_url + 'v1'
+                    else:
+                        api_url = self.base_url + '/v1'
+                else:
+                    api_url = self.base_url
+
                 self.client = openai.OpenAI(
                     api_key="not-needed",  # Local models typically don't require API keys
-                    base_url=self.base_url,
+                    base_url=api_url,
                 )
                 logger.info(
-                    f"Local LLM client initialized successfully for {self.base_url}"
+                    f"Local LLM client initialized successfully for {api_url}"
                 )
             except Exception as e:
                 logger.error(f"Failed to initialize local LLM client: {e}")
@@ -80,7 +89,35 @@ class LLMService:
                 temperature=0.7,
             )
 
+            # Check if response is valid and has the expected structure
+            if not response or not hasattr(response, 'choices') or not response.choices:
+                # Check if this is an error response
+                if hasattr(response, 'error') and response.error:
+                    logger.error(f"🚨 CRITICAL: Local LLM API error: {response.error}")
+                    print(f"   🚨 CRITICAL: Local LLM API error: {response.error}")
+                    print(f"   💡 This suggests the local LLM doesn't support the /chat/completions endpoint")
+                    print(f"   💡 You may need to use a different API endpoint or service")
+                else:
+                    logger.error(f"🚨 CRITICAL: Invalid response structure from {model_name} - no choices array")
+                    print(f"   🚨 LLM FAILED: {model_name} returned invalid response structure")
+                return self._generate_fallback_content(prompt)
+
+            if not response.choices[0] or not hasattr(response.choices[0], 'message'):
+                logger.error(f"🚨 CRITICAL: Invalid response choices structure from {model_name} - no message object")
+                print(f"   🚨 LLM FAILED: {model_name} returned invalid choices structure")
+                return self._generate_fallback_content(prompt)
+
+            if not response.choices[0].message or not hasattr(response.choices[0].message, 'content'):
+                logger.error(f"🚨 CRITICAL: Invalid message structure from {model_name} - no content field")
+                print(f"   🚨 LLM FAILED: {model_name} returned invalid message structure")
+                return self._generate_fallback_content(prompt)
+
             content = response.choices[0].message.content
+            if not content:
+                logger.error(f"🚨 CRITICAL: Empty content received from {model_name}")
+                print(f"   🚨 LLM FAILED: {model_name} returned empty content")
+                return self._generate_fallback_content(prompt)
+
             provider = "Local LLM" if self.use_local else "OpenAI"
             logger.info(f"Successfully generated content with {provider}")
             return content
@@ -99,7 +136,9 @@ class LLMService:
         Returns:
             Fallback content
         """
-        logger.info("Using fallback script generation")
+        logger.warning("⚠️  FALLBACK: Using fallback script generation due to LLM failure")
+        print(f"   ⚠️  FALLBACK: LLM failed, using emergency fallback script")
+        print(f"   💡 Tip: Set OPENAI_API_KEY to use OpenAI as fallback when local LLM fails")
 
         # Extract title from prompt if possible
         title = "Article"
@@ -111,16 +150,6 @@ class LLMService:
                 title = title_line[0].replace("Article Title:", "").strip()
 
         # Generate a simple fallback script
-        fallback_script = f"""[S1] Welcome to today's episode where we discuss {title}.
-
-[S2] This is an interesting article that caught our attention on Hacker News.
-
-[S1] Let me share the key points with you.
-
-[S2] The article discusses important developments in technology and innovation.
-
-[S1] It's fascinating how this connects to broader trends in the industry.
-
-[S2] We hope you found this discussion valuable. Thanks for listening!"""
+        fallback_script = "[S1] This is a fallback, error generating script"
 
         return fallback_script

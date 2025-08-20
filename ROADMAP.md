@@ -1,5 +1,30 @@
 # hn.fm Development Roadmap
 
+## Bug Fixes & Improvements
+
+### LLM Service Robustness
+[x] Fix NoneType error in LLM service when local LLM returns malformed responses
+[x] Add proper response validation to prevent crashes on invalid LLM responses
+[x] Simplify fallback script to single line: "[S1] This is a fallback, error generating script"
+[x] Add comprehensive error handling for LLM service failures
+[x] Fix local LLM endpoint issue - was using wrong API path (missing /v1 prefix)
+[x] Add retry mechanism for transient LLM failures
+[ ] Add fallback to OpenAI when local LLM is consistently failing
+[ ] Investigate why local LLM (openai/gpt-oss-20b) consistently returns invalid response structures
+
+### Content Processing Stability
+[ ] Fix content processing failures when articles have unusual formatting
+[ ] Add better error handling for malformed HTML content
+[ ] Add content validation before script generation
+[ ] Add fallback content processing when primary method fails
+
+### URL Filtering & Quality Control
+[x] Add URL filtering to avoid problematic domains (Japanese websites, YouTube, paywalls)
+[x] Filter out websites that consistently cause Firecrawl errors
+[x] Improve story selection to prioritize reliable content sources
+[ ] Add dynamic URL blacklisting based on failure patterns
+[ ] Add content quality scoring before processing
+
 ## Content Scraping & Flexibility
 
 ### Article Source Flexibility

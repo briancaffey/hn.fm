@@ -234,7 +234,18 @@ class ScriptGenerator:
             script = llm_service.generate_content(script_prompt)
 
             if not script:
+                logger.error("🚨 CRITICAL: LLM returned None - this should not happen!")
+                print(f"   🚨 CRITICAL: LLM returned None - using emergency fallback")
                 raise RuntimeError("Failed to generate script from LLM")
+
+            # Check if this is the fallback script
+            if script == "[S1] This is a fallback, error generating script":
+                logger.warning("⚠️  WARNING: Using emergency fallback script due to LLM failure")
+                print(f"   ⚠️  WARNING: LLM failed, using emergency fallback script")
+                print(f"   📝 Fallback script: {script}")
+            else:
+                logger.info(f"✅ Script generated successfully by LLM")
+                print(f"   ✅ Script generated successfully by LLM")
 
             # Split script into TTS lines
             tts_lines = []
@@ -245,6 +256,8 @@ class ScriptGenerator:
 
             if not tts_lines:
                 # Fallback: create simple lines from paragraphs
+                logger.warning("⚠️  WARNING: No valid TTS lines found in script, creating fallback lines")
+                print(f"   ⚠️  WARNING: No valid TTS lines found, creating fallback lines")
                 tts_lines = []
                 for i, para in enumerate(
                     paragraphs[:10]
@@ -255,9 +268,10 @@ class ScriptGenerator:
                         para = para[:200] + "..."
                     tts_lines.append(f"{speaker} {para}")
 
-            logger.info(f"✅ Script generated successfully")
             logger.info(f"📝 Script length: {len(script)} characters")
             logger.info(f"🎙️ TTS lines: {len(tts_lines)}")
+            print(f"   📝 Script length: {len(script)} characters")
+            print(f"   🎙️ TTS lines: {len(tts_lines)}")
 
             return {
                 "script": script,
