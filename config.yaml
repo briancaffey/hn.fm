@@ -20,6 +20,7 @@ studio_voice:
   enabled: true
   target: "${STUDIO_VOICE_TARGET}"
   model_type: "${STUDIO_VOICE_MODEL_TYPE}"
+  http_health_url: "${STUDIO_VOICE_HTTP_HEALTH_URL}"
   streaming: false
   ssl_mode: null
   sample_rate: 48000

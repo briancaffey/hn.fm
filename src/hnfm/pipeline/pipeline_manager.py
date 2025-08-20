@@ -955,14 +955,7 @@ class PipelineManager:
             logger.warning("Using fallback title 'unknown_article' for directory creation")
 
         # Generate a unique name for the story directory
-        # Clean the title to only allow letters and underscores
-        safe_title = "".join(
-            c.lower() for c in story_title if c.isalpha() or c == " "
-        ).rstrip()
-        safe_title = safe_title.replace(" ", "_")
-
-        # Remove any consecutive underscores and leading/trailing underscores
-        safe_title = "_".join(filter(None, safe_title.split("_")))
+        safe_title = self._sanitize_filename(story_title)
 
         # Add timestamp-based hex suffix for uniqueness
         import time
@@ -975,6 +968,71 @@ class PipelineManager:
         story_dir.mkdir(exist_ok=True)
 
         return story_dir
+
+    def _sanitize_filename(self, filename: str) -> str:
+        """Sanitize a filename to be safe for file systems.
+
+        Args:
+            filename: Original filename to sanitize
+
+        Returns:
+            Sanitized filename safe for file systems
+        """
+        import re
+
+        # Replace problematic characters with safe alternatives
+        replacements = {
+            ':': ' - ',      # Colon -> dash
+            '?': '',         # Question mark -> remove
+            '!': '',         # Exclamation mark -> remove
+            '"': '',         # Double quote -> remove
+            "'": '',         # Single quote -> remove
+            '<': '(',        # Less than -> parenthesis
+            '>': ')',        # Greater than -> parenthesis
+            '|': '-',        # Pipe -> dash
+            '*': '',         # Asterisk -> remove
+            '/': '-',        # Forward slash -> dash
+            '\\': '-',       # Backslash -> dash
+            '[': '(',        # Square bracket -> parenthesis
+            ']': ')',        # Square bracket -> parenthesis
+            '{': '(',        # Curly brace -> parenthesis
+            '}': ')',        # Curly brace -> parenthesis
+            '&': 'and',      # Ampersand -> 'and'
+            '%': 'pct',      # Percent -> 'pct'
+            '#': 'num',      # Hash -> 'num'
+            '@': 'at',       # At symbol -> 'at'
+            '+': 'plus',     # Plus -> 'plus'
+            '=': 'equals',   # Equals -> 'equals'
+            '$': 'dollar',   # Dollar -> 'dollar'
+            ';': ',',        # Semicolon -> comma
+        }
+
+        # Apply replacements
+        sanitized = filename
+        for char, replacement in replacements.items():
+            sanitized = sanitized.replace(char, replacement)
+
+        # Remove any remaining non-alphanumeric characters except spaces, dashes, underscores, and dots
+        sanitized = re.sub(r'[^\w\s\-_.]', '', sanitized)
+
+        # Replace multiple spaces/dashes/underscores with single underscore
+        sanitized = re.sub(r'[\s\-_]+', '_', sanitized)
+
+        # Remove leading/trailing underscores
+        sanitized = sanitized.strip('_')
+
+        # Ensure the filename isn't too long (max 100 chars for directory names)
+        if len(sanitized) > 100:
+            sanitized = sanitized[:100].rstrip('_')
+
+        # Ensure we have a valid filename
+        if not sanitized:
+            sanitized = "untitled_article"
+
+        # Convert to lowercase for consistency
+        sanitized = sanitized.lower()
+
+        return sanitized
 
     def run_pipeline(
         self,

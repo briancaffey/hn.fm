@@ -207,23 +207,23 @@ class SystemChecker:
         """Check Studio Voice service."""
         from ..utils.config import config_manager
 
-        target = config_manager.get("studio_voice.target")
-        if not target:
+        # Get the HTTP health endpoint URL from config
+        health_url = config_manager.get("studio_voice.http_health_url")
+        if not health_url:
+            # Fallback to environment variable
+            import os
+            health_url = os.getenv("STUDIO_VOICE_HTTP_HEALTH_URL")
+
+        if not health_url:
             return ServiceStatus(
                 name="Studio Voice",
                 url="not configured",
                 status="offline",
                 response_time=0.0,
-                error_message="Studio Voice target not configured"
+                error_message="Studio Voice HTTP health URL not configured"
             )
 
         try:
-            # Construct health check URL
-            if target.startswith("http"):
-                health_url = f"{target}/v1/health/ready"
-            else:
-                health_url = f"http://{target}/v1/health/ready"
-
             start_time = time.time()
             response = requests.get(health_url, timeout=self.timeout)
             response_time = time.time() - start_time
@@ -231,15 +231,15 @@ class SystemChecker:
             if response.status_code == 200:
                 return ServiceStatus(
                     name="Studio Voice",
-                    url=target,
+                    url=health_url,
                     status="online",
                     response_time=response_time,
-                    details={"health_endpoint": health_url}
+                    details={"health_endpoint": health_url, "response": response.text[:100] + "..." if len(response.text) > 100 else response.text}
                 )
             else:
                 return ServiceStatus(
                     name="Studio Voice",
-                    url=target,
+                    url=health_url,
                     status="offline",
                     response_time=response_time,
                     error_message=f"HTTP {response.status_code}"
@@ -248,7 +248,7 @@ class SystemChecker:
         except requests.exceptions.RequestException as e:
             return ServiceStatus(
                 name="Studio Voice",
-                url=target,
+                url=health_url,
                 status="offline",
                 response_time=0.0,
                 error_message=str(e)
