@@ -127,8 +127,8 @@ class TTSService:
                 f"🧹 Text cleaning: '{text[:50]}...' → '{cleaned_text[:50]}...'"
             )
 
-            # Prepare the text input - append "That's it." to prevent early cutoff
-            full_text = cleaned_text + " That's it."
+            # Prepare the text input - append new line and [S1] to prevent early cutoff
+            full_text = cleaned_text + " \n[S1]"
             logger.info(f"📝 Full text being sent: {full_text[:100]}...")
             logger.info(f"🎲 Using seed: {seed}")
 
@@ -265,8 +265,11 @@ class TTSService:
         """
         logger.info(f"🧹 Cleaning text: '{text[:100]}...'")
 
+        # replace ‑ with -
+        cleaned = text.replace("‑", "-")
+
         # Replace curly quotes and apostrophes with straight ones
-        cleaned = text.replace("“", '"').replace(
+        cleaned = cleaned.replace("“", '"').replace(
             "”", '"'
         )  # Curly double quotes to straight quotes
         cleaned = cleaned.replace("‘", "'").replace(
@@ -277,6 +280,9 @@ class TTSService:
         cleaned = cleaned.replace("–", "-")  # En dash to hyphen
         cleaned = cleaned.replace("—", "-")  # Em dash to hyphen
         cleaned = cleaned.replace("…", "...")  # Ellipsis to three dots
+
+        # remove stars
+        cleaned = cleaned.replace("*", "")
 
         # Remove any other non-ASCII characters that might cause issues
         cleaned = cleaned.encode("ascii", "replace").decode("ascii")

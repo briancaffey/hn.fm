@@ -11,9 +11,9 @@ voice:
 tts:
   base_url: "${TTS_BASE_URL}"
   default_voice: "${TTS_DEFAULT_VOICE}"
-  batch_size: 2
+  batch_size: 3
   max_attempts: 3
-  delay_between_batches: 2  # seconds
+  delay_between_batches: 1  # seconds
 
 # Studio Voice Configuration (NVIDIA NIM)
 studio_voice:
