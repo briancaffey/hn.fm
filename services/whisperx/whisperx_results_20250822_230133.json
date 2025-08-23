@@ -1,0 +1,1113 @@
+{
+  "success": true,
+  "language": "en",
+  "segments": [
+    {
+      "start": 0.031,
+      "end": 2.983,
+      "text": " Zia is an open weights text to dialogue model.",
+      "words": [
+        {
+          "word": "Zia",
+          "start": 0.031,
+          "end": 0.312,
+          "score": 0.91,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "is",
+          "start": 0.433,
+          "end": 0.533,
+          "score": 0.77,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "an",
+          "start": 0.573,
+          "end": 0.613,
+          "score": 0.946,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "open",
+          "start": 0.774,
+          "end": 1.015,
+          "score": 0.933,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "weights",
+          "start": 1.075,
+          "end": 1.376,
+          "score": 0.878,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "text",
+          "start": 1.497,
+          "end": 1.818,
+          "score": 0.864,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "to",
+          "start": 1.878,
+          "end": 1.979,
+          "score": 0.967,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "dialogue",
+          "start": 2.039,
+          "end": 2.561,
+          "score": 0.926,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "model.",
+          "start": 2.601,
+          "end": 2.983,
+          "score": 0.95,
+          "speaker": "SPEAKER_00"
+        }
+      ],
+      "chars": [
+        {
+          "char": " "
+        },
+        {
+          "char": "Z",
+          "start": 0.031,
+          "end": 0.212,
+          "score": 0.771
+        },
+        {
+          "char": "i",
+          "start": 0.212,
+          "end": 0.232,
+          "score": 0.993
+        },
+        {
+          "char": "a",
+          "start": 0.232,
+          "end": 0.312,
+          "score": 0.965
+        },
+        {
+          "char": " ",
+          "start": 0.312,
+          "end": 0.433,
+          "score": 0.774
+        },
+        {
+          "char": "i",
+          "start": 0.433,
+          "end": 0.473,
+          "score": 0.887
+        },
+        {
+          "char": "s",
+          "start": 0.473,
+          "end": 0.533,
+          "score": 0.654
+        },
+        {
+          "char": " ",
+          "start": 0.533,
+          "end": 0.573,
+          "score": 0.59
+        },
+        {
+          "char": "a",
+          "start": 0.573,
+          "end": 0.593,
+          "score": 0.981
+        },
+        {
+          "char": "n",
+          "start": 0.593,
+          "end": 0.613,
+          "score": 0.91
+        },
+        {
+          "char": " ",
+          "start": 0.613,
+          "end": 0.774,
+          "score": 0.736
+        },
+        {
+          "char": "o",
+          "start": 0.774,
+          "end": 0.854,
+          "score": 0.995
+        },
+        {
+          "char": "p",
+          "start": 0.854,
+          "end": 0.914,
+          "score": 0.999
+        },
+        {
+          "char": "e",
+          "start": 0.914,
+          "end": 0.935,
+          "score": 0.997
+        },
+        {
+          "char": "n",
+          "start": 0.935,
+          "end": 1.015,
+          "score": 0.74
+        },
+        {
+          "char": " ",
+          "start": 1.015,
+          "end": 1.075,
+          "score": 0.69
+        },
+        {
+          "char": "w",
+          "start": 1.075,
+          "end": 1.155,
+          "score": 0.986
+        },
+        {
+          "char": "e",
+          "start": 1.155,
+          "end": 1.175,
+          "score": 0.978
+        },
+        {
+          "char": "i",
+          "start": 1.175,
+          "end": 1.196,
+          "score": 0.928
+        },
+        {
+          "char": "g",
+          "start": 1.196,
+          "end": 1.236,
+          "score": 0.868
+        },
+        {
+          "char": "h",
+          "start": 1.236,
+          "end": 1.276,
+          "score": 0.955
+        },
+        {
+          "char": "t",
+          "start": 1.276,
+          "end": 1.356,
+          "score": 0.777
+        },
+        {
+          "char": "s",
+          "start": 1.356,
+          "end": 1.376,
+          "score": 0.657
+        },
+        {
+          "char": " ",
+          "start": 1.376,
+          "end": 1.497,
+          "score": 0.689
+        },
+        {
+          "char": "t",
+          "start": 1.497,
+          "end": 1.617,
+          "score": 0.834
+        },
+        {
+          "char": "e",
+          "start": 1.617,
+          "end": 1.657,
+          "score": 0.933
+        },
+        {
+          "char": "x",
+          "start": 1.657,
+          "end": 1.798,
+          "score": 0.688
+        },
+        {
+          "char": "t",
+          "start": 1.798,
+          "end": 1.818,
+          "score": 0.999
+        },
+        {
+          "char": " ",
+          "start": 1.818,
+          "end": 1.878,
+          "score": 0.897
+        },
+        {
+          "char": "t",
+          "start": 1.878,
+          "end": 1.938,
+          "score": 0.995
+        },
+        {
+          "char": "o",
+          "start": 1.938,
+          "end": 1.979,
+          "score": 0.939
+        },
+        {
+          "char": " ",
+          "start": 1.979,
+          "end": 2.039,
+          "score": 0.669
+        },
+        {
+          "char": "d",
+          "start": 2.039,
+          "end": 2.159,
+          "score": 1.0
+        },
+        {
+          "char": "i",
+          "start": 2.159,
+          "end": 2.24,
+          "score": 1.0
+        },
+        {
+          "char": "a",
+          "start": 2.24,
+          "end": 2.3,
+          "score": 0.997
+        },
+        {
+          "char": "l",
+          "start": 2.3,
+          "end": 2.42,
+          "score": 0.832
+        },
+        {
+          "char": "o",
+          "start": 2.42,
+          "end": 2.461,
+          "score": 0.999
+        },
+        {
+          "char": "g",
+          "start": 2.461,
+          "end": 2.501,
+          "score": 0.745
+        },
+        {
+          "char": "u",
+          "start": 2.501,
+          "end": 2.521,
+          "score": 0.942
+        },
+        {
+          "char": "e",
+          "start": 2.521,
+          "end": 2.561,
+          "score": 0.891
+        },
+        {
+          "char": " ",
+          "start": 2.561,
+          "end": 2.601,
+          "score": 0.984
+        },
+        {
+          "char": "m",
+          "start": 2.601,
+          "end": 2.701,
+          "score": 0.988
+        },
+        {
+          "char": "o",
+          "start": 2.701,
+          "end": 2.782,
+          "score": 0.92
+        },
+        {
+          "char": "d",
+          "start": 2.782,
+          "end": 2.862,
+          "score": 0.994
+        },
+        {
+          "char": "e",
+          "start": 2.862,
+          "end": 2.882,
+          "score": 0.989
+        },
+        {
+          "char": "l",
+          "start": 2.882,
+          "end": 2.902,
+          "score": 0.999
+        },
+        {
+          "char": ".",
+          "start": 2.902,
+          "end": 2.983,
+          "score": 0.809
+        },
+        {
+          "char": " ",
+          "start": 2.983,
+          "end": 3.264,
+          "score": 0.869
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "start": 3.264,
+      "end": 5.251,
+      "text": "You get full control over scripts and voices.",
+      "words": [
+        {
+          "word": "You",
+          "start": 3.264,
+          "end": 3.384,
+          "score": 0.981,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "get",
+          "start": 3.424,
+          "end": 3.505,
+          "score": 0.882,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "full",
+          "start": 3.545,
+          "end": 3.786,
+          "score": 0.852,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "control",
+          "start": 3.826,
+          "end": 4.187,
+          "score": 0.759,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "over",
+          "start": 4.248,
+          "end": 4.408,
+          "score": 0.715,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "scripts",
+          "start": 4.468,
+          "end": 4.75,
+          "score": 0.797,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "and",
+          "start": 4.79,
+          "end": 4.87,
+          "score": 0.962,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "voices.",
+          "start": 4.91,
+          "end": 5.251,
+          "score": 0.951,
+          "speaker": "SPEAKER_00"
+        }
+      ],
+      "chars": [
+        {
+          "char": "Y",
+          "start": 3.264,
+          "end": 3.304,
+          "score": 0.99
+        },
+        {
+          "char": "o",
+          "start": 3.304,
+          "end": 3.324,
+          "score": 0.999
+        },
+        {
+          "char": "u",
+          "start": 3.324,
+          "end": 3.384,
+          "score": 0.954
+        },
+        {
+          "char": " ",
+          "start": 3.384,
+          "end": 3.424,
+          "score": 0.501
+        },
+        {
+          "char": "g",
+          "start": 3.424,
+          "end": 3.444,
+          "score": 0.993
+        },
+        {
+          "char": "e",
+          "start": 3.444,
+          "end": 3.485,
+          "score": 0.999
+        },
+        {
+          "char": "t",
+          "start": 3.485,
+          "end": 3.505,
+          "score": 0.653
+        },
+        {
+          "char": " ",
+          "start": 3.505,
+          "end": 3.545,
+          "score": 0.0
+        },
+        {
+          "char": "f",
+          "start": 3.545,
+          "end": 3.665,
+          "score": 0.684
+        },
+        {
+          "char": "u",
+          "start": 3.665,
+          "end": 3.685,
+          "score": 1.0
+        },
+        {
+          "char": "l",
+          "start": 3.685,
+          "end": 3.746,
+          "score": 0.999
+        },
+        {
+          "char": "l",
+          "start": 3.746,
+          "end": 3.786,
+          "score": 0.727
+        },
+        {
+          "char": " ",
+          "start": 3.786,
+          "end": 3.826,
+          "score": 0.508
+        },
+        {
+          "char": "c",
+          "start": 3.826,
+          "end": 3.866,
+          "score": 0.997
+        },
+        {
+          "char": "o",
+          "start": 3.866,
+          "end": 3.886,
+          "score": 1.0
+        },
+        {
+          "char": "n",
+          "start": 3.886,
+          "end": 3.946,
+          "score": 0.708
+        },
+        {
+          "char": "t",
+          "start": 3.946,
+          "end": 3.987,
+          "score": 0.365
+        },
+        {
+          "char": "r",
+          "start": 3.987,
+          "end": 4.067,
+          "score": 0.65
+        },
+        {
+          "char": "o",
+          "start": 4.067,
+          "end": 4.107,
+          "score": 0.994
+        },
+        {
+          "char": "l",
+          "start": 4.107,
+          "end": 4.187,
+          "score": 0.596
+        },
+        {
+          "char": " ",
+          "start": 4.187,
+          "end": 4.248,
+          "score": 0.679
+        },
+        {
+          "char": "o",
+          "start": 4.248,
+          "end": 4.288,
+          "score": 0.5
+        },
+        {
+          "char": "v",
+          "start": 4.288,
+          "end": 4.348,
+          "score": 0.996
+        },
+        {
+          "char": "e",
+          "start": 4.348,
+          "end": 4.368,
+          "score": 0.996
+        },
+        {
+          "char": "r",
+          "start": 4.368,
+          "end": 4.408,
+          "score": 0.368
+        },
+        {
+          "char": " ",
+          "start": 4.408,
+          "end": 4.468,
+          "score": 0.57
+        },
+        {
+          "char": "s",
+          "start": 4.468,
+          "end": 4.549,
+          "score": 0.752
+        },
+        {
+          "char": "c",
+          "start": 4.549,
+          "end": 4.569,
+          "score": 0.999
+        },
+        {
+          "char": "r",
+          "start": 4.569,
+          "end": 4.609,
+          "score": 0.961
+        },
+        {
+          "char": "i",
+          "start": 4.609,
+          "end": 4.649,
+          "score": 0.989
+        },
+        {
+          "char": "p",
+          "start": 4.649,
+          "end": 4.689,
+          "score": 0.373
+        },
+        {
+          "char": "t",
+          "start": 4.689,
+          "end": 4.709,
+          "score": 0.979
+        },
+        {
+          "char": "s",
+          "start": 4.709,
+          "end": 4.75,
+          "score": 0.526
+        },
+        {
+          "char": " ",
+          "start": 4.75,
+          "end": 4.79,
+          "score": 0.986
+        },
+        {
+          "char": "a",
+          "start": 4.79,
+          "end": 4.81,
+          "score": 0.999
+        },
+        {
+          "char": "n",
+          "start": 4.81,
+          "end": 4.85,
+          "score": 0.891
+        },
+        {
+          "char": "d",
+          "start": 4.85,
+          "end": 4.87,
+          "score": 0.996
+        },
+        {
+          "char": " ",
+          "start": 4.87,
+          "end": 4.91,
+          "score": 0.721
+        },
+        {
+          "char": "v",
+          "start": 4.91,
+          "end": 4.97,
+          "score": 1.0
+        },
+        {
+          "char": "o",
+          "start": 4.97,
+          "end": 5.011,
+          "score": 0.842
+        },
+        {
+          "char": "i",
+          "start": 5.011,
+          "end": 5.071,
+          "score": 1.0
+        },
+        {
+          "char": "c",
+          "start": 5.071,
+          "end": 5.151,
+          "score": 0.966
+        },
+        {
+          "char": "e",
+          "start": 5.151,
+          "end": 5.211,
+          "score": 0.893
+        },
+        {
+          "char": "s",
+          "start": 5.211,
+          "end": 5.231,
+          "score": 0.958
+        },
+        {
+          "char": ".",
+          "start": 5.231,
+          "end": 5.251,
+          "score": 0.999
+        },
+        {
+          "char": " ",
+          "start": 5.251,
+          "end": 5.713,
+          "score": 0.978
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "start": 5.713,
+      "end": 7.4,
+      "text": "Wow, amazing.",
+      "words": [
+        {
+          "word": "Wow,",
+          "start": 5.713,
+          "end": 6.296,
+          "score": 0.873,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "amazing.",
+          "start": 6.717,
+          "end": 7.4,
+          "score": 0.695,
+          "speaker": "SPEAKER_00"
+        }
+      ],
+      "chars": [
+        {
+          "char": "W",
+          "start": 5.713,
+          "end": 6.115,
+          "score": 0.989
+        },
+        {
+          "char": "o",
+          "start": 6.115,
+          "end": 6.155,
+          "score": 0.856
+        },
+        {
+          "char": "w",
+          "start": 6.155,
+          "end": 6.255,
+          "score": 0.859
+        },
+        {
+          "char": ",",
+          "start": 6.255,
+          "end": 6.296,
+          "score": 0.789
+        },
+        {
+          "char": " ",
+          "start": 6.296,
+          "end": 6.717,
+          "score": 0.848
+        },
+        {
+          "char": "a",
+          "start": 6.717,
+          "end": 6.798,
+          "score": 0.939
+        },
+        {
+          "char": "m",
+          "start": 6.798,
+          "end": 6.878,
+          "score": 0.95
+        },
+        {
+          "char": "a",
+          "start": 6.878,
+          "end": 7.018,
+          "score": 0.884
+        },
+        {
+          "char": "z",
+          "start": 7.018,
+          "end": 7.259,
+          "score": 0.828
+        },
+        {
+          "char": "i",
+          "start": 7.259,
+          "end": 7.34,
+          "score": 0.468
+        },
+        {
+          "char": "n",
+          "start": 7.34,
+          "end": 7.36,
+          "score": 0.0
+        },
+        {
+          "char": "g",
+          "start": 7.36,
+          "end": 7.38,
+          "score": 0.839
+        },
+        {
+          "char": ".",
+          "start": 7.38,
+          "end": 7.4,
+          "score": 0.652
+        },
+        {
+          "char": " ",
+          "start": 7.4,
+          "end": 7.942,
+          "score": 0.99
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    },
+    {
+      "start": 7.942,
+      "end": 9.99,
+      "text": "Try it now on GitHub or HuggingFace.",
+      "words": [
+        {
+          "word": "Try",
+          "start": 7.942,
+          "end": 8.163,
+          "score": 0.938,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "it",
+          "start": 8.203,
+          "end": 8.243,
+          "score": 0.533,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "now",
+          "start": 8.303,
+          "end": 8.444,
+          "score": 0.915,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "on",
+          "start": 8.544,
+          "end": 8.605,
+          "score": 0.87,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "GitHub",
+          "start": 8.685,
+          "end": 9.087,
+          "score": 0.918,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "or",
+          "start": 9.147,
+          "end": 9.207,
+          "score": 0.58,
+          "speaker": "SPEAKER_00"
+        },
+        {
+          "word": "HuggingFace.",
+          "start": 9.267,
+          "end": 9.99,
+          "score": 0.947,
+          "speaker": "SPEAKER_00"
+        }
+      ],
+      "chars": [
+        {
+          "char": "T",
+          "start": 7.942,
+          "end": 7.982,
+          "score": 0.999
+        },
+        {
+          "char": "r",
+          "start": 7.982,
+          "end": 8.103,
+          "score": 0.846
+        },
+        {
+          "char": "y",
+          "start": 8.103,
+          "end": 8.163,
+          "score": 0.969
+        },
+        {
+          "char": " ",
+          "start": 8.163,
+          "end": 8.203,
+          "score": 0.494
+        },
+        {
+          "char": "i",
+          "start": 8.203,
+          "end": 8.223,
+          "score": 0.978
+        },
+        {
+          "char": "t",
+          "start": 8.223,
+          "end": 8.243,
+          "score": 0.088
+        },
+        {
+          "char": " ",
+          "start": 8.243,
+          "end": 8.303,
+          "score": 0.328
+        },
+        {
+          "char": "n",
+          "start": 8.303,
+          "end": 8.384,
+          "score": 0.757
+        },
+        {
+          "char": "o",
+          "start": 8.384,
+          "end": 8.404,
+          "score": 1.0
+        },
+        {
+          "char": "w",
+          "start": 8.404,
+          "end": 8.444,
+          "score": 0.989
+        },
+        {
+          "char": " ",
+          "start": 8.444,
+          "end": 8.544,
+          "score": 0.8
+        },
+        {
+          "char": "o",
+          "start": 8.544,
+          "end": 8.564,
+          "score": 0.997
+        },
+        {
+          "char": "n",
+          "start": 8.564,
+          "end": 8.605,
+          "score": 0.743
+        },
+        {
+          "char": " ",
+          "start": 8.605,
+          "end": 8.685,
+          "score": 0.531
+        },
+        {
+          "char": "G",
+          "start": 8.685,
+          "end": 8.765,
+          "score": 0.798
+        },
+        {
+          "char": "i",
+          "start": 8.765,
+          "end": 8.826,
+          "score": 0.989
+        },
+        {
+          "char": "t",
+          "start": 8.826,
+          "end": 8.906,
+          "score": 0.751
+        },
+        {
+          "char": "H",
+          "start": 8.906,
+          "end": 8.986,
+          "score": 0.999
+        },
+        {
+          "char": "u",
+          "start": 8.986,
+          "end": 9.046,
+          "score": 0.976
+        },
+        {
+          "char": "b",
+          "start": 9.046,
+          "end": 9.087,
+          "score": 0.995
+        },
+        {
+          "char": " ",
+          "start": 9.087,
+          "end": 9.147,
+          "score": 0.72
+        },
+        {
+          "char": "o",
+          "start": 9.147,
+          "end": 9.167,
+          "score": 0.699
+        },
+        {
+          "char": "r",
+          "start": 9.167,
+          "end": 9.207,
+          "score": 0.461
+        },
+        {
+          "char": " ",
+          "start": 9.207,
+          "end": 9.267,
+          "score": 0.342
+        },
+        {
+          "char": "H",
+          "start": 9.267,
+          "end": 9.327,
+          "score": 0.996
+        },
+        {
+          "char": "u",
+          "start": 9.327,
+          "end": 9.348,
+          "score": 0.999
+        },
+        {
+          "char": "g",
+          "start": 9.348,
+          "end": 9.408,
+          "score": 0.999
+        },
+        {
+          "char": "g",
+          "start": 9.408,
+          "end": 9.488,
+          "score": 0.994
+        },
+        {
+          "char": "i",
+          "start": 9.488,
+          "end": 9.508,
+          "score": 0.999
+        },
+        {
+          "char": "n",
+          "start": 9.508,
+          "end": 9.528,
+          "score": 0.996
+        },
+        {
+          "char": "g",
+          "start": 9.528,
+          "end": 9.629,
+          "score": 0.737
+        },
+        {
+          "char": "F",
+          "start": 9.629,
+          "end": 9.749,
+          "score": 1.0
+        },
+        {
+          "char": "a",
+          "start": 9.749,
+          "end": 9.809,
+          "score": 0.995
+        },
+        {
+          "char": "c",
+          "start": 9.809,
+          "end": 9.85,
+          "score": 0.997
+        },
+        {
+          "char": "e",
+          "start": 9.85,
+          "end": 9.89,
+          "score": 0.851
+        },
+        {
+          "char": ".",
+          "start": 9.89,
+          "end": 9.99,
+          "score": 0.8
+        }
+      ],
+      "speaker": "SPEAKER_00"
+    }
+  ],
+  "diarization": [
+    {
+      "segment": {
+        "start": "0.03096875",
+        "end": "9.970343750000001"
+      },
+      "label": "A",
+      "speaker": "SPEAKER_00",
+      "start": "0.03096875",
+      "end": "9.970343750000001",
+      "intersection": "0.7033437500000019",
+      "union": "9.95903125"
+    }
+  ],
+  "metadata": {
+    "model_size": "large-v2",
+    "device": "cuda",
+    "batch_size": 16,
+    "compute_type": "float16",
+    "word_timestamps": true,
+    "audio_duration": 9.9961875,
+    "num_segments": 4,
+    "num_speakers": 1
+  }
+}

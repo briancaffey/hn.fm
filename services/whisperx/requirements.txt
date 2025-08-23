@@ -2,22 +2,22 @@
 # This file consolidates all dependencies from the previous multiple requirements files
 
 # Core FastAPI dependencies
-fastapi==0.104.1
-uvicorn[standard]==0.24.0
-python-multipart==0.0.6
+fastapi
+uvicorn[standard]
+python-multipart
 
 # WhisperX and ML dependencies
-whisperx==3.4.2
-torch>=2.2.0
-torchaudio>=2.2.0
-transformers>=4.30.0,<4.40.0
-pyannote.audio>=3.0.0
+whisperx
+torch
+torchaudio
+transformers
+pyannote.audio
 
 # NumPy and scientific computing with compatibility constraints
-numpy>=1.26.0,<2.0.0  # Avoid NumPy 2.0 compatibility issues
-scipy>=1.10.0,<1.12.0  # Upper bound for compatibility
-librosa>=0.10.0  # Remove upper bound to avoid conflicts
-soundfile>=0.12.0
+numpy
+scipy
+librosa
+soundfile
 
 # Other dependencies
-requests>=2.31.0
+requests
