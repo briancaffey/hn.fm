@@ -1,0 +1,185 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WhisperX Audio Processor</title>
+    <link rel="stylesheet" href="styles.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+</head>
+<body>
+    <div class="container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-microphone-alt"></i>
+                    <h1>WhisperX Audio Processor</h1>
+                </div>
+                <p class="subtitle">Advanced audio transcription with speaker diarization</p>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Upload Section -->
+            <section class="upload-section" id="uploadSection">
+                <div class="upload-card">
+                    <div class="upload-icon">
+                        <i class="fas fa-cloud-upload-alt"></i>
+                    </div>
+                    <h2>Upload Audio File</h2>
+                    <p>Drag and drop your audio file here or click to browse</p>
+
+                    <form id="uploadForm" class="upload-form">
+                        <div class="file-input-wrapper">
+                            <input type="file" id="audioFile" name="audio_file" accept="audio/*" class="file-input" required>
+                            <label for="audioFile" class="file-input-label">
+                                <i class="fas fa-folder-open"></i>
+                                Choose Audio File
+                            </label>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="modelSize">Model Size:</label>
+                            <select id="modelSize" name="model_size" class="form-select">
+                                <option value="tiny">Tiny (Fastest)</option>
+                                <option value="base">Base</option>
+                                <option value="small">Small</option>
+                                <option value="medium">Medium</option>
+                                <option value="large">Large</option>
+                                <option value="large-v2" selected>Large V2 (Recommended)</option>
+                                <option value="large-v3">Large V3</option>
+                            </select>
+                        </div>
+
+                        <div class="form-group">
+                            <div class="env-note">
+                                <i class="fas fa-info-circle"></i>
+                                <span>HuggingFace token is automatically loaded from <code>HF_TOKEN</code> environment variable</span>
+                            </div>
+                            <small class="form-help">Make sure to set: <code>export HF_TOKEN='your_token_here'</code> before starting the server</small>
+                        </div>
+
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="minSpeakers">Min Speakers:</label>
+                                <input type="number" id="minSpeakers" name="min_speakers" class="form-input" min="1" max="10" placeholder="Optional">
+                            </div>
+                            <div class="form-group">
+                                <label for="maxSpeakers">Max Speakers:</label>
+                                <input type="number" id="maxSpeakers" name="max_speakers" class="form-input" min="1" max="10" placeholder="Optional">
+                            </div>
+                        </div>
+
+                        <button type="submit" class="upload-btn" id="uploadBtn">
+                            <i class="fas fa-play"></i>
+                            Process Audio
+                        </button>
+                    </form>
+                </div>
+            </section>
+
+            <!-- Processing Section -->
+            <section class="processing-section" id="processingSection" style="display: none;">
+                <div class="processing-card">
+                    <div class="processing-icon">
+                        <i class="fas fa-cog fa-spin"></i>
+                    </div>
+                    <h2>Processing Audio...</h2>
+                    <p>This may take a few minutes depending on the file size and model</p>
+
+                    <div class="progress-bar">
+                        <div class="progress-fill" id="progressFill"></div>
+                    </div>
+
+                    <div class="processing-steps">
+                        <div class="step active" id="step1">
+                            <i class="fas fa-microphone"></i>
+                            <span>Transcribing</span>
+                        </div>
+                        <div class="step" id="step2">
+                            <i class="fas fa-align-left"></i>
+                            <span>Aligning</span>
+                        </div>
+                        <div class="step" id="step3">
+                            <i class="fas fa-users"></i>
+                            <span>Diarizing</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Results Section -->
+            <section class="results-section" id="resultsSection" style="display: none;">
+                <div class="results-header">
+                    <h2>Transcription Results</h2>
+                    <div class="results-actions">
+                        <button class="action-btn" id="exportBtn">
+                            <i class="fas fa-download"></i>
+                            Export
+                        </button>
+                        <button class="action-btn secondary" id="newFileBtn">
+                            <i class="fas fa-plus"></i>
+                            New File
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Metadata Card -->
+                <div class="metadata-card">
+                    <div class="metadata-grid">
+                        <div class="metadata-item">
+                            <i class="fas fa-language"></i>
+                            <div>
+                                <span class="label">Language</span>
+                                <span class="value" id="language">-</span>
+                            </div>
+                        </div>
+                        <div class="metadata-item">
+                            <i class="fas fa-clock"></i>
+                            <div>
+                                <span class="label">Duration</span>
+                                <span class="value" id="duration">-</span>
+                            </div>
+                        </div>
+                        <div class="metadata-item">
+                            <i class="fas fa-users"></i>
+                            <div>
+                                <span class="label">Speakers</span>
+                                <span class="value" id="speakers">-</span>
+                            </div>
+                        </div>
+                        <div class="metadata-item">
+                            <i class="fas fa-paragraph"></i>
+                            <div>
+                                <span class="label">Segments</span>
+                                <span class="value" id="segments">-</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Transcription Results -->
+                <div class="transcription-card">
+                    <h3>Transcription with Speaker Diarization</h3>
+                    <div class="transcription-content" id="transcriptionContent">
+                        <!-- Results will be populated here -->
+                    </div>
+                </div>
+            </section>
+        </main>
+
+        <!-- Footer -->
+        <footer class="footer">
+            <p>&copy; 2024 WhisperX Audio Processor. Powered by OpenAI Whisper and Pyannote.</p>
+        </footer>
+    </div>
+
+    <!-- Toast Notifications -->
+    <div class="toast-container" id="toastContainer"></div>
+
+    <script src="script.js"></script>
+</body>
+</html>
