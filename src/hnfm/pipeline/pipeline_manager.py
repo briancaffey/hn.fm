@@ -18,6 +18,7 @@ from hnfm.audio.tts_service import TTSService
 from hnfm.audio.studio_voice_service import StudioVoiceService
 from hnfm.audio.audio_processor import AudioProcessor
 from hnfm.audio.asr_service import ASRService
+from hnfm.video.video_generator import VideoGenerator
 
 logger = logging.getLogger(__name__)
 
@@ -115,6 +116,8 @@ class PipelineManager:
                 self._services[service_name] = AudioProcessor()
             elif service_name == "asr_service":
                 self._services[service_name] = ASRService()
+            elif service_name == "video_generator":
+                self._services[service_name] = VideoGenerator()
             else:
                 raise ValueError(f"Unknown service: {service_name}")
 
@@ -185,6 +188,13 @@ class PipelineManager:
                 dependencies=["audio_assembly"],
                 cache_key="asr_results",
                 output_files=["content/asr.json"],
+            ),
+            "video_generation": PipelineStep(
+                name="video_generation",
+                description="Generate video with spoken words",
+                dependencies=["asr_processing"],
+                cache_key="video_results",
+                output_files=["content/video.mp4"],
             ),
         }
 
@@ -337,6 +347,8 @@ class PipelineManager:
                 output = self._execute_audio_assembly(inputs)
             elif step_name == "asr_processing":
                 output = self._execute_asr_processing(inputs)
+            elif step_name == "video_generation":
+                output = self._execute_video_generation(inputs)
             else:
                 raise ValueError(f"Unknown step: {step_name}")
 
@@ -997,6 +1009,57 @@ class PipelineManager:
         except Exception as e:
             logger.error(f"Failed to perform ASR processing: {e}")
             raise RuntimeError(f"ASR processing failed: {e}")
+
+    def _execute_video_generation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute video generation step."""
+        try:
+            asr_results_path = inputs.get("asr_results_path")
+            final_audio = inputs.get("final_audio")
+            story_dir = inputs.get("story_dir")
+
+            if not asr_results_path or not os.path.exists(asr_results_path):
+                raise RuntimeError("ASR results file not found for video generation")
+            if not final_audio or not os.path.exists(final_audio):
+                raise RuntimeError("Final audio file not found for video generation")
+            if not story_dir:
+                raise RuntimeError("No story directory found for video generation")
+
+            print("   🎬 Generating video with spoken words...")
+            logger.info("🎬 Generating video with spoken words...")
+
+            # Use the video generator service
+            video_service = self._get_service("video_generator")
+
+            # Define the output path
+            video_output_path = Path(story_dir) / "content" / "video.mp4"
+
+            # Generate the video
+            video_results = video_service.process_and_save(
+                asr_file_path=asr_results_path,
+                audio_file_path=final_audio,
+                output_path=str(video_output_path)
+            )
+
+            # Clear, high-level video completion logging
+            print(f"   ✅ Video generation completed")
+            try:
+                relative_path = video_output_path.relative_to(Path.cwd())
+                print(f"   📁 Saved to: {relative_path}")
+            except ValueError:
+                # If we can't get relative path, just show the absolute path
+                print(f"   📁 Saved to: {video_output_path}")
+
+            logger.info(f"✅ Video generation completed successfully")
+            logger.info(f"🎥 Video saved: {video_output_path}")
+
+            return {
+                "video_results": video_results,
+                "video_path": str(video_output_path),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to perform video generation: {e}")
+            raise RuntimeError(f"Video generation failed: {e}")
 
     def _get_audio_duration(self, file_path: str) -> Optional[float]:
         """Get the duration of a WAV file in seconds.
