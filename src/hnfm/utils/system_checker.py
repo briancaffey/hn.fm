@@ -40,6 +40,7 @@ class SystemChecker:
             ("Firecrawl", self._check_firecrawl),
             ("Gradio TTS", self._check_gradio_tts),
             ("Studio Voice", self._check_studio_voice),
+            ("ASR Service", self._check_asr_service),
         ]
 
         results = []
@@ -249,6 +250,51 @@ class SystemChecker:
             return ServiceStatus(
                 name="Studio Voice",
                 url=health_url,
+                status="offline",
+                response_time=0.0,
+                error_message=str(e)
+            )
+
+    def _check_asr_service(self) -> ServiceStatus:
+        """Check ASR service (WhisperX)."""
+        from ..utils.config import config_manager
+
+        base_url = config_manager.get("asr.base_url")
+        if not base_url:
+            return ServiceStatus(
+                name="ASR Service",
+                url="not configured",
+                status="offline",
+                response_time=0.0,
+                error_message="ASR base URL not configured"
+            )
+
+        try:
+            start_time = time.time()
+            response = requests.get(f"{base_url}/health", timeout=self.timeout)
+            response_time = time.time() - start_time
+
+            if response.status_code == 200:
+                return ServiceStatus(
+                    name="ASR Service",
+                    url=base_url,
+                    status="online",
+                    response_time=response_time,
+                    details={"health_endpoint": f"{base_url}/health", "response": response.text[:100] + "..." if len(response.text) > 100 else response.text}
+                )
+            else:
+                return ServiceStatus(
+                    name="ASR Service",
+                    url=base_url,
+                    status="offline",
+                    response_time=response_time,
+                    error_message=f"HTTP {response.status_code}"
+                )
+
+        except requests.exceptions.RequestException as e:
+            return ServiceStatus(
+                name="ASR Service",
+                url=base_url,
                 status="offline",
                 response_time=0.0,
                 error_message=str(e)

@@ -53,6 +53,7 @@ pipeline:
     - "tts_generation"
     - "audio_cleaning"
     - "audio_assembly"
+    - "asr_processing"
 
   # Cache configuration
   cache:
@@ -79,6 +80,13 @@ apis:
 
   hn:
     user_agent: "hn.fm/0.1.0 (briancaffey)"
+
+# ASR Service Configuration (WhisperX)
+asr:
+  base_url: "${ASR_BASE_URL}"
+  model_size: "${ASR_MODEL_SIZE}"
+  min_speakers: 2
+  max_speakers: 2
 
 # Development Configuration
 development:

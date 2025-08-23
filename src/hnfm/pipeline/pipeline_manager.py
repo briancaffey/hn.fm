@@ -17,6 +17,7 @@ from hnfm.content.script_generator import ScriptGenerator
 from hnfm.audio.tts_service import TTSService
 from hnfm.audio.studio_voice_service import StudioVoiceService
 from hnfm.audio.audio_processor import AudioProcessor
+from hnfm.audio.asr_service import ASRService
 
 logger = logging.getLogger(__name__)
 
@@ -112,6 +113,8 @@ class PipelineManager:
                 )
             elif service_name == "audio_processor":
                 self._services[service_name] = AudioProcessor()
+            elif service_name == "asr_service":
+                self._services[service_name] = ASRService()
             else:
                 raise ValueError(f"Unknown service: {service_name}")
 
@@ -175,6 +178,13 @@ class PipelineManager:
                 dependencies=["audio_cleaning"],
                 cache_key="final_audio",
                 output_files=["final_audio.wav"],
+            ),
+            "asr_processing": PipelineStep(
+                name="asr_processing",
+                description="Process audio through ASR service",
+                dependencies=["audio_assembly"],
+                cache_key="asr_results",
+                output_files=["content/asr.json"],
             ),
         }
 
@@ -325,6 +335,8 @@ class PipelineManager:
                 output = self._execute_audio_cleaning(inputs)
             elif step_name == "audio_assembly":
                 output = self._execute_audio_assembly(inputs)
+            elif step_name == "asr_processing":
+                output = self._execute_asr_processing(inputs)
             else:
                 raise ValueError(f"Unknown step: {step_name}")
 
@@ -922,6 +934,69 @@ class PipelineManager:
         except Exception as e:
             logger.error(f"Failed to validate audio assembly: {e}")
             raise RuntimeError(f"Audio assembly validation failed: {e}")
+
+    def _execute_asr_processing(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute ASR processing step."""
+        try:
+            final_audio = inputs.get("final_audio")
+            story_dir = inputs.get("story_dir")
+
+            if not final_audio or not os.path.exists(final_audio):
+                raise RuntimeError("Final audio file not found for ASR processing")
+            if not story_dir:
+                raise RuntimeError("No story directory found for ASR processing")
+
+            print("   🎙️ Processing audio through ASR...")
+            logger.info("🎙️ Processing audio through ASR...")
+
+            # Create a temporary audio file for ASR
+            import tempfile
+
+            with tempfile.NamedTemporaryFile(
+                mode="wb", suffix=".wav", delete=False
+            ) as f:
+                with open(final_audio, "rb") as src_f:
+                    f.write(src_f.read())
+                temp_audio_file = f.name
+
+            try:
+                # Use the ASR service directly
+                asr_service = self._get_service("asr_service")
+
+                # Define the output path
+                asr_results_path = Path(story_dir) / "content" / "asr.json"
+
+                # Process and save the audio file
+                asr_results = asr_service.process_and_save(
+                    audio_file_path=temp_audio_file,
+                    output_path=str(asr_results_path)
+                )
+
+                # Clear, high-level ASR completion logging
+                print(f"   ✅ ASR processing completed")
+                try:
+                    relative_path = asr_results_path.relative_to(Path.cwd())
+                    print(f"   📁 Saved to: {relative_path}")
+                except ValueError:
+                    # If we can't get relative path, just show the absolute path
+                    print(f"   📁 Saved to: {asr_results_path}")
+
+                logger.info(f"✅ ASR processing completed successfully")
+                logger.info(f"📄 ASR results saved: {asr_results_path}")
+
+                return {
+                    "asr_results": asr_results,
+                    "asr_results_path": str(asr_results_path),
+                }
+
+            finally:
+                # Clean up temporary file
+                if Path(temp_audio_file).exists():
+                    Path(temp_audio_file).unlink()
+
+        except Exception as e:
+            logger.error(f"Failed to perform ASR processing: {e}")
+            raise RuntimeError(f"ASR processing failed: {e}")
 
     def _get_audio_duration(self, file_path: str) -> Optional[float]:
         """Get the duration of a WAV file in seconds.

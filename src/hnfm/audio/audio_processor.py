@@ -103,3 +103,28 @@ class AudioProcessor:
         except Exception as e:
             logger.error(f"Failed to combine audio files: {e}")
             raise RuntimeError(f"Audio combination failed: {e}")
+
+    def process_audio_for_asr(self, audio_file_path: str, story_dir: Union[str, Path]) -> dict:
+        """Process audio file through ASR service and save results.
+
+        Args:
+            audio_file_path: Path to the audio file to process
+            story_dir: Directory where to save ASR results
+
+        Returns:
+            ASR processing results as a dictionary
+        """
+        try:
+            from .asr_service import ASRService
+
+            # Create ASR service instance
+            asr_service = ASRService()
+
+            # Process the audio
+            results = asr_service.process_audio(audio_file_path)
+
+            return results
+
+        except Exception as e:
+            logger.error(f"Failed to process audio for ASR: {e}")
+            raise RuntimeError(f"ASR processing failed: {e}")

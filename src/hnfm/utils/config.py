@@ -102,6 +102,7 @@ class ConfigManager:
                     "tts_generation",
                     "audio_cleaning",
                     "audio_assembly",
+                    "asr_processing",
                 ],
                 "cache": {
                     "enabled": True,
@@ -123,6 +124,12 @@ class ConfigManager:
                 },
                 "openai": {"api_key": "${OPENAI_API_KEY}"},
                 "hn": {"user_agent": "${HN_USER_AGENT}"},
+            },
+            "asr": {
+                "base_url": "${ASR_BASE_URL}",
+                "model_size": "${ASR_MODEL_SIZE}",
+                "min_speakers": "${ASR_MIN_SPEAKERS}",
+                "max_speakers": "${ASR_MAX_SPEAKERS}",
             },
             "development": {
                 "debug": "${DEBUG}",
