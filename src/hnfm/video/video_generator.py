@@ -145,8 +145,10 @@ class VideoGenerator:
                 # Write styles section
                 f.write("[V4+ Styles]\n")
                 f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
-                f.write("Style: Speaker00,DejaVu Sans,48,&H00FFFFFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n")
-                f.write("Style: Speaker01,DejaVu Sans,48,&H00008CFF,&H000000FF,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
+                # Speaker00: White text with orange border
+                f.write("Style: Speaker00,DejaVu Sans,48,&H00FFFFFF,&H000000FF,&H00008CFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n")
+                # Speaker01: Orange text with white border
+                f.write("Style: Speaker01,DejaVu Sans,48,&H00008CFF,&H000000FF,&H00FFFFFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
 
                 # Write events section
                 f.write("[Events]\n")
