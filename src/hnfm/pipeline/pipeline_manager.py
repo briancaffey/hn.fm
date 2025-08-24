@@ -19,6 +19,7 @@ from hnfm.audio.studio_voice_service import StudioVoiceService
 from hnfm.audio.audio_processor import AudioProcessor
 from hnfm.audio.asr_service import ASRService
 from hnfm.video.video_generator import VideoGenerator
+from hnfm.video.image_generator import ImageGenerationService
 
 logger = logging.getLogger(__name__)
 
@@ -54,22 +55,28 @@ class PipelineState:
 class PipelineManager:
     """Manages the hn.fm pipeline workflow."""
 
-    def __init__(self, cache_dir: Optional[str] = None):
+    def __init__(self, cache_dir: Optional[str] = None, text_only: bool = False):
         """Initialize pipeline manager.
 
         Args:
             cache_dir: Cache directory path
+            text_only: If True, only generate text content (no TTS, images, or video)
         """
         self.cache_dir = Path(
             cache_dir or config_manager.get("pipeline.cache.directory", "cache")
         )
         self.cache_dir.mkdir(exist_ok=True)
 
+        self.text_only = text_only
+
         # Initialize services lazily to avoid dependency issues
         self._services = {}
 
         # Pipeline steps definition
         self.pipeline_steps = self._define_pipeline_steps()
+
+        if text_only:
+            logger.info("Running in text-only mode - TTS, image, and video generation will be skipped")
 
     def _get_service(self, service_name: str):
         """Get a service instance, creating it if needed.
@@ -116,6 +123,8 @@ class PipelineManager:
                 self._services[service_name] = AudioProcessor()
             elif service_name == "asr_service":
                 self._services[service_name] = ASRService()
+            elif service_name == "image_generator":
+                self._services[service_name] = ImageGenerationService()
             elif service_name == "video_generator":
                 self._services[service_name] = VideoGenerator()
             else:
@@ -125,7 +134,7 @@ class PipelineManager:
 
     def _define_pipeline_steps(self) -> Dict[str, PipelineStep]:
         """Define the pipeline steps and their dependencies."""
-        return {
+        base_steps = {
             "system_check": PipelineStep(
                 name="system_check",
                 description="Check all required services are running",
@@ -161,42 +170,64 @@ class PipelineManager:
                 cache_key="script",
                 output_files=["script.txt", "tts_lines.txt", "script_meta.json"],
             ),
-            "tts_generation": PipelineStep(
-                name="tts_generation",
-                description="Generate TTS audio",
+            "image_prompt_generation": PipelineStep(
+                name="image_prompt_generation",
+                description="Generate image prompts using LLM",
                 dependencies=["script_generation"],
-                cache_key="tts_audio",
-                output_files=["batch_*.wav"],
-            ),
-            "audio_cleaning": PipelineStep(
-                name="audio_cleaning",
-                description="Clean audio using Studio Voice",
-                dependencies=["tts_generation"],
-                cache_key="cleaned_audio",
-                output_files=["cleaned_batch_*.wav"],
-            ),
-            "audio_assembly": PipelineStep(
-                name="audio_assembly",
-                description="Assemble final audio",
-                dependencies=["audio_cleaning"],
-                cache_key="final_audio",
-                output_files=["final_audio.wav"],
-            ),
-            "asr_processing": PipelineStep(
-                name="asr_processing",
-                description="Process audio through ASR service",
-                dependencies=["audio_assembly"],
-                cache_key="asr_results",
-                output_files=["content/asr.json"],
-            ),
-            "video_generation": PipelineStep(
-                name="video_generation",
-                description="Generate video with spoken words",
-                dependencies=["asr_processing"],
-                cache_key="video_results",
-                output_files=["content/video.mp4"],
+                cache_key="image_prompts",
+                output_files=["content/main.yaml"],
             ),
         }
+
+        # Add media generation steps only if not in text-only mode
+        if not self.text_only:
+            media_steps = {
+                "image_generation": PipelineStep(
+                    name="image_generation",
+                    description="Generate images for script segments",
+                    dependencies=["script_generation"],
+                    cache_key="images",
+                    output_files=["images/*.png"],
+                ),
+                "tts_generation": PipelineStep(
+                    name="tts_generation",
+                    description="Generate TTS audio",
+                    dependencies=["image_generation"],
+                    cache_key="tts_audio",
+                    output_files=["batch_*.wav"],
+                ),
+                "audio_cleaning": PipelineStep(
+                    name="audio_cleaning",
+                    description="Clean audio using Studio Voice",
+                    dependencies=["tts_generation"],
+                    cache_key="cleaned_audio",
+                    output_files=["cleaned_batch_*.wav"],
+                ),
+                "audio_assembly": PipelineStep(
+                    name="audio_assembly",
+                    description="Assemble final audio",
+                    dependencies=["audio_cleaning"],
+                    cache_key="final_audio",
+                    output_files=["final_audio.wav"],
+                ),
+                "asr_processing": PipelineStep(
+                    name="asr_processing",
+                    description="Process audio through ASR service",
+                    dependencies=["audio_assembly"],
+                    cache_key="asr_results",
+                    output_files=["content/asr.json"],
+                ),
+                "video_generation": PipelineStep(
+                    name="video_generation",
+                    description="Generate video with spoken words",
+                    dependencies=["asr_processing"],
+                    cache_key="video_results",
+                    output_files=["content/video.mp4"],
+                ),
+            }
+            base_steps.update(media_steps)
+
+        return base_steps
 
     def _generate_cache_key(self, step_name: str, inputs: Dict[str, Any]) -> str:
         """Generate a cache key for a step.
@@ -339,6 +370,10 @@ class PipelineManager:
                 output = self._execute_content_processing(inputs)
             elif step_name == "script_generation":
                 output = self._execute_script_generation(inputs)
+            elif step_name == "image_prompt_generation":
+                output = self._execute_image_prompt_generation(inputs)
+            elif step_name == "image_generation":
+                output = self._execute_image_generation(inputs)
             elif step_name == "tts_generation":
                 output = self._execute_tts_generation(inputs)
             elif step_name == "audio_cleaning":
@@ -589,6 +624,12 @@ class PipelineManager:
             logger.info(f"📝 Content length: {content_length} characters")
             logger.info(f"📁 Saved to: {content_dir}")
 
+            # Log what we're returning
+            logger.info(f"🔍 Firecrawl content outputs:")
+            logger.info(f"🔍 Title: {title}")
+            logger.info(f"🔍 Story dir: {story_dir}")
+            logger.info(f"🔍 Content dir: {content_dir}")
+
             return {
                 "raw_content": extracted_content.get("content", ""),
                 "title": title,
@@ -660,6 +701,12 @@ class PipelineManager:
             logger.info(f"📄 Meaningful paragraphs: {len(meaningful_paragraphs)}")
             logger.info(f"📁 Saved to: {content_dir}")
 
+            # Log what we're passing through
+            logger.info(f"🔍 Content processing outputs:")
+            logger.info(f"🔍 Title: {inputs.get('title')}")
+            logger.info(f"🔍 Story dir: {inputs.get('story_dir')}")
+            logger.info(f"🔍 Content dir: {inputs.get('content_dir')}")
+
             return {
                 "cleaned_content": cleaned_content,
                 "meaningful_paragraphs": meaningful_paragraphs,
@@ -729,6 +776,56 @@ class PipelineManager:
                     ensure_ascii=False,
                 )
 
+                        # Create main content structure (always, regardless of text-only mode)
+            try:
+                from ..content import ContentManager
+                content_manager = ContentManager()
+
+                # Get image style from config
+                image_style = config_manager.get("image_generation.default_style", "detailed cartoon style")
+
+                # Get story_dir from inputs with detailed logging
+                story_dir = inputs.get("story_dir")
+                logger.info(f"🔍 Script generation inputs keys: {list(inputs.keys())}")
+                logger.info(f"🔍 Story dir from inputs: {story_dir}")
+                logger.info(f"🔍 Title from inputs: {title}")
+                logger.info(f"🔍 Content dir from inputs: {content_dir}")
+
+                if story_dir:
+                    logger.info(f"✅ Creating main content structure in: {story_dir}")
+                    main_yaml_path = content_manager.create_main_content_structure(
+                        title=title,
+                        script=script_data.get("script", ""),
+                        tts_lines=script_data.get("tts_lines", []),
+                        story_dir=Path(story_dir),
+                        image_style=image_style
+                    )
+
+                    logger.info(f"✅ Created main content structure: {main_yaml_path}")
+                else:
+                    logger.error(f"❌ No story_dir found in inputs! Available keys: {list(inputs.keys())}")
+                    logger.error(f"❌ This means the pipeline data flow is broken")
+                    # Try to create it in the content_dir as fallback
+                    try:
+                        logger.info(f"🔄 Attempting fallback: creating main content structure in content_dir: {content_dir}")
+                        main_yaml_path = content_manager.create_main_content_structure(
+                            title=title,
+                            script=script_data.get("script", ""),
+                            tts_lines=script_data.get("tts_lines", []),
+                            story_dir=Path(content_dir).parent,  # Go up one level from content/ to story_dir
+                            image_style=image_style
+                        )
+                        logger.info(f"✅ Fallback successful: {main_yaml_path}")
+                    except Exception as fallback_e:
+                        logger.error(f"❌ Fallback also failed: {fallback_e}")
+
+            except Exception as e:
+                logger.error(f"❌ Failed to create main content structure: {e}")
+                logger.error(f"❌ Full error details: {type(e).__name__}: {str(e)}")
+                import traceback
+                logger.error(f"❌ Traceback: {traceback.format_exc()}")
+                # Don't fail the script generation step for this
+
             # Clear, high-level script generation logging
             script_length = len(script_data.get("script", ""))
             tts_lines_count = len(script_data.get("tts_lines", []))
@@ -753,6 +850,146 @@ class PipelineManager:
         except Exception as e:
             logger.error(f"Failed to generate script: {e}")
             raise RuntimeError(f"Script generation failed: {e}")
+
+    def _execute_image_prompt_generation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute image prompt generation step using LLM."""
+        try:
+            script_data = inputs.get("script")
+            tts_lines = inputs.get("tts_lines")
+            story_dir = inputs.get("story_dir")
+
+            if not script_data:
+                raise RuntimeError("No script data found for image prompt generation")
+            if not story_dir:
+                raise RuntimeError("No story directory found for image prompt generation")
+
+            print("   🎨 Generating image prompts using LLM...")
+            logger.info("🎨 Generating image prompts using LLM...")
+
+            # Load the main content structure
+            from ..content import ContentManager
+            content_manager = ContentManager()
+
+            try:
+                content_data = content_manager.load_main_content(Path(story_dir))
+                logger.info("Loaded main content structure for image prompt generation")
+            except Exception as e:
+                logger.warning(f"Could not load main content structure: {e}")
+                content_data = None
+
+            # Generate image prompts using LLM
+            from ..content import ImagePromptGenerator
+            prompt_generator = ImagePromptGenerator()
+
+            if content_data:
+                # Use the content structure for better prompts
+                image_prompts = prompt_generator.batch_generate_prompts(content_data)
+                logger.info(f"Generated {len(image_prompts)} image prompts using LLM")
+
+                # Update the content structure with prompts
+                content_manager.update_image_prompts(Path(story_dir), image_prompts)
+
+                logger.info("Updated main content structure with image prompts")
+            else:
+                logger.warning("No content data available for image prompt generation")
+
+            return {
+                "image_prompts_generated": True,
+                "prompt_count": len(image_prompts) if content_data else 0,
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to generate image prompts: {e}")
+            raise RuntimeError(f"Image prompt generation failed: {e}")
+
+    def _execute_image_generation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute image generation step."""
+        try:
+            script_data = inputs.get("script")
+            tts_lines = inputs.get("tts_lines")
+            story_dir = inputs.get("story_dir")
+
+            if not script_data:
+                raise RuntimeError("No script data found for image generation")
+            if not story_dir:
+                raise RuntimeError("No story directory found for image generation")
+
+            print("   🎨 Generating images for script segments...")
+            logger.info("🎨 Generating images for script segments...")
+
+            # Load the main content structure
+            from ..content import ContentManager
+            content_manager = ContentManager()
+
+            try:
+                content_data = content_manager.load_main_content(Path(story_dir))
+                logger.info("Loaded main content structure for image generation")
+            except Exception as e:
+                logger.warning(f"Could not load main content structure: {e}")
+                content_data = None
+
+            # Generate image prompts using LLM
+            from ..content import ImagePromptGenerator
+            prompt_generator = ImagePromptGenerator()
+
+            if content_data:
+                # Use the content structure for better prompts
+                image_prompts = prompt_generator.batch_generate_prompts(content_data)
+                logger.info(f"Generated {len(image_prompts)} image prompts using LLM")
+
+                # Update the content structure with prompts
+                content_manager.update_image_prompts(Path(story_dir), image_prompts)
+
+                # Use the generated prompts for image generation
+                script_segments = []
+                for prompt_data in image_prompts:
+                    script_segments.append({
+                        "text": prompt_data["prompt"],
+                        "group_id": prompt_data["group_id"]
+                    })
+            else:
+                # Fallback to simple text-based prompts
+                logger.info("Using fallback text-based image prompts")
+                script_segments = [{"text": line} for line in tts_lines]
+
+            # Use the image generation service
+            image_service = self._get_service("image_generator")
+
+            # Create images directory
+            images_dir = Path(story_dir) / "images"
+            images_dir.mkdir(exist_ok=True)
+
+            # Generate images for each script segment
+            generated_images = image_service.generate_images_for_script(
+                script_segments=script_segments,
+                output_dir=images_dir
+            )
+
+            # Update content structure with generated images if available
+            if content_data:
+                try:
+                    content_manager.update_generated_images(Path(story_dir), generated_images)
+                    logger.info("Updated content structure with generated images")
+                except Exception as e:
+                    logger.warning(f"Failed to update content structure with images: {e}")
+
+            # Clear, high-level image generation logging
+            print(f"   ✅ Generated {len(generated_images)} images")
+            print(f"   📁 Saved to: {images_dir.name}")
+
+            logger.info(f"✅ Image generation completed successfully")
+            logger.info(f"🎨 Generated {len(generated_images)} images")
+            logger.info(f"📁 Images saved to: {images_dir}")
+
+            return {
+                "generated_images": [str(img) for img in generated_images],
+                "images_dir": str(images_dir),
+                "image_count": len(generated_images),
+            }
+
+        except Exception as e:
+            logger.error(f"Failed to generate images: {e}")
+            raise RuntimeError(f"Image generation failed: {e}")
 
     def _execute_tts_generation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
         """Execute TTS generation step."""
@@ -1033,10 +1270,16 @@ class PipelineManager:
             # Define the output path
             video_output_path = Path(story_dir) / "content" / "video.mp4"
 
+            # Get the main.yaml path for content structure
+            main_yaml_path = Path(story_dir) / "content" / "main.yaml"
+            if not main_yaml_path.exists():
+                raise RuntimeError(f"Main content file not found: {main_yaml_path}")
+
             # Generate the video
             video_results = video_service.process_and_save(
                 asr_file_path=asr_results_path,
                 audio_file_path=final_audio,
+                main_yaml_path=str(main_yaml_path),
                 output_path=str(video_output_path)
             )
 
@@ -1230,6 +1473,14 @@ class PipelineManager:
 
                 # Execute the step
                 output = self._execute_step(step_name, current_inputs, start_from_step)
+
+                # Log the data flow between steps
+                logger.info(f"🔍 Step {step_name} completed with {len(output)} outputs")
+                logger.info(f"🔍 Step {step_name} output keys: {list(output.keys())}")
+                if "story_dir" in output:
+                    logger.info(f"🔍 Step {step_name} story_dir: {output['story_dir']}")
+                if "title" in output:
+                    logger.info(f"🔍 Step {step_name} title: {output['title']}")
 
                 # Update inputs for next step
                 current_inputs.update(output)

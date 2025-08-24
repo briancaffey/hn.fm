@@ -131,6 +131,17 @@ class ConfigManager:
                 "min_speakers": "${ASR_MIN_SPEAKERS}",
                 "max_speakers": "${ASR_MAX_SPEAKERS}",
             },
+            "image_generation": {
+                "base_url": "${IMAGE_GENERATION_BASE_URL}",
+                "default_height": 1024,
+                "default_width": 1024,
+                "default_cfg_scale": 5,
+                "default_mode": "base",
+                "default_steps": 50,
+                "default_samples": 1,
+                "output_directory": "images",
+                "default_style": "detailed cartoon style",
+            },
             "development": {
                 "debug": "${DEBUG}",
                 "log_level": "${LOG_LEVEL}",
