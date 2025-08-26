@@ -10,10 +10,15 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from hnfm.pipeline import PipelineManager
 from hnfm.utils.config import config_manager
+from hnfm.utils.logger import setup_logging
 
 
 def main():
     """Main CLI function."""
+    # Setup logging first
+    log_level = config_manager.get("development.log_level", "INFO")
+    setup_logging(level=log_level)
+
     parser = argparse.ArgumentParser(
         description="Run the hn.fm pipeline workflow",
         formatter_class=argparse.RawDescriptionHelpFormatter,

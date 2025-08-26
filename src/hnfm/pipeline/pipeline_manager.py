@@ -10,6 +10,7 @@ import logging
 from dataclasses import dataclass
 
 from hnfm.utils.config import config_manager
+from hnfm.utils.logger import setup_logging
 from hnfm.scraper.hn_scraper import HNScraper
 from hnfm.scraper.content_scraper import ContentScraper
 from hnfm.content.content_processor import ContentProcessor
@@ -20,6 +21,10 @@ from hnfm.audio.audio_processor import AudioProcessor
 from hnfm.audio.asr_service import ASRService
 from hnfm.video.video_generator import VideoGenerator
 from hnfm.video.image_generator import ImageGenerationService
+
+# Setup logging based on config
+log_level = config_manager.get("development.log_level", "INFO")
+setup_logging(level=log_level)
 
 logger = logging.getLogger(__name__)
 
@@ -398,7 +403,7 @@ class PipelineManager:
             # Clear, high-level step completion logging
             duration = step.end_time - step.start_time
             print(
-                f"✅ {step_name.upper().replace('_', ' ')} COMPLETED ({duration.total_seconds():.1f}s)"
+                f"   ✅ {step_name.upper().replace('_', ' ')} COMPLETED ({duration.total_seconds():.1f}s)"
             )
             logger.info(
                 f"✅ Completed {step_name} step in {duration.total_seconds():.1f}s"
@@ -872,9 +877,9 @@ class PipelineManager:
 
             try:
                 content_data = content_manager.load_main_content(Path(story_dir))
-                logger.info("Loaded main content structure for image prompt generation")
+                logger.info("✅ Loaded main content structure for image prompt generation")
             except Exception as e:
-                logger.warning(f"Could not load main content structure: {e}")
+                logger.warning(f"⚠️ Could not load main content structure: {e}")
                 content_data = None
 
             # Generate image prompts using LLM
@@ -883,16 +888,26 @@ class PipelineManager:
 
             if content_data:
                 # Use the content structure for better prompts
+                logger.debug("🚀 Starting LLM-powered image prompt generation...")
                 image_prompts = prompt_generator.batch_generate_prompts(content_data)
-                logger.info(f"Generated {len(image_prompts)} image prompts using LLM")
+                logger.info(f"✅ Generated {len(image_prompts)} image prompts using LLM")
 
                 # Update the content structure with prompts
                 content_manager.update_image_prompts(Path(story_dir), image_prompts)
+                logger.info("✅ Updated main content structure with image prompts")
 
-                logger.info("Updated main content structure with image prompts")
+                # Log summary of generated prompts
+                logger.debug("📋 Generated image prompts summary:")
+                for i, prompt_data in enumerate(image_prompts[:3], 1):  # Show first 3
+                    prompt_preview = prompt_data["prompt"][:80] + "..." if len(prompt_data["prompt"]) > 80 else prompt_data["prompt"]
+                    logger.debug(f"   {i}. Group {prompt_data['group_id']}: {prompt_preview}")
+                if len(image_prompts) > 3:
+                    logger.debug(f"   ... and {len(image_prompts) - 3} more prompts")
             else:
-                logger.warning("No content data available for image prompt generation")
+                logger.warning("⚠️ No content data available for image prompt generation")
+                logger.debug("📝 Will use fallback text-based prompts during image generation")
 
+            logger.info(f"🎉 Image prompt generation complete! Generated {len(image_prompts) if content_data else 0} prompts")
             return {
                 "image_prompts_generated": True,
                 "prompt_count": len(image_prompts) if content_data else 0,
@@ -923,9 +938,9 @@ class PipelineManager:
 
             try:
                 content_data = content_manager.load_main_content(Path(story_dir))
-                logger.info("Loaded main content structure for image generation")
+                logger.info("✅ Loaded main content structure for image generation")
             except Exception as e:
-                logger.warning(f"Could not load main content structure: {e}")
+                logger.warning(f"⚠️ Could not load main content structure: {e}")
                 content_data = None
 
             # Generate image prompts using LLM
@@ -934,8 +949,9 @@ class PipelineManager:
 
             if content_data:
                 # Use the content structure for better prompts
+                logger.debug("🚀 Starting LLM-powered image prompt generation...")
                 image_prompts = prompt_generator.batch_generate_prompts(content_data)
-                logger.info(f"Generated {len(image_prompts)} image prompts using LLM")
+                logger.info(f"✅ Generated {len(image_prompts)} image prompts using LLM")
 
                 # Update the content structure with prompts
                 content_manager.update_image_prompts(Path(story_dir), image_prompts)
@@ -947,10 +963,13 @@ class PipelineManager:
                         "text": prompt_data["prompt"],
                         "group_id": prompt_data["group_id"]
                     })
+
+                logger.debug(f"📝 Created {len(script_segments)} script segments from LLM prompts")
             else:
                 # Fallback to simple text-based prompts
-                logger.info("Using fallback text-based image prompts")
+                logger.debug("📝 Using fallback text-based image prompts")
                 script_segments = [{"text": line} for line in tts_lines]
+                logger.debug(f"📝 Created {len(script_segments)} script segments from TTS lines")
 
             # Use the image generation service
             image_service = self._get_service("image_generator")
@@ -958,6 +977,10 @@ class PipelineManager:
             # Create images directory
             images_dir = Path(story_dir) / "images"
             images_dir.mkdir(exist_ok=True)
+
+            logger.info(f"🎨 Starting image generation process")
+            logger.debug(f"📁 Images will be saved to: {images_dir}")
+            logger.debug(f"📊 Processing {len(script_segments)} script segments")
 
             # Generate images for each script segment
             generated_images = image_service.generate_images_for_script(
@@ -969,17 +992,23 @@ class PipelineManager:
             if content_data:
                 try:
                     content_manager.update_generated_images(Path(story_dir), generated_images)
-                    logger.info("Updated content structure with generated images")
+                    logger.info("✅ Updated content structure with generated images")
                 except Exception as e:
-                    logger.warning(f"Failed to update content structure with images: {e}")
+                    logger.warning(f"⚠️ Failed to update content structure with images: {e}")
 
             # Clear, high-level image generation logging
             print(f"   ✅ Generated {len(generated_images)} images")
             print(f"   📁 Saved to: {images_dir.name}")
 
-            logger.info(f"✅ Image generation completed successfully")
-            logger.info(f"🎨 Generated {len(generated_images)} images")
+            logger.info(f"🎉 Image generation completed successfully")
+            logger.info(f"🖼️ Generated {len(generated_images)} images")
             logger.info(f"📁 Images saved to: {images_dir}")
+
+            # Log summary of generated images
+            if generated_images:
+                logger.debug("📋 Generated image files:")
+                for i, img_path in enumerate(generated_images, 1):
+                    logger.debug(f"   {i}. {img_path.name}")
 
             return {
                 "generated_images": [str(img) for img in generated_images],

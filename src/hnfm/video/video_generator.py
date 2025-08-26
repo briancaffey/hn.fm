@@ -250,14 +250,14 @@ class VideoGenerator:
                     logger.info(f"🔍 Found {len(image_groups)} groups with images in narration list")
 
             logger.info(f"🎨 Found {len(image_groups)} image groups for video generation")
-            logger.info(f"🔍 Content structure: images section type={type(images_section)}")
+            logger.debug(f"🔍 Content structure: images section type={type(images_section)}")
             if isinstance(images_section, dict):
-                logger.info(f"🔍 Images section keys: {list(images_section.keys())}")
+                logger.debug(f"🔍 Images section keys: {list(images_section.keys())}")
                 if "generated" in images_section:
-                    logger.info(f"🔍 Generated images count: {len(images_section['generated'])}")
+                    logger.debug(f"🔍 Generated images count: {len(images_section['generated'])}")
                     # Log first few groups for debugging
                     for i, group in enumerate(images_section["generated"][:3]):
-                        logger.info(f"🔍 Image Group {i}: status={group.get('status')}, image_file={group.get('image_file')}")
+                        logger.debug(f"🔍 Image Group {i}: status={group.get('status')}, image_file={group.get('image_file')}")
 
             if not image_groups:
                 logger.warning("⚠️ No images found, falling back to black background")
@@ -269,6 +269,7 @@ class VideoGenerator:
             image_duration = audio_duration / num_images
 
             logger.info(f"⏱️ Each image will display for {image_duration:.2f} seconds")
+            logger.debug(f"🎬 Processing {num_images} images for video generation:")
 
             # Create a temporary directory for intermediate files
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -282,13 +283,21 @@ class VideoGenerator:
                         logger.warning(f"⚠️ Image file not found: {image_path}")
                         continue
 
+                    # Log which image we're processing
+                    image_name = Path(image_path).name
+                    logger.debug(f"   🖼️  Processing image {i+1}/{num_images}: {image_name}")
+
                     # Create a video segment for this image
                     segment_path = temp_dir_path / f"segment_{i:03d}.mp4"
                     self._create_image_segment(image_path, segment_path, image_duration)
                     video_segments.append(segment_path)
 
+                    logger.debug(f"   ✅ Created video segment {i+1}/{num_images}: {segment_path.name}")
+
                 if not video_segments:
                     raise RuntimeError("No valid video segments created")
+
+                logger.debug(f"🎬 Successfully created {len(video_segments)} video segments")
 
                 # Create a file list for ffmpeg concat
                 concat_list_path = temp_dir_path / "concat_list.txt"
@@ -328,6 +337,7 @@ class VideoGenerator:
                     raise RuntimeError("ffmpeg completed but output file not found")
 
                 logger.info(f"✅ ffmpeg completed successfully with images")
+                logger.debug(f"🎉 Video generation complete! Output: {Path(output_path).name}")
                 return output_path
 
         except subprocess.CalledProcessError as e:

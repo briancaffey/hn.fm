@@ -82,7 +82,11 @@ class ImageGenerationService:
         }
 
         try:
-            logger.info(f"Generating image with prompt: {prompt[:50]}...")
+            # Show the beginning of the prompt for context
+            prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+            logger.debug(f"🎨 Generating image with prompt: {prompt_preview}")
+            logger.debug(f"   📐 Settings: {width}x{height}, {steps} steps, CFG {cfg_scale}")
+
             response = requests.post(
                 f"{self.base_url}/v1/infer",
                 json=payload,
@@ -92,11 +96,12 @@ class ImageGenerationService:
             response.raise_for_status()
 
             result = response.json()
-            logger.info(f"Successfully generated {len(result.get('artifacts', []))} image(s)")
+            artifacts_count = len(result.get('artifacts', []))
+            logger.info(f"✅ Successfully generated {artifacts_count} image(s)")
             return result
 
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to generate image: {e}")
+            logger.error(f"❌ Failed to generate image: {e}")
             raise RuntimeError(f"Image generation failed: {e}")
 
     def save_image_from_base64(
@@ -142,12 +147,12 @@ class ImageGenerationService:
 
             # Save image
             image.save(output_file, "PNG")
-            logger.info(f"Saved image to: {output_file}")
+            logger.debug(f"💾 Successfully saved image to: {output_file}")
 
             return output_file
 
         except Exception as e:
-            logger.error(f"Failed to save image: {e}")
+            logger.error(f"❌ Failed to save image: {e}")
             raise RuntimeError(f"Failed to save image: {e}")
 
     def generate_and_save_image(
@@ -200,17 +205,27 @@ class ImageGenerationService:
         output_path.mkdir(parents=True, exist_ok=True)
 
         generated_images = []
+        total_segments = len(script_segments)
+
+        logger.info(f"🎬 Starting image generation for {total_segments} script segments")
+        logger.debug(f"📁 Output directory: {output_path}")
 
         for i, segment in enumerate(script_segments):
             try:
                 # Extract text content from segment
                 text_content = segment.get("text", "")
                 if not text_content:
-                    logger.warning(f"Segment {i} has no text content, skipping")
+                    logger.warning(f"⚠️ Segment {i} has no text content, skipping")
                     continue
 
                 # Generate prompt from text content
                 prompt = self._create_image_prompt(text_content)
+
+                # Show what we're generating for this segment
+                text_preview = text_content[:80] + "..." if len(text_content) > 80 else text_content
+                logger.debug(f"🖼️  Generating image {i+1}/{total_segments}")
+                logger.debug(f"   📝 Text: {text_preview}")
+                logger.debug(f"   🎯 Prompt: {prompt[:80]}...")
 
                 # Generate and save image
                 filename = f"segment_{i:03d}.png"
@@ -219,13 +234,14 @@ class ImageGenerationService:
                 )
                 generated_images.append(image_path)
 
-                logger.info(f"Generated image {i+1}/{len(script_segments)}: {image_path}")
+                logger.info(f"✅ Completed image {i+1}/{total_segments}: {image_path.name}")
 
             except Exception as e:
-                logger.error(f"Failed to generate image for segment {i}: {e}")
+                logger.error(f"❌ Failed to generate image for segment {i}: {e}")
                 # Continue with next segment
                 continue
 
+        logger.info(f"🎉 Image generation complete! Generated {len(generated_images)}/{total_segments} images")
         return generated_images
 
     def _create_image_prompt(self, text_content: str) -> str:

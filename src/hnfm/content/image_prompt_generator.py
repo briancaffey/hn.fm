@@ -37,14 +37,22 @@ class ImagePromptGenerator:
         try:
             style = style or self.default_style
             image_prompts = []
+            total_groups = len(narration_groups)
 
-            logger.info(f"Generating image prompts for {len(narration_groups)} narration groups")
+            logger.info(f"🎨 Starting image prompt generation for {total_groups} narration groups")
+            logger.debug(f"🎭 Style: {style}")
 
             for group in narration_groups:
                 group_id = group["group_id"]
                 group_lines = group["lines"]
 
-                logger.info(f"Generating prompt for group {group_id}: {len(group_lines)} lines")
+                logger.debug(f"📝 Generating prompt for group {group_id} ({len(group_lines)} lines)")
+
+                # Show preview of the lines being processed
+                lines_preview = "; ".join([line[:40] + "..." if len(line) > 40 else line for line in group_lines[:2]])
+                if len(group_lines) > 2:
+                    lines_preview += f" (+{len(group_lines) - 2} more lines)"
+                logger.debug(f"   📖 Content: {lines_preview}")
 
                 # Generate prompt for this group
                 prompt = self._generate_single_image_prompt(
@@ -58,12 +66,15 @@ class ImagePromptGenerator:
                     "style": style
                 })
 
-                logger.info(f"Generated prompt for group {group_id}: {prompt[:100]}...")
+                # Show the generated prompt
+                prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
+                logger.debug(f"✅ Generated prompt for group {group_id}: {prompt_preview}")
 
+            logger.info(f"🎉 Image prompt generation complete! Generated {len(image_prompts)} prompts")
             return image_prompts
 
         except Exception as e:
-            logger.error(f"Failed to generate image prompts: {e}")
+            logger.error(f"❌ Failed to generate image prompts: {e}")
             raise RuntimeError(f"Image prompt generation failed: {e}")
 
     def _generate_single_image_prompt(
@@ -127,9 +138,9 @@ Your task is to analyze script text and create compelling image prompts that wil
 IMPORTANT INSTRUCTIONS:
 - Reasoning: high
 - Focus on creating visual, descriptive prompts that capture the essence of the text
-- Ensure prompts are specific enough for consistent image generation
+- Ensure prompts are simple and specific enough for consistent image generation
 - Maintain visual coherence and storytelling flow
-- Use the specified style: {style}
+- As much as possible, come up with an image description that would complement the spoken lines
 
 OUTPUT FORMAT:
 - Return ONLY the image prompt text
@@ -138,10 +149,9 @@ OUTPUT FORMAT:
 - Do not include technical specifications or meta-commentary
 
 STYLE GUIDELINES:
-- Be specific about visual elements (lighting, composition, colors, etc.)
+- Be simple and specific about visual elements (lighting, composition, colors, etc.)
 - Include relevant objects, people, environments
-- Consider the emotional tone and atmosphere
-- Ensure the prompt aligns with the specified style: {style}"""
+- Consider the emotional tone and atmosphere"""
 
     def _create_user_prompt(
         self,
@@ -165,10 +175,9 @@ STYLE GUIDELINES:
         return f"""CONTEXT - Full Script:
 {full_script[:1000]}{"..." if len(full_script) > 1000 else ""}
 
-NARRATION GROUP {group_id} - Generate image prompt for these lines:
-{lines_text}
+NARRATION GROUP {group_id} - Generate image prompt appropriate for an image to be shown on screen for these lines:
 
-STYLE: {self.default_style}
+{lines_text}
 
 Create an image prompt that best captures the visual essence of these specific narration lines. The image should represent what a viewer would see when hearing these words.
 

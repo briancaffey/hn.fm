@@ -12,10 +12,11 @@ def setup_logging(level: str = "INFO", log_file: str = None):
         level: Log level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
         log_file: Optional log file path
     """
-    # Create formatter
-    formatter = logging.Formatter(
+    # Create formatters
+    console_formatter = logging.Formatter("%(message)s")  # Just the message for console
+    file_formatter = logging.Formatter(
         "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
-    )
+    )  # Full details for file
 
     # Setup root logger
     root_logger = logging.getLogger()
@@ -24,18 +25,18 @@ def setup_logging(level: str = "INFO", log_file: str = None):
     # Clear existing handlers
     root_logger.handlers.clear()
 
-    # Console handler
+    # Console handler - clean format
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(formatter)
+    console_handler.setFormatter(console_formatter)
     root_logger.addHandler(console_handler)
 
-    # File handler (if specified)
+    # File handler (if specified) - detailed format
     if log_file:
         log_path = Path(log_file)
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         file_handler = logging.FileHandler(log_file)
-        file_handler.setFormatter(formatter)
+        file_handler.setFormatter(file_formatter)
         root_logger.addHandler(file_handler)
 
     # Set specific logger levels

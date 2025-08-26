@@ -8,6 +8,8 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
 from hnfm.pipeline import PipelineManager
+from hnfm.utils.logger import setup_logging
+from hnfm.utils.config import config_manager
 
 
 def run_text_only_pipeline():
@@ -76,6 +78,10 @@ def run_text_only_pipeline():
 
 def main():
     """Main entry point."""
+    # Setup logging first
+    log_level = config_manager.get("development.log_level", "INFO")
+    setup_logging(level=log_level)
+
     print("hn.fm Text-Only Pipeline")
     print("Generates script content and main.yaml structure")
     print()
