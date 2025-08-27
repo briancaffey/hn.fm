@@ -87,9 +87,14 @@ class ScriptGenerator:
 
             # Save TTS lines to content directory
             tts_lines_path = content_dir / "tts_lines.txt"
-            with open(tts_lines_path, "w", encoding="utf-8") as f:
-                for line in lines:
-                    f.write(line + "\n")
+            try:
+                with open(tts_lines_path, "w", encoding="utf-8") as f:
+                    for line in lines:
+                        f.write(line + "\n")
+                logger.debug(f"Saved TTS lines to: {tts_lines_path}")
+            except Exception as e:
+                logger.warning(f"Failed to save TTS lines: {e}")
+                # Continue without saving TTS lines
 
             all_audio_data = []
             all_cleaned_audio_data = []
@@ -102,7 +107,17 @@ class ScriptGenerator:
                     f"Processing batch {i//batch_size + 1}: {len(batch_lines)} lines"
                 )
 
+                # Skip empty batches
+                if not batch_lines or not batch_text.strip():
+                    logger.warning(f"Skipping empty batch {i//batch_size + 1}")
+                    continue
+
                 try:
+                    # Check if TTS service is available
+                    if not hasattr(self.tts_service, 'generate_speech'):
+                        logger.error(f"TTS service not available for batch {i//batch_size + 1}")
+                        continue
+
                     # Generate audio for this batch
                     audio_data = self.tts_service.generate_speech(batch_text)
 
@@ -117,13 +132,57 @@ class ScriptGenerator:
                     # Save raw batch audio to audio directory
                     batch_filename = f"batch_{i//batch_size + 1:03d}.wav"
                     batch_path = audio_dir / batch_filename
-                    self.audio_processor.save_audio_data(audio_data, batch_path)
+
+                    # Check if audio processor is available
+                    if not hasattr(self.audio_processor, 'save_audio_data'):
+                        logger.error(f"Audio processor not available for batch {i//batch_size + 1}")
+                        continue
+
+                    try:
+                        self.audio_processor.save_audio_data(audio_data, batch_path)
+                        logger.debug(f"Saved raw batch audio: {batch_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to save raw batch audio for batch {i//batch_size + 1}: {e}")
+                        # Continue without saving raw batch audio
 
                     # Clean audio using Studio Voice
                     logger.debug(f"🧹 Cleaning audio for batch {i//batch_size + 1}")
-                    cleaned_audio_data = self.studio_voice_service.enhance_audio(
-                        audio_data
-                    )
+
+                    # Check if Studio Voice service is available
+                    if not hasattr(self.studio_voice_service, 'enhance_audio'):
+                        logger.warning(f"Studio Voice service not available for batch {i//batch_size + 1}, using original audio")
+                        cleaned_audio_data = None
+                    else:
+                        cleaned_audio_data = self.studio_voice_service.enhance_audio(
+                            audio_data
+                        )
+
+                    # Fallback to original audio if cleaning fails
+                    if cleaned_audio_data is None:
+                        logger.warning(f"Audio cleaning failed for batch {i//batch_size + 1}, using original audio as fallback")
+                        cleaned_audio_data = audio_data
+                        # Adjust sample rate to match expected output format
+                        try:
+                            if not hasattr(self.studio_voice_service, 'convert_sample_rate'):
+                                logger.warning(f"Sample rate conversion not available for batch {i//batch_size + 1}, using original audio")
+                                cleaned_audio_data = audio_data
+                            else:
+                                cleaned_audio_data = self.studio_voice_service.convert_sample_rate(
+                                    cleaned_audio_data,
+                                    self.studio_voice_service.sample_rate
+                                )
+                                logger.info(f"✅ Sample rate conversion successful for fallback audio in batch {i//batch_size + 1}")
+                        except Exception as e:
+                            logger.error(f"Sample rate conversion failed for fallback audio in batch {i//batch_size + 1}: {e}")
+                            # If even sample rate conversion fails, keep original audio
+                            cleaned_audio_data = audio_data
+                            logger.info(f"Using original audio without sample rate conversion for batch {i//batch_size + 1}")
+
+                    # Ensure we have valid audio data before proceeding
+                    if cleaned_audio_data is None:
+                        logger.error(f"No valid audio data available for batch {i//batch_size + 1}, skipping")
+                        continue
+
                     all_cleaned_audio_data.append(cleaned_audio_data)
 
                     # Save cleaned batch audio to audio directory
@@ -131,35 +190,89 @@ class ScriptGenerator:
                         f"cleaned_batch_{i//batch_size + 1:03d}.wav"
                     )
                     cleaned_batch_path = audio_dir / cleaned_batch_filename
-                    self.audio_processor.save_audio_data(
-                        cleaned_audio_data, cleaned_batch_path
-                    )
 
-                    logger.info(
-                        f"✅ Batch {i//batch_size + 1} completed: TTS + cleaning"
-                    )
+                    try:
+                        self.audio_processor.save_audio_data(
+                            cleaned_audio_data, cleaned_batch_path
+                        )
+                        logger.debug(f"Saved cleaned batch audio: {cleaned_batch_path}")
+                    except Exception as e:
+                        logger.error(f"Failed to save cleaned batch audio for batch {i//batch_size + 1}: {e}")
+                        # Continue without saving cleaned batch audio
+
+                    if cleaned_audio_data == audio_data:
+                        logger.info(
+                            f"✅ Batch {i//batch_size + 1} completed: TTS + cleaning (using fallback audio)"
+                        )
+                    else:
+                        logger.info(
+                            f"✅ Batch {i//batch_size + 1} completed: TTS + cleaning"
+                        )
 
                 except Exception as e:
                     logger.error(
                         f"Failed to generate audio for batch {i//batch_size + 1}: {e}"
                     )
+                    logger.debug(f"Batch {i//batch_size + 1} details: lines {i} to {min(i + batch_size, len(tts_lines))}")
                     continue
 
             if not all_cleaned_audio_data:
                 raise RuntimeError("No audio was generated and cleaned successfully")
 
+            # Log summary of processing
+            total_batches = len(all_cleaned_audio_data)
+            try:
+                fallback_batches = sum(1 for audio in all_cleaned_audio_data if audio in all_audio_data)
+                if fallback_batches > 0:
+                    logger.info(f"📊 Audio processing summary: {total_batches} total batches, {fallback_batches} used fallback audio")
+                else:
+                    logger.info(f"📊 Audio processing summary: {total_batches} total batches, all successfully cleaned")
+            except Exception as e:
+                logger.warning(f"Could not calculate fallback summary: {e}")
+                logger.info(f"📊 Audio processing summary: {total_batches} total batches processed")
+
             # Combine all cleaned audio files
-            sanitized_story_name = sanitize_filename(story_name)
+            try:
+                sanitized_story_name = sanitize_filename(story_name)
+            except Exception as e:
+                logger.error(f"Failed to sanitize story name '{story_name}': {e}")
+                # Use a fallback name
+                sanitized_story_name = "story"
+
             final_audio_path = audio_dir / f"{sanitized_story_name}_final.wav"
-            self.audio_processor.combine_audio_files(
-                all_cleaned_audio_data, final_audio_path
-            )
+
+            # Check if audio processor is available for combination
+            if not hasattr(self.audio_processor, 'combine_audio_files'):
+                raise RuntimeError("Audio processor not available for combining audio files")
+
+            try:
+                self.audio_processor.combine_audio_files(
+                    all_cleaned_audio_data, final_audio_path
+                )
+                logger.debug(f"Successfully combined audio files into: {final_audio_path}")
+            except Exception as e:
+                logger.error(f"Failed to combine audio files: {e}")
+                raise RuntimeError(f"Audio combination failed: {e}")
 
             logger.debug(f"Successfully generated final audio: {final_audio_path}")
-            return final_audio_path
+
+                        # Verify the final audio file was created
+            try:
+                if not final_audio_path.exists():
+                    raise RuntimeError(f"Final audio file was not created: {final_audio_path}")
+
+                if final_audio_path.stat().st_size == 0:
+                    raise RuntimeError(f"Final audio file is empty: {final_audio_path}")
+
+                logger.info(f"🎵 Final audio file created successfully: {final_audio_path}")
+                return final_audio_path
+            except Exception as e:
+                logger.error(f"Final audio file verification failed: {e}")
+                raise RuntimeError(f"Final audio file verification failed: {e}")
 
         except Exception as e:
             logger.error(f"Failed to process TTS lines: {e}")
+            logger.error(f"Story: {story_name}, Lines: {len(lines) if 'lines' in locals() else 'unknown'}")
             raise RuntimeError(f"TTS processing failed: {e}")
 
     def get_story_name_from_filename(self, filename: str) -> str:

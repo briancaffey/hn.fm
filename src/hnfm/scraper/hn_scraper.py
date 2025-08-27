@@ -2,6 +2,8 @@
 
 import requests
 import logging
+import yaml
+from pathlib import Path
 from typing import List, Dict, Any, Literal
 from dataclasses import dataclass
 
@@ -78,7 +80,7 @@ class HNScraper:
         Returns:
             List of story dictionaries
         """
-        return self.get_stories_by_type("ask", limit)
+        return self.get_stories_by_type("show", limit)
 
     def get_stories_by_type(self, story_type: STORY_TYPES, limit: int = 30) -> List[Dict[str, Any]]:
         """Get stories by type from Hacker News.
@@ -167,6 +169,101 @@ class HNScraper:
 
         except Exception as e:
             logger.warning(f"Failed to fetch story {story_id}: {e}")
+            return None
+
+    def get_story_metadata(self, story_id: int) -> Dict[str, Any]:
+        """Get complete metadata for a story by ID.
+
+        Args:
+            story_id: Hacker News story ID
+
+        Returns:
+            Dictionary containing all available metadata from the HN API
+        """
+        try:
+            response = requests.get(f"{self.base_url}/item/{story_id}.json")
+            response.raise_for_status()
+            data = response.json()
+
+            if not data:
+                return {}
+
+            # Convert all fields to a clean dictionary
+            metadata = {}
+            for key, value in data.items():
+                if value is not None:  # Skip None values
+                    metadata[key] = value
+
+            # Add some computed fields for clarity
+            if "time" in metadata:
+                from datetime import datetime
+                try:
+                    timestamp = datetime.fromtimestamp(metadata["time"])
+                    metadata["time_iso"] = timestamp.isoformat()
+                    metadata["time_readable"] = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                except (ValueError, OSError):
+                    pass
+
+            # Add story type if it's a story
+            if metadata.get("type") == "story":
+                metadata["story_type"] = "story"
+                if metadata.get("url"):
+                    metadata["has_external_link"] = True
+                else:
+                    metadata["has_external_link"] = False
+
+            logger.info(f"Retrieved metadata for story {story_id}: {len(metadata)} fields")
+            return metadata
+
+        except Exception as e:
+            logger.error(f"Failed to fetch metadata for story {story_id}: {e}")
+            return {}
+
+    def save_story_metadata(self, story_id: int, content_dir: Path) -> Path:
+        """Save complete story metadata to a YAML file.
+
+        Args:
+            story_id: Hacker News story ID
+            content_dir: Content directory path where to save the file
+
+        Returns:
+            Path to the created hn.yaml file
+        """
+        try:
+            # Get all available metadata
+            metadata = self.get_story_metadata(story_id)
+
+            if not metadata:
+                logger.warning(f"No metadata found for story {story_id}")
+                return None
+
+            # Ensure content directory exists
+            content_dir.mkdir(parents=True, exist_ok=True)
+
+            # Create the YAML file path
+            hn_yaml_path = content_dir / "hn.yaml"
+
+            # Save metadata to YAML file
+            with open(hn_yaml_path, "w", encoding="utf-8") as f:
+                yaml.dump(metadata, f, default_flow_style=False, indent=2, allow_unicode=True)
+
+            logger.info(f"Saved HN metadata to: {hn_yaml_path}")
+            logger.info(f"Metadata fields: {list(metadata.keys())}")
+
+            # Log some key fields for debugging
+            if "title" in metadata:
+                logger.info(f"Title: {metadata['title']}")
+            if "score" in metadata:
+                logger.info(f"Score: {metadata['score']}")
+            if "descendants" in metadata:
+                logger.info(f"Comments: {metadata['descendants']}")
+            if "url" in metadata:
+                logger.info(f"URL: {metadata['url']}")
+
+            return hn_yaml_path
+
+        except Exception as e:
+            logger.error(f"Failed to save metadata for story {story_id}: {e}")
             return None
 
     def select_best_story(self, stories: List[HNStory]) -> HNStory:

@@ -24,6 +24,16 @@ class AudioProcessor:
             file_path: Path to save the audio file
         """
         try:
+            # Validate input data
+            if audio_data is None:
+                raise ValueError("Audio data cannot be None")
+
+            if not isinstance(audio_data, bytes):
+                raise ValueError(f"Audio data must be bytes, got {type(audio_data)}")
+
+            if len(audio_data) == 0:
+                raise ValueError("Audio data cannot be empty")
+
             file_path = Path(file_path)
             file_path.parent.mkdir(parents=True, exist_ok=True)
 

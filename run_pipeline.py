@@ -25,36 +25,38 @@ def main():
         epilog="""
 Examples:
   # Run full pipeline for a story from top stories (default)
-  python run_pipeline.py --story-id "game-dev-js" --story-title "How to Start Making Games in JavaScript"
+  python run_pipeline.py
 
   # Run pipeline for newest stories
-  python run_pipeline.py --story-type newest --story-id "latest-news" --story-title "Latest Tech News"
+  python run_pipeline.py --story-type newest
 
   # Run pipeline for Show HN stories
-  python run_pipeline.py --story-type show --story-id "show-project" --story-title "Show HN: My New Project"
+  python run_pipeline.py --story-type show
 
   # Run pipeline for Ask HN stories
-  python run_pipeline.py --story-type ask --story-id "ask-question" --story-title "Ask HN: Career Advice"
+  python run_pipeline.py --story-type ask
 
   # Resume from a specific step
-  python run_pipeline.py --story-id "game-dev-js" --story-title "How to Start Making Games in JavaScript" --start-from "tts_generation"
+  python run_pipeline.py --start-from "tts_generation"
 
   # Run with custom configuration
-  python run_pipeline.py --config custom_config.yaml --story-id "story-123" --story-title "My Story"
+  python run_pipeline.py --config custom_config.yaml
 
   # List available steps
   python run_pipeline.py --list-steps
 
   # Show pipeline status
-  python run_pipeline.py --status --story-id "story-123"
+  python run_pipeline.py --status
+
+  # Run with custom output directory
+  python run_pipeline.py --output-dir custom_outputs
+
+  # Run with custom cache directory
+  python run_pipeline.py --cache-dir custom_cache
         """,
     )
 
     # Pipeline options
-    parser.add_argument("--story-id", help="Unique identifier for the story")
-
-    parser.add_argument("--story-title", help="Title of the story")
-
     parser.add_argument(
         "--story-type",
         choices=["top", "newest", "show", "ask"],
@@ -100,17 +102,8 @@ Examples:
         return
 
     if args.status:
-        if not args.story_id:
-            print("❌ --story-id is required when using --status")
-            sys.exit(1)
-        show_pipeline_status(args.story_id)
+        show_pipeline_status()
         return
-
-    # Check required arguments for pipeline execution
-    if not args.story_id or not args.story_title:
-        print("❌ --story-id and --story-title are required for pipeline execution")
-        print("Use --list-steps to see available steps or --help for more options")
-        sys.exit(1)
 
     # Load custom configuration if specified
     if args.config:
@@ -133,16 +126,15 @@ Examples:
     # Run the pipeline
     try:
         print("🎬 Starting hn.fm pipeline")
-        print(f"📁 Story ID: {args.story_id}")
-        print(f"📖 Story Title: {args.story_title}")
+        print(f"📰 Story Type: {args.story_type}")
 
         if args.start_from:
             print(f"🔄 Resuming from step: {args.start_from}")
 
-        # Run pipeline
+        # Run pipeline with auto-generated story info
         state = pipeline_manager.run_pipeline(
-            story_id=args.story_id,
-            story_title=args.story_title,
+            story_id="auto",
+            story_title="auto",
             story_type=args.story_type,
             start_from_step=args.start_from,
         )
@@ -168,9 +160,9 @@ def list_pipeline_steps():
     print("\nNote: Steps can be skipped using cached data when resuming.")
 
 
-def show_pipeline_status(story_id: str):
-    """Show pipeline status for a story."""
-    print(f"📊 Pipeline Status for Story: {story_id}")
+def show_pipeline_status():
+    """Show pipeline status."""
+    print("📊 Pipeline Status")
     print("=" * 50)
 
     # This would integrate with persistent storage
@@ -182,8 +174,6 @@ def show_dry_run_info(args, pipeline_manager):
     """Show what would be executed in a dry run."""
     print("🔍 DRY RUN - No actual execution")
     print("=" * 50)
-    print(f"Story ID: {args.story_id}")
-    print(f"Story Title: {args.story_title}")
     print(f"Story Type: {args.story_type}")
 
     if args.start_from:

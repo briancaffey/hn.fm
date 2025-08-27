@@ -71,7 +71,7 @@ class StudioVoiceService:
         logger.debug(f"🎵 Initializing Studio Voice service: {target} ({model_type})")
         logger.debug(f"🎵 Sample rate: {self.sample_rate}Hz, Streaming: {streaming}")
 
-    def _convert_sample_rate(
+    def convert_sample_rate(
         self, audio_data: bytes, target_rate: int = 48000
     ) -> bytes:
         """Convert audio data to target sample rate.
@@ -219,7 +219,7 @@ class StudioVoiceService:
             start_time = time.time()
 
             # Convert sample rate if needed
-            converted_audio = self._convert_sample_rate(audio_data, self.sample_rate)
+            converted_audio = self.convert_sample_rate(audio_data, self.sample_rate)
 
             # Create temporary file for processing
             with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:

@@ -601,6 +601,18 @@ class PipelineManager:
             content_dir = story_dir / "content"
             content_dir.mkdir(exist_ok=True)
 
+            # Save HN metadata to hn.yaml file
+            hn_scraper = self._get_service("hn_scraper")
+            selected_article_id = selected_article.get("id")
+            if selected_article_id:
+                hn_metadata_path = hn_scraper.save_story_metadata(selected_article_id, content_dir)
+                if hn_metadata_path:
+                    print(f"   📊 Saved HN metadata to: {hn_metadata_path.name}")
+                    logger.info(f"📊 Saved HN metadata to: {hn_metadata_path}")
+                else:
+                    print(f"   ⚠️ Failed to save HN metadata")
+                    logger.warning(f"Failed to save HN metadata for article {selected_article_id}")
+
             # Extract content using Firecrawl
             content_scraper = self._get_service("content_scraper")
             extracted_content = content_scraper.extract_content(url)
@@ -641,6 +653,7 @@ class PipelineManager:
                 "content_dir": str(content_dir),
                 "raw_content_path": str(raw_content_path),
                 "processed_content_path": str(processed_content_path),
+                "hn_metadata_path": str(hn_metadata_path) if 'hn_metadata_path' in locals() else None,
             }
 
         except Exception as e:
@@ -1392,10 +1405,6 @@ class PipelineManager:
             created_at=datetime.now(),
             updated_at=datetime.now(),
         )
-
-        logger.info(f"🎬 Starting pipeline for story: {story_title}")
-        logger.info(f"📁 Story ID: {story_id}")
-        logger.info(f"📰 Story Type: {story_type}")
 
         if start_from_step:
             logger.info(f"🔄 Resuming from step: {start_from_step}")
