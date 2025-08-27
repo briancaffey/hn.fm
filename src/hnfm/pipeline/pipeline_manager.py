@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from hnfm.utils.config import config_manager
 from hnfm.utils.logger import setup_logging
+from hnfm.utils.filename_utils import sanitize_filename
 from hnfm.scraper.hn_scraper import HNScraper
 from hnfm.scraper.content_scraper import ContentScraper
 from hnfm.content.content_processor import ContentProcessor
@@ -451,23 +452,21 @@ class PipelineManager:
             # Show status for all services
             if logger.isEnabledFor(logging.DEBUG):
                 # DEBUG mode: show detailed info for each service
-                print("   ✅ Critical services are online")
+                logger.debug("✅ Critical services are online")
                 for status in service_statuses:
                     emoji = "✅" if status.status == "online" else "⚠️"
-                    print(f"      {emoji} {status.name}: {status.status} ({status.response_time:.2f}s)")
+                    logger.debug(f"      {emoji} {status.name}: {status.status} ({status.response_time:.2f}s)")
                     if status.details:
                         for key, value in status.details.items():
-                            print(f"         {key}: {value}")
+                            logger.debug(f"         {key}: {value}")
                     if status.error_message:
-                        print(f"         Warning: {status.error_message}")
+                        logger.debug(f"         Warning: {status.error_message}")
             else:
                 # INFO mode: just say critical services are ready
-                print("   ✅ Critical services are online and ready")
+                logger.info("✅ Critical services are online and ready")
                 offline_services = [s.name for s in service_statuses if s.status != "online"]
                 if offline_services:
-                    print(f"   ⚠️  Non-critical services offline: {', '.join(offline_services)}")
-
-            logger.info("✅ Critical services are online and ready")
+                    logger.info(f"   ⚠️  Non-critical services offline: {', '.join(offline_services)}")
 
             # Save system status to cache
             system_status_path = self.cache_dir / "system_status.json"
@@ -516,7 +515,6 @@ class PipelineManager:
             # Get story type from inputs, default to "top"
             story_type = inputs.get("story_type", "top")
 
-            print(f"   📰 Fetching Hacker News {story_type} stories...")
             logger.info(f"📰 Fetching Hacker News {story_type} stories...")
 
             # Get stories based on type
@@ -744,7 +742,6 @@ class PipelineManager:
             if not content_dir:
                 raise RuntimeError("No content directory found in inputs")
 
-            print("   📝 Generating podcast script using LLM...")
             logger.info("📝 Generating podcast script...")
 
             # Use the existing script generator
@@ -834,13 +831,9 @@ class PipelineManager:
             # Clear, high-level script generation logging
             script_length = len(script_data.get("script", ""))
             tts_lines_count = len(script_data.get("tts_lines", []))
-            print(
-                f"   ✅ Script generated: {script_length:,} chars, {tts_lines_count} TTS lines"
-            )
-            print(f"   📁 Saved to: {Path(content_dir).name}")
 
             logger.info(f"✅ Script generated successfully")
-            logger.info(f"📝 Script length: {script_length} characters")
+            logger.info(f"📝 Script length: {script_length:,} characters")
             logger.info(f"🎙️ TTS lines: {tts_lines_count}")
             logger.info(f"📁 Saved to: {content_dir}")
 
@@ -868,7 +861,6 @@ class PipelineManager:
             if not story_dir:
                 raise RuntimeError("No story directory found for image prompt generation")
 
-            print("   🎨 Generating image prompts using LLM...")
             logger.info("🎨 Generating image prompts using LLM...")
 
             # Load the main content structure
@@ -877,7 +869,7 @@ class PipelineManager:
 
             try:
                 content_data = content_manager.load_main_content(Path(story_dir))
-                logger.info("✅ Loaded main content structure for image prompt generation")
+                logger.debug("✅ Loaded main content structure for image prompt generation")
             except Exception as e:
                 logger.warning(f"⚠️ Could not load main content structure: {e}")
                 content_data = None
@@ -890,7 +882,7 @@ class PipelineManager:
                 # Use the content structure for better prompts
                 logger.debug("🚀 Starting LLM-powered image prompt generation...")
                 image_prompts = prompt_generator.batch_generate_prompts(content_data)
-                logger.info(f"✅ Generated {len(image_prompts)} image prompts using LLM")
+                logger.debug(f"✅ Generated {len(image_prompts)} image prompts using LLM")
 
                 # Update the content structure with prompts
                 content_manager.update_image_prompts(Path(story_dir), image_prompts)
@@ -929,7 +921,6 @@ class PipelineManager:
             if not story_dir:
                 raise RuntimeError("No story directory found for image generation")
 
-            print("   🎨 Generating images for script segments...")
             logger.info("🎨 Generating images for script segments...")
 
             # Load the main content structure
@@ -938,7 +929,7 @@ class PipelineManager:
 
             try:
                 content_data = content_manager.load_main_content(Path(story_dir))
-                logger.info("✅ Loaded main content structure for image generation")
+                logger.debug("✅ Loaded main content structure for image generation")
             except Exception as e:
                 logger.warning(f"⚠️ Could not load main content structure: {e}")
                 content_data = None
@@ -951,7 +942,7 @@ class PipelineManager:
                 # Use the content structure for better prompts
                 logger.debug("🚀 Starting LLM-powered image prompt generation...")
                 image_prompts = prompt_generator.batch_generate_prompts(content_data)
-                logger.info(f"✅ Generated {len(image_prompts)} image prompts using LLM")
+                logger.debug(f"✅ Generated {len(image_prompts)} image prompts using LLM")
 
                 # Update the content structure with prompts
                 content_manager.update_image_prompts(Path(story_dir), image_prompts)
@@ -1066,7 +1057,7 @@ class PipelineManager:
                 )
 
                 # Move the final audio to the audio directory
-                final_audio_name = f"{title.replace(' ', '_')}_final.wav"
+                final_audio_name = f"{sanitize_filename(title)}_final.wav"
                 final_audio_dest = audio_dir / final_audio_name
 
                 if final_audio_path.exists():
@@ -1224,7 +1215,6 @@ class PipelineManager:
             if not story_dir:
                 raise RuntimeError("No story directory found for ASR processing")
 
-            print("   🎙️ Processing audio through ASR...")
             logger.info("🎙️ Processing audio through ASR...")
 
             # Create a temporary audio file for ASR
@@ -1251,14 +1241,6 @@ class PipelineManager:
                 )
 
                 # Clear, high-level ASR completion logging
-                print(f"   ✅ ASR processing completed")
-                try:
-                    relative_path = asr_results_path.relative_to(Path.cwd())
-                    print(f"   📁 Saved to: {relative_path}")
-                except ValueError:
-                    # If we can't get relative path, just show the absolute path
-                    print(f"   📁 Saved to: {asr_results_path}")
-
                 logger.info(f"✅ ASR processing completed successfully")
                 logger.info(f"📄 ASR results saved: {asr_results_path}")
 
@@ -1290,7 +1272,6 @@ class PipelineManager:
             if not story_dir:
                 raise RuntimeError("No story directory found for video generation")
 
-            print("   🎬 Generating video with spoken words...")
             logger.info("🎬 Generating video with spoken words...")
 
             # Use the video generator service
@@ -1311,15 +1292,6 @@ class PipelineManager:
                 main_yaml_path=str(main_yaml_path),
                 output_path=str(video_output_path)
             )
-
-            # Clear, high-level video completion logging
-            print(f"   ✅ Video generation completed")
-            try:
-                relative_path = video_output_path.relative_to(Path.cwd())
-                print(f"   📁 Saved to: {relative_path}")
-            except ValueError:
-                # If we can't get relative path, just show the absolute path
-                print(f"   📁 Saved to: {video_output_path}")
 
             logger.info(f"✅ Video generation completed successfully")
             logger.info(f"🎥 Video saved: {video_output_path}")
@@ -1388,61 +1360,7 @@ class PipelineManager:
         Returns:
             Sanitized filename safe for file systems
         """
-        import re
-
-        # Replace problematic characters with safe alternatives
-        replacements = {
-            ':': ' - ',      # Colon -> dash
-            '?': '',         # Question mark -> remove
-            '!': '',         # Exclamation mark -> remove
-            '"': '',         # Double quote -> remove
-            "'": '',         # Single quote -> remove
-            '<': '(',        # Less than -> parenthesis
-            '>': ')',        # Greater than -> parenthesis
-            '|': '-',        # Pipe -> dash
-            '*': '',         # Asterisk -> remove
-            '/': '-',        # Forward slash -> dash
-            '\\': '-',       # Backslash -> dash
-            '[': '(',        # Square bracket -> parenthesis
-            ']': ')',        # Square bracket -> parenthesis
-            '{': '(',        # Curly brace -> parenthesis
-            '}': ')',        # Curly brace -> parenthesis
-            '&': 'and',      # Ampersand -> 'and'
-            '%': 'pct',      # Percent -> 'pct'
-            '#': 'num',      # Hash -> 'num'
-            '@': 'at',       # At symbol -> 'at'
-            '+': 'plus',     # Plus -> 'plus'
-            '=': 'equals',   # Equals -> 'equals'
-            '$': 'dollar',   # Dollar -> 'dollar'
-            ';': ',',        # Semicolon -> comma
-        }
-
-        # Apply replacements
-        sanitized = filename
-        for char, replacement in replacements.items():
-            sanitized = sanitized.replace(char, replacement)
-
-        # Remove any remaining non-alphanumeric characters except spaces, dashes, underscores, and dots
-        sanitized = re.sub(r'[^\w\s\-_.]', '', sanitized)
-
-        # Replace multiple spaces/dashes/underscores with single underscore
-        sanitized = re.sub(r'[\s\-_]+', '_', sanitized)
-
-        # Remove leading/trailing underscores
-        sanitized = sanitized.strip('_')
-
-        # Ensure the filename isn't too long (max 100 chars for directory names)
-        if len(sanitized) > 100:
-            sanitized = sanitized[:100].rstrip('_')
-
-        # Ensure we have a valid filename
-        if not sanitized:
-            sanitized = "untitled_article"
-
-        # Convert to lowercase for consistency
-        sanitized = sanitized.lower()
-
-        return sanitized
+        return sanitize_filename(filename)
 
     def run_pipeline(
         self,

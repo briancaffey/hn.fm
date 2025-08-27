@@ -42,7 +42,7 @@ class TTSService:
         try:
             response = requests.get(f"{self.base_url}/config", timeout=5)
             if response.status_code == 200:
-                logger.info("✅ Successfully connected to API")
+                logger.debug("✅ Successfully connected to API")
             else:
                 logger.warning(f"TTS API returned status {response.status_code}")
         except Exception as e:
@@ -66,21 +66,21 @@ class TTSService:
         first_words = text[:60].replace("\n", " ").strip()
         if len(first_words) >= 60:
             first_words = first_words[:57] + "..."
-        logger.info(f"🎵 Generating audio: {first_words}")
+        logger.info(f"🗣️ Generating audio: {first_words}")
 
         for attempt in range(1, self.max_attempts + 1):
             try:
-                logger.info(f"🔄 Attempt {attempt}/{self.max_attempts}")
+                logger.debug(f"🔄 Attempt {attempt}/{self.max_attempts}")
 
                 # Generate random seed for consistency
                 seed = random.randint(1, 100000)
-                logger.info(f"🎲 Using seed: {seed}")
+                logger.debug(f"🎲 Using seed: {seed}")
 
                 # Generate speech
                 audio_data = self._call_tts_api(text, voice, seed)
 
                 if audio_data:
-                    logger.info(
+                    logger.debug(
                         f"✅ Successfully generated audio: {len(audio_data)} bytes"
                     )
                     return audio_data
@@ -105,7 +105,7 @@ class TTSService:
             Audio data or None if failed
         """
         try:
-            logger.info("🎵 Calling real TTS API using gradio_client")
+            logger.debug("🎵 Calling real TTS API using gradio_client")
 
             # Import gradio_client here to avoid dependency issues
             try:
@@ -123,26 +123,26 @@ class TTSService:
             cleaned_text = self._clean_text_for_tts(text)
 
             # Log the text cleaning process
-            logger.info(
+            logger.debug(
                 f"🧹 Text cleaning: '{text[:50]}...' → '{cleaned_text[:50]}...'"
             )
 
             # Prepare the text input - append new line and [S1] to prevent early cutoff
             full_text = cleaned_text + " \n[S1]"
-            logger.info(f"📝 Full text being sent: {full_text[:100]}...")
-            logger.info(f"🎲 Using seed: {seed}")
+            logger.debug(f"📝 Full text being sent: {full_text[:100]}...")
+            logger.debug(f"🎲 Using seed: {seed}")
 
             # Load voice sample files for voice consistency
             voice_sample_text = self._load_voice_sample_text(voice)
             voice_sample_audio_path = self._load_voice_sample_audio(voice)
 
-            logger.info(f"🎤 Using voice: {voice}")
+            logger.debug(f"🎤 Using voice: {voice}")
             if voice_sample_text:
-                logger.info(f"📝 Voice sample text: {voice_sample_text[:50]}...")
+                logger.debug(f"📝 Voice sample text: {voice_sample_text[:50]}...")
             else:
                 logger.warning(f"⚠️  No voice sample text found for voice: {voice}")
             if voice_sample_audio_path:
-                logger.info(f"🎵 Voice sample audio: {voice_sample_audio_path}")
+                logger.debug(f"🎵 Voice sample audio: {voice_sample_audio_path}")
             else:
                 logger.warning(f"⚠️  No voice sample audio found for voice: {voice}")
 
@@ -174,30 +174,30 @@ class TTSService:
                 api_name="/generate_audio",
             )
 
-            logger.info(f"📥 Received result from API")
+            logger.debug(f"📥 Received result from API")
 
             # Handle the result - it might be a tuple or single path
             if isinstance(result, tuple):
                 # If it's a tuple, the first element should be the file path
                 result_path = result[0] if len(result) > 0 else None
-                logger.info(f"📦 API returned tuple with {len(result)} elements")
+                logger.debug(f"📦 API returned tuple with {len(result)} elements")
             else:
                 result_path = result
 
                 # The result should be a file path to the generated audio
             if result_path and os.path.exists(result_path):
-                logger.info(f"📁 Audio file generated at: {result_path}")
+                logger.debug(f"📁 Audio file generated at: {result_path}")
 
                 # Get audio duration
                 duration = self._get_audio_duration(result_path)
                 if duration:
-                    logger.info(f"⏱️  Audio duration: {duration:.1f}s")
+                    logger.debug(f"⏱️  Audio duration: {duration:.1f}s")
 
                 # Read the audio file and return as bytes
                 with open(result_path, "rb") as f:
                     audio_data = f.read()
 
-                logger.info(f"✅ Successfully read audio file: {len(audio_data)} bytes")
+                logger.debug(f"✅ Successfully read audio file: {len(audio_data)} bytes")
                 return audio_data
             else:
                 logger.error(f"❌ API returned invalid result: {result}")
@@ -263,7 +263,7 @@ class TTSService:
         Returns:
             Cleaned text suitable for TTS
         """
-        logger.info(f"🧹 Cleaning text: '{text[:100]}...'")
+        logger.debug(f"🧹 Cleaning text: '{text[:100]}...'")
 
         # replace ‑ with -
         cleaned = text.replace("‑", "-")
@@ -287,11 +287,11 @@ class TTSService:
         # Remove any other non-ASCII characters that might cause issues
         cleaned = cleaned.encode("ascii", "replace").decode("ascii")
 
-        logger.info(
+        logger.debug(
             f"🧹 Text cleaning complete: {len(text)} chars → {len(cleaned)} chars"
         )
-        logger.info(f"🧹 Before: '{text[:100]}...'")
-        logger.info(f"🧹 After:  '{cleaned[:100]}...'")
+        logger.debug(f"🧹 Before: '{text[:100]}...'")
+        logger.debug(f"🧹 After:  '{cleaned[:100]}...'")
 
         return cleaned
 
@@ -369,8 +369,8 @@ class TTSService:
             )
 
             if response.status_code == 200:
-                logger.info("📥 Received result from API")
-                logger.info(
+                logger.debug("📥 Received result from API")
+                logger.debug(
                     f"📦 API returned tuple with {len(response.content)} elements"
                 )
                 return response.content

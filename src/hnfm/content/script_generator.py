@@ -9,6 +9,7 @@ from ..audio.tts_service import TTSService
 from ..audio.audio_processor import AudioProcessor
 from ..audio.studio_voice_service import StudioVoiceService
 from ..utils.config import config_manager
+from ..utils.filename_utils import sanitize_filename
 
 logger = logging.getLogger(__name__)
 
@@ -74,7 +75,8 @@ class ScriptGenerator:
             if story_dir:
                 story_output_dir = Path(story_dir)
             else:
-                story_output_dir = Path("outputs") / story_name
+                sanitized_story_name = sanitize_filename(story_name)
+                story_output_dir = Path("outputs") / sanitized_story_name
                 story_output_dir.mkdir(parents=True, exist_ok=True)
 
             # Create content and audio subdirectories
@@ -118,7 +120,7 @@ class ScriptGenerator:
                     self.audio_processor.save_audio_data(audio_data, batch_path)
 
                     # Clean audio using Studio Voice
-                    logger.info(f"🧹 Cleaning audio for batch {i//batch_size + 1}")
+                    logger.debug(f"🧹 Cleaning audio for batch {i//batch_size + 1}")
                     cleaned_audio_data = self.studio_voice_service.enhance_audio(
                         audio_data
                     )
@@ -147,12 +149,13 @@ class ScriptGenerator:
                 raise RuntimeError("No audio was generated and cleaned successfully")
 
             # Combine all cleaned audio files
-            final_audio_path = audio_dir / f"{story_name}_final.wav"
+            sanitized_story_name = sanitize_filename(story_name)
+            final_audio_path = audio_dir / f"{sanitized_story_name}_final.wav"
             self.audio_processor.combine_audio_files(
                 all_cleaned_audio_data, final_audio_path
             )
 
-            logger.info(f"Successfully generated final audio: {final_audio_path}")
+            logger.debug(f"Successfully generated final audio: {final_audio_path}")
             return final_audio_path
 
         except Exception as e:

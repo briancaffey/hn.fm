@@ -68,8 +68,8 @@ class StudioVoiceService:
         else:
             self.sample_rate = 48000
 
-        logger.info(f"🎵 Initializing Studio Voice service: {target} ({model_type})")
-        logger.info(f"🎵 Sample rate: {self.sample_rate}Hz, Streaming: {streaming}")
+        logger.debug(f"🎵 Initializing Studio Voice service: {target} ({model_type})")
+        logger.debug(f"🎵 Sample rate: {self.sample_rate}Hz, Streaming: {streaming}")
 
     def _convert_sample_rate(
         self, audio_data: bytes, target_rate: int = 48000
@@ -102,7 +102,7 @@ class StudioVoiceService:
                     )
                     return audio_data
 
-                logger.info(
+                logger.debug(
                     f"Converting sample rate: {sample_rate}Hz → {target_rate}Hz"
                 )
 
@@ -125,7 +125,7 @@ class StudioVoiceService:
                 with open(temp_out_path, "rb") as f:
                     converted_data = f.read()
 
-                logger.info(
+                logger.debug(
                     f"Sample rate conversion successful: {len(audio_data)} → {len(converted_data)} bytes"
                 )
                 return converted_data
@@ -215,7 +215,7 @@ class StudioVoiceService:
             return None
 
         try:
-            logger.info(f"🎵 Enhancing audio with Studio Voice ({self.model_type})")
+            logger.debug(f"🎵 Enhancing audio with Studio Voice ({self.model_type})")
             start_time = time.time()
 
             # Convert sample rate if needed
@@ -236,7 +236,7 @@ class StudioVoiceService:
                     requests = self._generate_enhancement_requests(converted_audio)
 
                     # Call the service
-                    logger.info(
+                    logger.debug(
                         f"🎵 Sending {len(requests)} chunks to Studio Voice service"
                     )
                     response_iter = stub.EnhanceAudio(iter(requests))
@@ -247,8 +247,8 @@ class StudioVoiceService:
                         enhanced_audio += response.audio_stream_data
 
                     duration = time.time() - start_time
-                    logger.info(f"✅ Audio enhancement completed in {duration:.2f}s")
-                    logger.info(
+                    logger.debug(f"✅ Audio enhancement completed in {duration:.2f}s")
+                    logger.debug(
                         f"📊 Processed {len(audio_data)} → {len(enhanced_audio)} bytes"
                     )
 

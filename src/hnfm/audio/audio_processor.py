@@ -30,7 +30,7 @@ class AudioProcessor:
             with open(file_path, "wb") as f:
                 f.write(audio_data)
 
-            logger.info(f"Saved audio to: {file_path}")
+            logger.debug(f"Saved audio to: {file_path}")
 
         except Exception as e:
             logger.error(f"Failed to save audio: {e}")

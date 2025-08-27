@@ -119,7 +119,9 @@ class LLMService:
                 return self._generate_fallback_content(prompt)
 
             provider = "Local LLM" if self.use_local else "OpenAI"
-            logger.info(f"Successfully generated content with {provider}")
+            # Show preview of generated content
+            content_preview = content[:50] + "..." if len(content) > 50 else content
+            logger.debug(f"✅ Generated content with {provider}: {content_preview}")
             return content
 
         except Exception as e:

@@ -203,3 +203,4 @@ __marimo__/
 .streamlit/secrets.toml
 
 test/
+.DS_Store

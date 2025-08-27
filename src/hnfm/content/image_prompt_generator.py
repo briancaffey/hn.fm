@@ -39,7 +39,7 @@ class ImagePromptGenerator:
             image_prompts = []
             total_groups = len(narration_groups)
 
-            logger.info(f"🎨 Starting image prompt generation for {total_groups} narration groups")
+            logger.debug(f"🎨 Starting image prompt generation for {total_groups} narration groups")
             logger.debug(f"🎭 Style: {style}")
 
             for group in narration_groups:
@@ -70,7 +70,7 @@ class ImagePromptGenerator:
                 prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
                 logger.debug(f"✅ Generated prompt for group {group_id}: {prompt_preview}")
 
-            logger.info(f"🎉 Image prompt generation complete! Generated {len(image_prompts)} prompts")
+            logger.debug(f"🎉 Image prompt generation complete! Generated {len(image_prompts)} prompts")
             return image_prompts
 
         except Exception as e:
@@ -235,7 +235,7 @@ Generate a compelling image prompt:"""
                 logger.warning("No full script found in content data")
                 return []
 
-            logger.info(f"Batch generating prompts for {len(narration_groups)} narration groups")
+            logger.debug(f"Batch generating prompts for {len(narration_groups)} narration groups")
 
             return self.generate_image_prompts_for_narration(
                 narration_groups, full_script, style
