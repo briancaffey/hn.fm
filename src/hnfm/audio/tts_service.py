@@ -5,7 +5,7 @@ import logging
 import time
 import random
 import os
-from typing import Optional, Tuple
+from typing import Optional, Tuple, Dict, Any
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -31,16 +31,44 @@ class TTSService:
             logger.warning("No TTS base URL configured, using default: http://localhost:7860")
 
         self.base_url = base_url.rstrip("/")
-        self.max_attempts = 3
-        self.delay_between_attempts = 2
+        self.max_attempts = config_manager.get("tts.max_attempts", 3)
+        self.delay_between_attempts = config_manager.get("tts.delay_between_batches", 2)
+        self.timeout_seconds = config_manager.get("tts.timeout_seconds", 120)
+        self.retry_delay = config_manager.get("tts.retry_delay", 5)
 
         # Test connection
         self._test_connection()
 
+    def is_healthy(self) -> bool:
+        """Check if the TTS service is healthy and responsive.
+
+        Returns:
+            True if service is healthy, False otherwise
+        """
+        try:
+            response = requests.get(f"{self.base_url}/config", timeout=5)
+            return response.status_code == 200
+        except Exception as e:
+            logger.debug(f"Health check failed: {e}")
+            return False
+
+    def get_timeout_info(self) -> Dict[str, Any]:
+        """Get timeout configuration information for debugging.
+
+        Returns:
+            Dictionary with timeout settings
+        """
+        return {
+            "timeout_seconds": self.timeout_seconds,
+            "retry_delay": self.retry_delay,
+            "max_attempts": self.max_attempts,
+            "base_url": self.base_url
+        }
+
     def _test_connection(self):
         """Test connection to the TTS API."""
         try:
-            response = requests.get(f"{self.base_url}/config", timeout=5)
+            response = requests.get(f"{self.base_url}/config", timeout=10)
             if response.status_code == 200:
                 logger.debug("✅ Successfully connected to API")
             else:
@@ -68,6 +96,9 @@ class TTSService:
             first_words = first_words[:57] + "..."
         logger.info(f"🗣️ Generating audio: {first_words}")
 
+        # Log the full text being processed for debugging
+        logger.info(f"📝 Full text being narrated: {text}")
+
         for attempt in range(1, self.max_attempts + 1):
             try:
                 logger.debug(f"🔄 Attempt {attempt}/{self.max_attempts}")
@@ -76,8 +107,8 @@ class TTSService:
                 seed = random.randint(1, 100000)
                 logger.debug(f"🎲 Using seed: {seed}")
 
-                # Generate speech
-                audio_data = self._call_tts_api(text, voice, seed)
+                # Generate speech with timeout protection
+                audio_data = self._call_tts_api_with_timeout(text, voice, seed)
 
                 if audio_data:
                     logger.debug(
@@ -88,10 +119,86 @@ class TTSService:
             except Exception as e:
                 logger.warning(f"Attempt {attempt} failed: {e}")
                 if attempt < self.max_attempts:
-                    time.sleep(self.delay_between_attempts)
+                    logger.info(f"Waiting {self.retry_delay} seconds before retry...")
+                    time.sleep(self.retry_delay)
+                else:
+                    logger.error(f"All {self.max_attempts} attempts failed. Last error: {e}")
 
         logger.error(f"Failed to generate speech after {self.max_attempts} attempts")
         return None
+
+    def _call_tts_api_with_timeout(self, text: str, voice: str, seed: int) -> Optional[bytes]:
+        """Call the TTS API with timeout protection.
+
+        Args:
+            text: Text to convert
+            voice: Voice to use
+            seed: Random seed
+
+        Returns:
+            Audio data or None if failed
+        """
+        import threading
+        import queue
+
+        result_queue = queue.Queue()
+        exception_queue = queue.Queue()
+
+        def _tts_worker():
+            """Worker function to run TTS in separate thread."""
+            try:
+                logger.debug(f"🎵 Starting TTS generation in worker thread...")
+                result = self._call_tts_api(text, voice, seed)
+                result_queue.put(result)
+                logger.debug(f"🎵 TTS worker thread completed successfully")
+            except Exception as e:
+                logger.error(f"🎵 TTS worker thread failed: {e}")
+                exception_queue.put(e)
+
+        # Start TTS worker thread
+        worker_thread = threading.Thread(target=_tts_worker, daemon=True)
+        worker_thread.start()
+        logger.debug(f"🎵 TTS worker thread started, waiting up to {self.timeout_seconds}s...")
+
+        # Wait for result with timeout
+        try:
+            worker_thread.join(timeout=self.timeout_seconds)
+
+            if worker_thread.is_alive():
+                logger.warning(f"⏰ TTS request timed out after {self.timeout_seconds} seconds")
+                # Try to get a quick response with a shorter timeout
+                logger.info("🔄 Attempting quick retry with shorter timeout...")
+                worker_thread.join(timeout=30)  # 30 second quick retry
+
+                if worker_thread.is_alive():
+                    logger.error("⏰ Quick retry also timed out, giving up")
+                    return None
+                else:
+                    logger.info("✅ Quick retry succeeded")
+
+            # Check for exceptions
+            try:
+                exception = exception_queue.get_nowait()
+                logger.error(f"❌ TTS worker thread failed: {exception}")
+                return None
+            except queue.Empty:
+                pass
+
+            # Get result
+            try:
+                result = result_queue.get_nowait()
+                if result:
+                    logger.debug(f"✅ TTS worker thread returned {len(result)} bytes of audio data")
+                else:
+                    logger.warning("⚠️ TTS worker thread returned None")
+                return result
+            except queue.Empty:
+                logger.error("❌ TTS worker thread completed but no result available")
+                return None
+
+        except Exception as e:
+            logger.error(f"❌ Error in timeout wrapper: {e}")
+            return None
 
     def _call_tts_api(self, text: str, voice: str, seed: int) -> Optional[bytes]:
         """Call the TTS API.

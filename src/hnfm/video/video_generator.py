@@ -233,7 +233,7 @@ class VideoGenerator:
             images_section = content_data.get("images", {})
             if isinstance(images_section, dict) and "generated" in images_section:
                 image_groups = images_section["generated"]
-                logger.info(f"🔍 Found images.generated section with {len(image_groups)} groups")
+                logger.debug(f"🔍 Found images.generated section with {len(image_groups)} groups")
             else:
                 # Fallback: try to find images in other locations
                 logger.warning(f"🔍 No images.generated section found, trying fallback locations")
@@ -243,11 +243,11 @@ class VideoGenerator:
                 narration_section = content_data.get("narration", {})
                 if isinstance(narration_section, dict) and "generated" in narration_section:
                     image_groups = narration_section["generated"]
-                    logger.info(f"🔍 Found narration.generated section with {len(image_groups)} groups")
+                    logger.debug(f"🔍 Found narration.generated section with {len(image_groups)} groups")
                 elif isinstance(narration_section, list):
                     # Try to find groups with status and image_file directly
                     image_groups = [group for group in narration_section if group.get("image_file") and group.get("status") == "generated"]
-                    logger.info(f"🔍 Found {len(image_groups)} groups with images in narration list")
+                    logger.debug(f"🔍 Found {len(image_groups)} groups with images in narration list")
 
             logger.info(f"🎨 Found {len(image_groups)} image groups for video generation")
             logger.debug(f"🔍 Content structure: images section type={type(images_section)}")

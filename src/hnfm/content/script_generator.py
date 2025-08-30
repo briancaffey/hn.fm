@@ -118,8 +118,20 @@ class ScriptGenerator:
                         logger.error(f"TTS service not available for batch {i//batch_size + 1}")
                         continue
 
+                    # Check TTS service health before making call
+                    if hasattr(self.tts_service, 'is_healthy') and not self.tts_service.is_healthy():
+                        logger.warning(f"TTS service appears unhealthy for batch {i//batch_size + 1}, attempting anyway...")
+
+                    # Log the full batch text being processed
+                    logger.info(f"🎵 Processing batch {i//batch_size + 1}: {batch_text}")
+
                     # Generate audio for this batch
+                    logger.info(f"🎵 Starting TTS generation for batch {i//batch_size + 1}...")
                     audio_data = self.tts_service.generate_speech(batch_text)
+                    if audio_data:
+                        logger.info(f"✅ TTS generation completed for batch {i//batch_size + 1}: {len(audio_data)} bytes")
+                    else:
+                        logger.error(f"❌ TTS generation failed for batch {i//batch_size + 1}")
 
                     if not audio_data:
                         logger.warning(

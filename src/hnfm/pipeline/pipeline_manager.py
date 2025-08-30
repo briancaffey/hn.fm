@@ -319,7 +319,7 @@ class PipelineManager:
             cache_path.parent.mkdir(parents=True, exist_ok=True)
             with open(cache_path, "w") as f:
                 json.dump(data, f, indent=2)
-            logger.info(f"Saved to cache: {cache_key}")
+            logger.debug(f"Saved to cache: {cache_key}")
         except Exception as e:
             logger.error(f"Failed to save to cache {cache_key}: {e}")
 
@@ -424,7 +424,7 @@ class PipelineManager:
             from ..utils.system_checker import SystemChecker
 
             print("   🔍 Checking system health...")
-            logger.info("🔍 Checking system health...")
+            logger.debug("🔍 Checking system health...")
 
             # Check all services
             system_checker = SystemChecker()
@@ -640,10 +640,10 @@ class PipelineManager:
             logger.info(f"📁 Saved to: {content_dir}")
 
             # Log what we're returning
-            logger.info(f"🔍 Firecrawl content outputs:")
-            logger.info(f"🔍 Title: {title}")
-            logger.info(f"🔍 Story dir: {story_dir}")
-            logger.info(f"🔍 Content dir: {content_dir}")
+            logger.debug(f"🔍 Firecrawl content outputs:")
+            logger.debug(f"🔍 Title: {title}")
+            logger.debug(f"🔍 Story dir: {story_dir}")
+            logger.debug(f"🔍 Content dir: {content_dir}")
 
             return {
                 "raw_content": extracted_content.get("content", ""),
@@ -671,8 +671,7 @@ class PipelineManager:
             if not content_dir:
                 raise RuntimeError("No content directory found in inputs")
 
-            print("   🧹 Processing and cleaning content...")
-            logger.info("🧹 Processing and cleaning content...")
+            logger.debug("🧹 Processing and cleaning content...")
 
             # Use the existing content processor
             content_processor = self._get_service("content_processor")
@@ -718,10 +717,10 @@ class PipelineManager:
             logger.info(f"📁 Saved to: {content_dir}")
 
             # Log what we're passing through
-            logger.info(f"🔍 Content processing outputs:")
-            logger.info(f"🔍 Title: {inputs.get('title')}")
-            logger.info(f"🔍 Story dir: {inputs.get('story_dir')}")
-            logger.info(f"🔍 Content dir: {inputs.get('content_dir')}")
+            logger.debug(f"🔍 Content processing outputs:")
+            logger.debug(f"🔍 Title: {inputs.get('title')}")
+            logger.debug(f"🔍 Story dir: {inputs.get('story_dir')}")
+            logger.debug(f"🔍 Content dir: {inputs.get('content_dir')}")
 
             return {
                 "cleaned_content": cleaned_content,
@@ -801,10 +800,10 @@ class PipelineManager:
 
                 # Get story_dir from inputs with detailed logging
                 story_dir = inputs.get("story_dir")
-                logger.info(f"🔍 Script generation inputs keys: {list(inputs.keys())}")
-                logger.info(f"🔍 Story dir from inputs: {story_dir}")
-                logger.info(f"🔍 Title from inputs: {title}")
-                logger.info(f"🔍 Content dir from inputs: {content_dir}")
+                logger.debug(f"🔍 Script generation inputs keys: {list(inputs.keys())}")
+                logger.debug(f"🔍 Story dir from inputs: {story_dir}")
+                logger.debug(f"🔍 Title from inputs: {title}")
+                logger.debug(f"🔍 Content dir from inputs: {content_dir}")
 
                 if story_dir:
                     logger.info(f"✅ Creating main content structure in: {story_dir}")
@@ -1045,7 +1044,13 @@ class PipelineManager:
                 print(f"      {i}. {first_words}")
             if len(tts_lines) > 3:
                 print(f"      ... and {len(tts_lines) - 3} more lines")
-            logger.info("🎵 Generating TTS audio...")
+
+            # Log all lines for debugging
+            logger.info(f"🎵 Generating TTS audio for {len(tts_lines)} lines...")
+            for i, line in enumerate(tts_lines, 1):
+                logger.info(f"📝 Line {i}: {line}")
+
+            logger.info("🎵 Starting TTS generation process...")
 
             # Create audio directory
             audio_dir = Path(story_dir) / "audio"
@@ -1065,6 +1070,13 @@ class PipelineManager:
             try:
                 # Use the existing script generator to process TTS lines
                 script_generator = self._get_service("script_generator")
+
+                # Log TTS service status before starting
+                tts_service = self._get_service("tts_service")
+                if hasattr(tts_service, 'get_timeout_info'):
+                    timeout_info = tts_service.get_timeout_info()
+                    logger.info(f"🎵 TTS service configuration: {timeout_info}")
+
                 final_audio_path = script_generator.process_tts_lines(
                     temp_tts_file, title, batch_size=2, story_dir=story_dir
                 )
@@ -1134,7 +1146,7 @@ class PipelineManager:
             if not cleaned_audio_files:
                 raise RuntimeError("No cleaned audio files found in inputs")
 
-            logger.info("🧹 Validating audio cleaning results...")
+            logger.debug("🧹 Validating audio cleaning results...")
 
             # Calculate total size of cleaned files
             import os
@@ -1243,6 +1255,11 @@ class PipelineManager:
             try:
                 # Use the ASR service directly
                 asr_service = self._get_service("asr_service")
+
+                # Log ASR service status before starting
+                if hasattr(asr_service, 'get_timeout_info'):
+                    timeout_info = asr_service.get_timeout_info()
+                    logger.info(f"🎙️ ASR service configuration: {timeout_info}")
 
                 # Define the output path
                 asr_results_path = Path(story_dir) / "content" / "asr.json"
@@ -1431,12 +1448,12 @@ class PipelineManager:
                 output = self._execute_step(step_name, current_inputs, start_from_step)
 
                 # Log the data flow between steps
-                logger.info(f"🔍 Step {step_name} completed with {len(output)} outputs")
-                logger.info(f"🔍 Step {step_name} output keys: {list(output.keys())}")
+                logger.debug(f"🔍 Step {step_name} completed with {len(output)} outputs")
+                logger.debug(f"🔍 Step {step_name} output keys: {list(output.keys())}")
                 if "story_dir" in output:
-                    logger.info(f"🔍 Step {step_name} story_dir: {output['story_dir']}")
+                    logger.debug(f"🔍 Step {step_name} story_dir: {output['story_dir']}")
                 if "title" in output:
-                    logger.info(f"🔍 Step {step_name} title: {output['title']}")
+                    logger.debug(f"🔍 Step {step_name} title: {output['title']}")
 
                 # Update inputs for next step
                 current_inputs.update(output)

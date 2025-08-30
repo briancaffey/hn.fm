@@ -76,8 +76,10 @@ class ConfigManager:
                 "base_url": "${TTS_BASE_URL}",
                 "default_voice": "${TTS_DEFAULT_VOICE}",
                 "batch_size": 2,
-                "max_attempts": 3,
+                "max_attempts": "${TTS_MAX_ATTEMPTS}",
                 "delay_between_batches": 2,
+                "timeout_seconds": "${TTS_TIMEOUT_SECONDS}",
+                "retry_delay": "${TTS_RETRY_DELAY}",
             },
             "studio_voice": {
                 "enabled": True,
@@ -130,6 +132,9 @@ class ConfigManager:
                 "model_size": "${ASR_MODEL_SIZE}",
                 "min_speakers": "${ASR_MIN_SPEAKERS}",
                 "max_speakers": "${ASR_MAX_SPEAKERS}",
+                "timeout_seconds": "${ASR_TIMEOUT_SECONDS}",
+                "retry_delay": "${ASR_RETRY_DELAY}",
+                "max_attempts": "${ASR_MAX_ATTEMPTS}",
             },
             "image_generation": {
                 "base_url": "${IMAGE_GENERATION_BASE_URL}",
