@@ -17,6 +17,8 @@ help:
 	@echo "Development:"
 	@echo "  install-dev  - Install development dependencies"
 	@echo "  test         - Run tests"
+	@echo "  test-firecrawl-quick - Run Firecrawl quick test"
+	@echo "  test-firecrawl-full  - Run Firecrawl full test suite"
 	@echo ""
 	@echo "Use 'make <command>' to run a specific command"
 
@@ -84,6 +86,14 @@ test-celery:
 	@echo "Testing Celery setup..."
 	uv run python -m src.hnfm.test.test_celery
 
+test-firecrawl-quick:
+	@echo "🧪 Running Firecrawl quick test..."
+	uv run python -m src.hnfm.test.test_firecrawl_quick
+
+test-firecrawl-full:
+	@echo "🧪 Running Firecrawl full test suite..."
+	uv run pytest src/hnfm/test/test_firecrawl_integration.py -v
+
 test-all:
 	@echo "Running all tests..."
 	@echo "Testing web server..."
@@ -94,6 +104,9 @@ test-all:
 	@echo ""
 	@echo "Testing scraper..."
 	uv run python -m src.hnfm.test.test_scraper
+	@echo ""
+	@echo "Testing Firecrawl integration..."
+	uv run python -m src.hnfm.test.test_firecrawl_quick
 
 # Development setup
 dev-setup: install-deps

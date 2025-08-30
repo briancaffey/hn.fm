@@ -81,6 +81,8 @@ line_length = 88
 [dependency-groups]
 dev = [
     "black>=25.1.0",
+    "pytest>=8.4.1",
+    "pytest-cov>=6.2.1",
 ]
 
 

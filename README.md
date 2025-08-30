@@ -11,6 +11,7 @@ Transform Hacker News into your personalized AI-powered podcast using a sophisti
 - **Smart Caching**: Resume from any step using cached data
 - **YAML Configuration**: Easy configuration management
 - **Modular Architecture**: Extensible pipeline with pluggable components
+- **Local Testing**: Test Firecrawl integration with local HTML files for faster development
 
 ## 🏗️ Architecture
 
