@@ -1,0 +1,80 @@
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: hnfm-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  web:
+    build: .
+    container_name: hnfm-web
+    ports:
+      - "8000:8000"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      - WEB_HOST=0.0.0.0
+      - WEB_PORT=8000
+      - WEB_RELOAD=false
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./outputs:/app/outputs
+      - ./cache:/app/cache
+
+  celery-worker:
+    build: .
+    container_name: hnfm-celery-worker
+    command: python start_celery_worker.py
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+    volumes:
+      - ./outputs:/app/outputs
+      - ./cache:/app/cache
+
+  celery-beat:
+    build: .
+    container_name: hnfm-celery-beat
+    command: python start_celery_beat.py
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+  flower:
+    build: .
+    container_name: hnfm-flower
+    command: python start_flower.py
+    ports:
+      - "5555:5555"
+    environment:
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+    depends_on:
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  redis_data:

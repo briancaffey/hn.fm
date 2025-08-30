@@ -25,6 +25,11 @@ dependencies = [
     "tqdm>=4.66.0",
     "pyyaml>=6.0.0",
     "feedparser>=6.0.0",
+    # Web API Dependencies
+    "fastapi>=0.104.0",
+    "uvicorn[standard]>=0.24.0",
+    "redis>=5.0.0",
+    "jinja2>=3.1.0",
     # Audio Processing Dependencies
     "pydub>=0.25.1",
     "gradio-client>=0.10.0",
@@ -44,6 +49,8 @@ dependencies = [
     "tenacity>=8.2.0",
     "pydantic-settings>=2.0.0",
     "Pillow>=10.0.0",
+    "celery[redis]>=5.5.3",
+    "flower>=2.0.1",
 ]
 
 [project.optional-dependencies]

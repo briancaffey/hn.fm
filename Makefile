@@ -65,3 +65,69 @@ test:
 	@echo "🧪 Running tests..."
 	uv run pytest tests/ -v
 	@echo "✅ Tests complete!"
+
+# Celery commands
+celery-worker:
+	@echo "Starting Celery worker..."
+	uv run python start_celery_worker.py
+
+celery-beat:
+	@echo "Starting Celery Beat..."
+	uv run python start_celery_beat.py
+
+flower:
+	@echo "Starting Flower monitoring..."
+	uv run python start_flower.py
+
+# Test commands
+test-celery:
+	@echo "Testing Celery setup..."
+	uv run python -m src.hnfm.test.test_celery
+
+test-all:
+	@echo "Running all tests..."
+	@echo "Testing web server..."
+	uv run python -m src.hnfm.test.test_web_server
+	@echo ""
+	@echo "Testing Celery..."
+	uv run python -m src.hnfm.test.test_celery
+	@echo ""
+	@echo "Testing scraper..."
+	uv run python -m src.hnfm.test.test_scraper
+
+# Development setup
+dev-setup: install-deps
+	@echo "Setting up development environment..."
+	@if [ ! -f .env ]; then cp env.example .env; echo "Created .env file"; fi
+	@echo "Starting Redis..."
+	docker-compose up redis -d
+	@echo "Waiting for Redis to be ready..."
+	@sleep 3
+	@echo "Testing setup..."
+	uv run python -m src.hnfm.test.test_web_server
+	@echo "Development environment ready!"
+	@echo "Start services with: make dev-start"
+
+dev-start:
+	@echo "Starting development services..."
+	@echo "Web server: http://localhost:8000"
+	@echo "Flower monitoring: http://localhost:5555"
+	@echo "Press Ctrl+C to stop all services"
+	@trap 'kill 0' SIGINT; \
+	uv run python run_web_server.py & \
+	uv run python start_celery_worker.py & \
+	uv run python start_flower.py & \
+	wait
+
+dev-start-background:
+	@echo "Starting development services in background..."
+	@echo "Starting Redis..."
+	docker-compose up redis -d
+	@echo "Starting Celery worker..."
+	uv run python start_celery_worker.py &
+	@echo "Starting web server..."
+	uv run python run_web_server.py &
+	@echo "Services started in background!"
+	@echo "Web server: http://localhost:8000"
+	@echo "API docs: http://localhost:8000/docs"
+	@echo "Celery Flower: http://localhost:5555"

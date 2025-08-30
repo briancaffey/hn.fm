@@ -41,6 +41,7 @@ class SystemChecker:
             ("Gradio TTS", self._check_gradio_tts),
             ("Studio Voice", self._check_studio_voice),
             ("ASR Service", self._check_asr_service),
+            ("Image Generation", self._check_image_generation),
         ]
 
         results = []
@@ -294,6 +295,52 @@ class SystemChecker:
         except requests.exceptions.RequestException as e:
             return ServiceStatus(
                 name="ASR Service",
+                url=base_url,
+                status="offline",
+                response_time=0.0,
+                error_message=str(e)
+            )
+
+    def _check_image_generation(self) -> ServiceStatus:
+        """Check Image Generation service (Flux NIM)."""
+        from ..utils.config import config_manager
+
+        base_url = config_manager.get("image_generation.base_url")
+        if not base_url:
+            return ServiceStatus(
+                name="Image Generation",
+                url="not configured",
+                status="offline",
+                response_time=0.0,
+                error_message="Image generation base URL not configured"
+            )
+
+        try:
+            start_time = time.time()
+            # Use the health endpoint that the ImageGenerationService expects
+            response = requests.get(f"{base_url}/v1/health/ready", timeout=self.timeout)
+            response_time = time.time() - start_time
+
+            if response.status_code == 200:
+                return ServiceStatus(
+                    name="Image Generation",
+                    url=base_url,
+                    status="online",
+                    response_time=response_time,
+                    details={"health_endpoint": f"{base_url}/v1/health/ready", "response": response.text[:100] + "..." if len(response.text) > 100 else response.text}
+                )
+            else:
+                return ServiceStatus(
+                    name="Image Generation",
+                    url=base_url,
+                    status="offline",
+                    response_time=response_time,
+                    error_message=f"HTTP {response.status_code}"
+                )
+
+        except requests.exceptions.RequestException as e:
+            return ServiceStatus(
+                name="Image Generation",
                 url=base_url,
                 status="offline",
                 response_time=0.0,
