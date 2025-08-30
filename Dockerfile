@@ -1,31 +1,49 @@
-FROM python:3.11-slim
+# Multi-stage Dockerfile for hn.fm backend
+FROM python:3.11-slim as base
 
-WORKDIR /app
+# Set environment variables
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PIP_NO_CACHE_DIR=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
     gcc \
+    g++ \
+    libffi-dev \
+    libssl-dev \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy dependency files
-COPY pyproject.toml uv.lock ./
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash app
 
-# Install Python dependencies
-RUN pip install uv && uv pip install -e .
+# Set working directory
+WORKDIR /app
+
+# Copy dependency files
+COPY pyproject.toml uv.lock README.md LICENSE ./
+
+# Install uv and create virtual environment, then install dependencies
+RUN pip install uv && \
+    uv venv && \
+    . .venv/bin/activate && \
+    uv pip install -e .
 
 # Copy source code
 COPY src/ ./src/
-COPY run_web_server.py ./
+COPY run_web_server.py start_celery_worker.py start_celery_beat.py ./
 
-# Create necessary directories
-RUN mkdir -p outputs cache
+# Change ownership to app user
+RUN chown -R app:app /app
+USER app
 
-# Expose port
-EXPOSE 8000
+# Set PATH to include virtual environment
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
+    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
 
-# Run the web server
+# Default command
 CMD ["python", "run_web_server.py"]

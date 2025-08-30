@@ -131,3 +131,102 @@ dev-start-background:
 	@echo "Web server: http://localhost:8000"
 	@echo "API docs: http://localhost:8000/docs"
 	@echo "Celery Flower: http://localhost:5555"
+
+# Docker commands
+docker-build:
+	@echo "🐳 Building Docker images..."
+	docker-compose build
+	@echo "✅ Docker images built!"
+
+docker-build-no-cache:
+	@echo "🐳 Building Docker images (no cache)..."
+	docker-compose build --no-cache
+	@echo "✅ Docker images built!"
+
+docker-up:
+	@echo "🐳 Starting all services..."
+	docker-compose up -d
+	@echo "✅ Services started! Check status with: make docker-status"
+
+docker-up-dev:
+	@echo "🐳 Starting development services with hot reloading..."
+	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
+	@echo "✅ Development services started! Check status with: make docker-status"
+
+docker-up-prod:
+	@echo "🐳 Starting production services..."
+	docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+	@echo "✅ Production services started! Check status with: make docker-status"
+
+docker-down:
+	@echo "🐳 Stopping all services..."
+	docker-compose down
+	@echo "✅ Services stopped!"
+
+docker-down-volumes:
+	@echo "🐳 Stopping all services and removing volumes..."
+	docker-compose down -v
+	@echo "✅ Services stopped and volumes removed!"
+
+docker-restart:
+	@echo "🐳 Restarting all services..."
+	docker-compose restart
+	@echo "✅ Services restarted!"
+
+docker-logs:
+	@echo "🐳 Showing logs for all services..."
+	docker-compose logs -f
+
+docker-logs-web:
+	@echo "🐳 Showing web service logs..."
+	docker-compose logs -f web
+
+docker-logs-celery:
+	@echo "🐳 Showing Celery worker logs..."
+	docker-compose logs -f celery-worker
+
+docker-logs-beat:
+	@echo "🐳 Showing Celery Beat logs..."
+	docker-compose logs -f celery-beat
+
+docker-status:
+	@echo "🐳 Service status:"
+	docker-compose ps
+
+docker-shell:
+	@echo "🐳 Opening shell in web container..."
+	docker-compose exec web bash
+
+docker-shell-celery:
+	@echo "🐳 Opening shell in Celery worker container..."
+	docker-compose exec celery-worker bash
+
+docker-clean:
+	@echo "🐳 Cleaning up Docker resources..."
+	docker-compose down -v --remove-orphans
+	docker system prune -f
+	@echo "✅ Docker cleanup complete!"
+
+# Development with Docker
+dev-docker: docker-up-dev
+	@echo "🚀 Development environment ready with Docker!"
+	@echo "Web server: http://localhost:8000"
+	@echo "API docs: http://localhost:8000/docs"
+	@echo "Flower monitoring: http://localhost:5555"
+	@echo "Stop services with: make docker-down"
+
+# Production with Docker
+prod-docker: docker-up-prod
+	@echo "🚀 Production environment ready with Docker!"
+	@echo "Web server: http://localhost:8000"
+	@echo "API docs: http://localhost:8000/docs"
+	@echo "Flower monitoring: http://localhost:5555"
+	@echo "Stop services with: make docker-down"
+
+# Test Docker setup
+docker-test:
+	@echo "🧪 Testing Docker setup..."
+	@echo "Make sure services are running with: make docker-up-dev"
+	@echo "Waiting 10 seconds for services to be ready..."
+	@sleep 10
+	uv run python test_docker_setup.py
