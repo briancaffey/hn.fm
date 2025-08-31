@@ -18,12 +18,7 @@ class ContentManager:
         pass
 
     def create_main_content_structure(
-        self,
-        title: str,
-        script: str,
-        tts_lines: List[str],
-        story_dir: Path,
-        **kwargs
+        self, title: str, script: str, tts_lines: List[str], story_dir: Path, **kwargs
     ) -> Path:
         """Create the main content YAML structure.
 
@@ -49,28 +44,17 @@ class ContentManager:
                     "created_at": datetime.now().isoformat(),
                     "script_length": len(script),
                     "tts_lines_count": len(tts_lines),
-                    **kwargs
+                    **kwargs,
                 },
-                "script": {
-                    "full_text": script,
-                    "tts_lines": tts_lines
-                },
+                "script": {"full_text": script, "tts_lines": tts_lines},
                 "narration": [],
                 "images": {
                     "style": kwargs.get("image_style", "detailed cartoon style"),
                     "generated": [],
-                    "pending": []
+                    "pending": [],
                 },
-                "audio": {
-                    "tts_generated": False,
-                    "files": [],
-                    "duration": None
-                },
-                "video": {
-                    "generated": False,
-                    "file": None,
-                    "duration": None
-                }
+                "audio": {"tts_generated": False, "files": [], "duration": None},
+                "video": {"generated": False, "file": None, "duration": None},
             }
 
             # Group TTS lines into narration pairs
@@ -84,7 +68,7 @@ class ContentManager:
                     "lines": group["lines"],
                     "status": "pending",
                     "image_prompt": None,
-                    "image_file": None
+                    "image_file": None,
                 }
                 for i, group in enumerate(narration_groups)
             ]
@@ -92,7 +76,14 @@ class ContentManager:
             # Save to main.yaml
             main_yaml_path = content_dir / "main.yaml"
             with open(main_yaml_path, "w", encoding="utf-8") as f:
-                yaml.dump(content_data, f, default_flow_style=False, indent=2, allow_unicode=True, sort_keys=False)
+                yaml.dump(
+                    content_data,
+                    f,
+                    default_flow_style=False,
+                    indent=2,
+                    allow_unicode=True,
+                    sort_keys=False,
+                )
 
             logger.info(f"Created main content structure: {main_yaml_path}")
             return main_yaml_path
@@ -113,14 +104,14 @@ class ContentManager:
         groups = []
 
         for i in range(0, len(tts_lines), 2):
-            group_lines = tts_lines[i:i+2]
+            group_lines = tts_lines[i : i + 2]
             group = {
                 "group_id": len(groups),
                 "lines": group_lines,
                 "speaker_tags": [f"[S{i+1}]" for i in range(len(group_lines))],
                 "start_time": None,  # Will be filled by ASR
-                "end_time": None,    # Will be filled by ASR
-                "duration": None     # Will be filled by ASR
+                "end_time": None,  # Will be filled by ASR
+                "duration": None,  # Will be filled by ASR
             }
             groups.append(group)
 
@@ -167,7 +158,14 @@ class ContentManager:
 
             main_yaml_path = content_dir / "main.yaml"
             with open(main_yaml_path, "w", encoding="utf-8") as f:
-                yaml.dump(content_data, f, default_flow_style=False, indent=2, allow_unicode=True, sort_keys=False)
+                yaml.dump(
+                    content_data,
+                    f,
+                    default_flow_style=False,
+                    indent=2,
+                    allow_unicode=True,
+                    sort_keys=False,
+                )
 
             logger.info(f"Saved main content to: {main_yaml_path}")
             return main_yaml_path
@@ -176,7 +174,9 @@ class ContentManager:
             logger.error(f"Failed to save main content: {e}")
             raise RuntimeError(f"Content saving failed: {e}")
 
-    def update_asr_timestamps(self, story_dir: Path, asr_results: Dict[str, Any]) -> Path:
+    def update_asr_timestamps(
+        self, story_dir: Path, asr_results: Dict[str, Any]
+    ) -> Path:
         """Update the main content with ASR timestamps.
 
         Args:
@@ -213,7 +213,10 @@ class ContentManager:
                     group["start_time"] = min(start_times) if start_times else None
                     group["end_time"] = max(end_times) if end_times else None
 
-                    if group["start_time"] is not None and group["end_time"] is not None:
+                    if (
+                        group["start_time"] is not None
+                        and group["end_time"] is not None
+                    ):
                         group["duration"] = group["end_time"] - group["start_time"]
 
             # Save updated content
@@ -223,7 +226,9 @@ class ContentManager:
             logger.error(f"Failed to update ASR timestamps: {e}")
             raise RuntimeError(f"ASR timestamp update failed: {e}")
 
-    def update_image_prompts(self, story_dir: Path, image_prompts: List[Dict[str, Any]]) -> Path:
+    def update_image_prompts(
+        self, story_dir: Path, image_prompts: List[Dict[str, Any]]
+    ) -> Path:
         """Update the main content with generated image prompts.
 
         Args:
@@ -281,7 +286,8 @@ class ContentManager:
 
             # Remove generated images from pending
             content_data["images"]["pending"] = [
-                img for img in content_data["images"]["pending"]
+                img
+                for img in content_data["images"]["pending"]
                 if img["status"] != "generated"
             ]
 

@@ -82,7 +82,9 @@ class PipelineManager:
         self.pipeline_steps = self._define_pipeline_steps()
 
         if text_only:
-            logger.info("Running in text-only mode - TTS, image, and video generation will be skipped")
+            logger.info(
+                "Running in text-only mode - TTS, image, and video generation will be skipped"
+            )
 
     def _get_service(self, service_name: str):
         """Get a service instance, creating it if needed.
@@ -432,7 +434,11 @@ class PipelineManager:
 
             # Define critical services that must be online
             critical_services = ["Local LLM", "Firecrawl"]
-            critical_offline = [s.name for s in service_statuses if s.name in critical_services and s.status != "online"]
+            critical_offline = [
+                s.name
+                for s in service_statuses
+                if s.name in critical_services and s.status != "online"
+            ]
 
             if critical_offline:
                 # Critical services are down - fail the pipeline
@@ -442,7 +448,10 @@ class PipelineManager:
 
                 if logger.isEnabledFor(logging.DEBUG):
                     for status in service_statuses:
-                        if status.name in critical_services and status.status != "online":
+                        if (
+                            status.name in critical_services
+                            and status.status != "online"
+                        ):
                             print(f"      ❌ {status.name}: {status.status}")
                             if status.error_message:
                                 print(f"         Error: {status.error_message}")
@@ -455,7 +464,9 @@ class PipelineManager:
                 logger.debug("✅ Critical services are online")
                 for status in service_statuses:
                     emoji = "✅" if status.status == "online" else "⚠️"
-                    logger.debug(f"      {emoji} {status.name}: {status.status} ({status.response_time:.2f}s)")
+                    logger.debug(
+                        f"      {emoji} {status.name}: {status.status} ({status.response_time:.2f}s)"
+                    )
                     if status.details:
                         for key, value in status.details.items():
                             logger.debug(f"         {key}: {value}")
@@ -464,28 +475,37 @@ class PipelineManager:
             else:
                 # INFO mode: just say critical services are ready
                 logger.info("✅ Critical services are online and ready")
-                offline_services = [s.name for s in service_statuses if s.status != "online"]
+                offline_services = [
+                    s.name for s in service_statuses if s.status != "online"
+                ]
                 if offline_services:
-                    logger.info(f"   ⚠️  Non-critical services offline: {', '.join(offline_services)}")
+                    logger.info(
+                        f"   ⚠️  Non-critical services offline: {', '.join(offline_services)}"
+                    )
 
             # Save system status to cache
             system_status_path = self.cache_dir / "system_status.json"
             with open(system_status_path, "w", encoding="utf-8") as f:
-                json.dump({
-                    "timestamp": datetime.now().isoformat(),
-                    "all_healthy": all_healthy,
-                    "critical_healthy": len(critical_offline) == 0,
-                    "services": [
-                        {
-                            "name": s.name,
-                            "status": s.status,
-                            "response_time": s.response_time,
-                            "error_message": s.error_message,
-                            "details": s.details
-                        }
-                        for s in service_statuses
-                    ]
-                }, f, indent=2, ensure_ascii=False)
+                json.dump(
+                    {
+                        "timestamp": datetime.now().isoformat(),
+                        "all_healthy": all_healthy,
+                        "critical_healthy": len(critical_offline) == 0,
+                        "services": [
+                            {
+                                "name": s.name,
+                                "status": s.status,
+                                "response_time": s.response_time,
+                                "error_message": s.error_message,
+                                "details": s.details,
+                            }
+                            for s in service_statuses
+                        ],
+                    },
+                    f,
+                    indent=2,
+                    ensure_ascii=False,
+                )
 
             return {
                 "system_healthy": all_healthy,
@@ -496,11 +516,11 @@ class PipelineManager:
                         "status": s.status,
                         "response_time": s.response_time,
                         "error_message": s.error_message,
-                        "details": s.details
+                        "details": s.details,
                     }
                     for s in service_statuses
                 ],
-                "timestamp": datetime.now().isoformat()
+                "timestamp": datetime.now().isoformat(),
             }
 
         except Exception as e:
@@ -605,13 +625,17 @@ class PipelineManager:
             hn_scraper = self._get_service("hn_scraper")
             selected_article_id = selected_article.get("id")
             if selected_article_id:
-                hn_metadata_path = hn_scraper.save_story_metadata(selected_article_id, content_dir)
+                hn_metadata_path = hn_scraper.save_story_metadata(
+                    selected_article_id, content_dir
+                )
                 if hn_metadata_path:
                     print(f"   📊 Saved HN metadata to: {hn_metadata_path.name}")
                     logger.info(f"📊 Saved HN metadata to: {hn_metadata_path}")
                 else:
                     print(f"   ⚠️ Failed to save HN metadata")
-                    logger.warning(f"Failed to save HN metadata for article {selected_article_id}")
+                    logger.warning(
+                        f"Failed to save HN metadata for article {selected_article_id}"
+                    )
 
             # Extract content using Firecrawl
             content_scraper = self._get_service("content_scraper")
@@ -653,7 +677,9 @@ class PipelineManager:
                 "content_dir": str(content_dir),
                 "raw_content_path": str(raw_content_path),
                 "processed_content_path": str(processed_content_path),
-                "hn_metadata_path": str(hn_metadata_path) if 'hn_metadata_path' in locals() else None,
+                "hn_metadata_path": (
+                    str(hn_metadata_path) if "hn_metadata_path" in locals() else None
+                ),
             }
 
         except Exception as e:
@@ -728,8 +754,12 @@ class PipelineManager:
                 "cleaned_content_path": str(cleaned_content_path),
                 "meaningful_paragraphs_path": str(meaningful_paragraphs_path),
                 "title": inputs.get("title"),  # Pass through the title
-                "story_dir": inputs.get("story_dir"),  # Pass through the story directory
-                "content_dir": inputs.get("content_dir"),  # Pass through the content directory
+                "story_dir": inputs.get(
+                    "story_dir"
+                ),  # Pass through the story directory
+                "content_dir": inputs.get(
+                    "content_dir"
+                ),  # Pass through the content directory
             }
 
         except Exception as e:
@@ -747,7 +777,9 @@ class PipelineManager:
             logger.debug(f"Script generation inputs keys: {list(inputs.keys())}")
             logger.debug(f"Title from inputs: {title}")
             logger.debug(f"Content dir from inputs: {content_dir}")
-            logger.debug(f"Meaningful paragraphs count: {len(meaningful_paragraphs) if meaningful_paragraphs else 'None'}")
+            logger.debug(
+                f"Meaningful paragraphs count: {len(meaningful_paragraphs) if meaningful_paragraphs else 'None'}"
+            )
 
             if not meaningful_paragraphs:
                 raise RuntimeError("No meaningful paragraphs found in inputs")
@@ -790,13 +822,16 @@ class PipelineManager:
                     ensure_ascii=False,
                 )
 
-                        # Create main content structure (always, regardless of text-only mode)
+                # Create main content structure (always, regardless of text-only mode)
             try:
                 from ..content import ContentManager
+
                 content_manager = ContentManager()
 
                 # Get image style from config
-                image_style = config_manager.get("image_generation.default_style", "detailed cartoon style")
+                image_style = config_manager.get(
+                    "image_generation.default_style", "detailed cartoon style"
+                )
 
                 # Get story_dir from inputs with detailed logging
                 story_dir = inputs.get("story_dir")
@@ -812,22 +847,28 @@ class PipelineManager:
                         script=script_data.get("script", ""),
                         tts_lines=script_data.get("tts_lines", []),
                         story_dir=Path(story_dir),
-                        image_style=image_style
+                        image_style=image_style,
                     )
 
                     logger.info(f"✅ Created main content structure: {main_yaml_path}")
                 else:
-                    logger.error(f"❌ No story_dir found in inputs! Available keys: {list(inputs.keys())}")
+                    logger.error(
+                        f"❌ No story_dir found in inputs! Available keys: {list(inputs.keys())}"
+                    )
                     logger.error(f"❌ This means the pipeline data flow is broken")
                     # Try to create it in the content_dir as fallback
                     try:
-                        logger.info(f"🔄 Attempting fallback: creating main content structure in content_dir: {content_dir}")
+                        logger.info(
+                            f"🔄 Attempting fallback: creating main content structure in content_dir: {content_dir}"
+                        )
                         main_yaml_path = content_manager.create_main_content_structure(
                             title=title,
                             script=script_data.get("script", ""),
                             tts_lines=script_data.get("tts_lines", []),
-                            story_dir=Path(content_dir).parent,  # Go up one level from content/ to story_dir
-                            image_style=image_style
+                            story_dir=Path(
+                                content_dir
+                            ).parent,  # Go up one level from content/ to story_dir
+                            image_style=image_style,
                         )
                         logger.info(f"✅ Fallback successful: {main_yaml_path}")
                     except Exception as fallback_e:
@@ -837,6 +878,7 @@ class PipelineManager:
                 logger.error(f"❌ Failed to create main content structure: {e}")
                 logger.error(f"❌ Full error details: {type(e).__name__}: {str(e)}")
                 import traceback
+
                 logger.error(f"❌ Traceback: {traceback.format_exc()}")
                 # Don't fail the script generation step for this
 
@@ -861,7 +903,9 @@ class PipelineManager:
             logger.error(f"Failed to generate script: {e}")
             raise RuntimeError(f"Script generation failed: {e}")
 
-    def _execute_image_prompt_generation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_image_prompt_generation(
+        self, inputs: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Execute image prompt generation step using LLM."""
         try:
             script_data = inputs.get("script")
@@ -871,30 +915,38 @@ class PipelineManager:
             if not script_data:
                 raise RuntimeError("No script data found for image prompt generation")
             if not story_dir:
-                raise RuntimeError("No story directory found for image prompt generation")
+                raise RuntimeError(
+                    "No story directory found for image prompt generation"
+                )
 
             logger.info("🎨 Generating image prompts using LLM...")
 
             # Load the main content structure
             from ..content import ContentManager
+
             content_manager = ContentManager()
 
             try:
                 content_data = content_manager.load_main_content(Path(story_dir))
-                logger.debug("✅ Loaded main content structure for image prompt generation")
+                logger.debug(
+                    "✅ Loaded main content structure for image prompt generation"
+                )
             except Exception as e:
                 logger.warning(f"⚠️ Could not load main content structure: {e}")
                 content_data = None
 
             # Generate image prompts using LLM
             from ..content import ImagePromptGenerator
+
             prompt_generator = ImagePromptGenerator()
 
             if content_data:
                 # Use the content structure for better prompts
                 logger.debug("🚀 Starting LLM-powered image prompt generation...")
                 image_prompts = prompt_generator.batch_generate_prompts(content_data)
-                logger.debug(f"✅ Generated {len(image_prompts)} image prompts using LLM")
+                logger.debug(
+                    f"✅ Generated {len(image_prompts)} image prompts using LLM"
+                )
 
                 # Update the content structure with prompts
                 content_manager.update_image_prompts(Path(story_dir), image_prompts)
@@ -903,15 +955,27 @@ class PipelineManager:
                 # Log summary of generated prompts
                 logger.debug("📋 Generated image prompts summary:")
                 for i, prompt_data in enumerate(image_prompts[:3], 1):  # Show first 3
-                    prompt_preview = prompt_data["prompt"][:80] + "..." if len(prompt_data["prompt"]) > 80 else prompt_data["prompt"]
-                    logger.debug(f"   {i}. Group {prompt_data['group_id']}: {prompt_preview}")
+                    prompt_preview = (
+                        prompt_data["prompt"][:80] + "..."
+                        if len(prompt_data["prompt"]) > 80
+                        else prompt_data["prompt"]
+                    )
+                    logger.debug(
+                        f"   {i}. Group {prompt_data['group_id']}: {prompt_preview}"
+                    )
                 if len(image_prompts) > 3:
                     logger.debug(f"   ... and {len(image_prompts) - 3} more prompts")
             else:
-                logger.warning("⚠️ No content data available for image prompt generation")
-                logger.debug("📝 Will use fallback text-based prompts during image generation")
+                logger.warning(
+                    "⚠️ No content data available for image prompt generation"
+                )
+                logger.debug(
+                    "📝 Will use fallback text-based prompts during image generation"
+                )
 
-            logger.info(f"🎉 Image prompt generation complete! Generated {len(image_prompts) if content_data else 0} prompts")
+            logger.info(
+                f"🎉 Image prompt generation complete! Generated {len(image_prompts) if content_data else 0} prompts"
+            )
             return {
                 "image_prompts_generated": True,
                 "prompt_count": len(image_prompts) if content_data else 0,
@@ -937,6 +1001,7 @@ class PipelineManager:
 
             # Load the main content structure
             from ..content import ContentManager
+
             content_manager = ContentManager()
 
             try:
@@ -948,13 +1013,16 @@ class PipelineManager:
 
             # Generate image prompts using LLM
             from ..content import ImagePromptGenerator
+
             prompt_generator = ImagePromptGenerator()
 
             if content_data:
                 # Use the content structure for better prompts
                 logger.debug("🚀 Starting LLM-powered image prompt generation...")
                 image_prompts = prompt_generator.batch_generate_prompts(content_data)
-                logger.debug(f"✅ Generated {len(image_prompts)} image prompts using LLM")
+                logger.debug(
+                    f"✅ Generated {len(image_prompts)} image prompts using LLM"
+                )
 
                 # Update the content structure with prompts
                 content_manager.update_image_prompts(Path(story_dir), image_prompts)
@@ -962,17 +1030,23 @@ class PipelineManager:
                 # Use the generated prompts for image generation
                 script_segments = []
                 for prompt_data in image_prompts:
-                    script_segments.append({
-                        "text": prompt_data["prompt"],
-                        "group_id": prompt_data["group_id"]
-                    })
+                    script_segments.append(
+                        {
+                            "text": prompt_data["prompt"],
+                            "group_id": prompt_data["group_id"],
+                        }
+                    )
 
-                logger.debug(f"📝 Created {len(script_segments)} script segments from LLM prompts")
+                logger.debug(
+                    f"📝 Created {len(script_segments)} script segments from LLM prompts"
+                )
             else:
                 # Fallback to simple text-based prompts
                 logger.debug("📝 Using fallback text-based image prompts")
                 script_segments = [{"text": line} for line in tts_lines]
-                logger.debug(f"📝 Created {len(script_segments)} script segments from TTS lines")
+                logger.debug(
+                    f"📝 Created {len(script_segments)} script segments from TTS lines"
+                )
 
             # Use the image generation service
             image_service = self._get_service("image_generator")
@@ -987,17 +1061,20 @@ class PipelineManager:
 
             # Generate images for each script segment
             generated_images = image_service.generate_images_for_script(
-                script_segments=script_segments,
-                output_dir=images_dir
+                script_segments=script_segments, output_dir=images_dir
             )
 
             # Update content structure with generated images if available
             if content_data:
                 try:
-                    content_manager.update_generated_images(Path(story_dir), generated_images)
+                    content_manager.update_generated_images(
+                        Path(story_dir), generated_images
+                    )
                     logger.info("✅ Updated content structure with generated images")
                 except Exception as e:
-                    logger.warning(f"⚠️ Failed to update content structure with images: {e}")
+                    logger.warning(
+                        f"⚠️ Failed to update content structure with images: {e}"
+                    )
 
             # Clear, high-level image generation logging
             print(f"   ✅ Generated {len(generated_images)} images")
@@ -1073,7 +1150,7 @@ class PipelineManager:
 
                 # Log TTS service status before starting
                 tts_service = self._get_service("tts_service")
-                if hasattr(tts_service, 'get_timeout_info'):
+                if hasattr(tts_service, "get_timeout_info"):
                     timeout_info = tts_service.get_timeout_info()
                     logger.info(f"🎵 TTS service configuration: {timeout_info}")
 
@@ -1257,7 +1334,7 @@ class PipelineManager:
                 asr_service = self._get_service("asr_service")
 
                 # Log ASR service status before starting
-                if hasattr(asr_service, 'get_timeout_info'):
+                if hasattr(asr_service, "get_timeout_info"):
                     timeout_info = asr_service.get_timeout_info()
                     logger.info(f"🎙️ ASR service configuration: {timeout_info}")
 
@@ -1266,8 +1343,7 @@ class PipelineManager:
 
                 # Process and save the audio file
                 asr_results = asr_service.process_and_save(
-                    audio_file_path=temp_audio_file,
-                    output_path=str(asr_results_path)
+                    audio_file_path=temp_audio_file, output_path=str(asr_results_path)
                 )
 
                 # Clear, high-level ASR completion logging
@@ -1320,7 +1396,7 @@ class PipelineManager:
                 asr_file_path=asr_results_path,
                 audio_file_path=final_audio,
                 main_yaml_path=str(main_yaml_path),
-                output_path=str(video_output_path)
+                output_path=str(video_output_path),
             )
 
             logger.info(f"✅ Video generation completed successfully")
@@ -1364,7 +1440,9 @@ class PipelineManager:
         # Safety check for None or empty title
         if not story_title or story_title == "Unknown Title":
             story_title = "unknown_article"
-            logger.warning("Using fallback title 'unknown_article' for directory creation")
+            logger.warning(
+                "Using fallback title 'unknown_article' for directory creation"
+            )
 
         # Generate a unique name for the story directory
         safe_title = self._sanitize_filename(story_title)
@@ -1448,10 +1526,14 @@ class PipelineManager:
                 output = self._execute_step(step_name, current_inputs, start_from_step)
 
                 # Log the data flow between steps
-                logger.debug(f"🔍 Step {step_name} completed with {len(output)} outputs")
+                logger.debug(
+                    f"🔍 Step {step_name} completed with {len(output)} outputs"
+                )
                 logger.debug(f"🔍 Step {step_name} output keys: {list(output.keys())}")
                 if "story_dir" in output:
-                    logger.debug(f"🔍 Step {step_name} story_dir: {output['story_dir']}")
+                    logger.debug(
+                        f"🔍 Step {step_name} story_dir: {output['story_dir']}"
+                    )
                 if "title" in output:
                     logger.debug(f"🔍 Step {step_name} title: {output['title']}")
 
@@ -1482,6 +1564,24 @@ class PipelineManager:
         # This would load from persistent storage
         # For now, return None
         return None
+
+    def _get_content_data(self, content_id: str) -> Optional[Dict[str, Any]]:
+        """Get content data from the database.
+
+        Args:
+            content_id: Content identifier
+
+        Returns:
+            Content data dictionary or None if not found
+        """
+        try:
+            from hnfm.web.database import ContentDatabase
+
+            db = ContentDatabase()
+            return db.get_content(content_id)
+        except Exception as e:
+            logger.error(f"Failed to get content data for {content_id}: {e}")
+            return None
 
     def list_pipeline_runs(self) -> List[PipelineState]:
         """List all pipeline runs.

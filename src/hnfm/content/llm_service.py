@@ -29,11 +29,11 @@ class LLMService:
             try:
                 # Configure OpenAI client to use local endpoint
                 # Local LLM services typically use /v1/chat/completions or /completions
-                if not self.base_url.endswith('/v1'):
-                    if self.base_url.endswith('/'):
-                        api_url = self.base_url + 'v1'
+                if not self.base_url.endswith("/v1"):
+                    if self.base_url.endswith("/"):
+                        api_url = self.base_url + "v1"
                     else:
-                        api_url = self.base_url + '/v1'
+                        api_url = self.base_url + "/v1"
                 else:
                     api_url = self.base_url
 
@@ -41,9 +41,7 @@ class LLMService:
                     api_key="not-needed",  # Local models typically don't require API keys
                     base_url=api_url,
                 )
-                logger.info(
-                    f"Local LLM client initialized successfully for {api_url}"
-                )
+                logger.info(f"Local LLM client initialized successfully for {api_url}")
             except Exception as e:
                 logger.error(f"Failed to initialize local LLM client: {e}")
                 self.client = None
@@ -90,26 +88,44 @@ class LLMService:
             )
 
             # Check if response is valid and has the expected structure
-            if not response or not hasattr(response, 'choices') or not response.choices:
+            if not response or not hasattr(response, "choices") or not response.choices:
                 # Check if this is an error response
-                if hasattr(response, 'error') and response.error:
+                if hasattr(response, "error") and response.error:
                     logger.error(f"🚨 CRITICAL: Local LLM API error: {response.error}")
                     print(f"   🚨 CRITICAL: Local LLM API error: {response.error}")
-                    print(f"   💡 This suggests the local LLM doesn't support the /chat/completions endpoint")
-                    print(f"   💡 You may need to use a different API endpoint or service")
+                    print(
+                        f"   💡 This suggests the local LLM doesn't support the /chat/completions endpoint"
+                    )
+                    print(
+                        f"   💡 You may need to use a different API endpoint or service"
+                    )
                 else:
-                    logger.error(f"🚨 CRITICAL: Invalid response structure from {model_name} - no choices array")
-                    print(f"   🚨 LLM FAILED: {model_name} returned invalid response structure")
+                    logger.error(
+                        f"🚨 CRITICAL: Invalid response structure from {model_name} - no choices array"
+                    )
+                    print(
+                        f"   🚨 LLM FAILED: {model_name} returned invalid response structure"
+                    )
                 return self._generate_fallback_content(prompt)
 
-            if not response.choices[0] or not hasattr(response.choices[0], 'message'):
-                logger.error(f"🚨 CRITICAL: Invalid response choices structure from {model_name} - no message object")
-                print(f"   🚨 LLM FAILED: {model_name} returned invalid choices structure")
+            if not response.choices[0] or not hasattr(response.choices[0], "message"):
+                logger.error(
+                    f"🚨 CRITICAL: Invalid response choices structure from {model_name} - no message object"
+                )
+                print(
+                    f"   🚨 LLM FAILED: {model_name} returned invalid choices structure"
+                )
                 return self._generate_fallback_content(prompt)
 
-            if not response.choices[0].message or not hasattr(response.choices[0].message, 'content'):
-                logger.error(f"🚨 CRITICAL: Invalid message structure from {model_name} - no content field")
-                print(f"   🚨 LLM FAILED: {model_name} returned invalid message structure")
+            if not response.choices[0].message or not hasattr(
+                response.choices[0].message, "content"
+            ):
+                logger.error(
+                    f"🚨 CRITICAL: Invalid message structure from {model_name} - no content field"
+                )
+                print(
+                    f"   🚨 LLM FAILED: {model_name} returned invalid message structure"
+                )
                 return self._generate_fallback_content(prompt)
 
             content = response.choices[0].message.content
@@ -138,9 +154,13 @@ class LLMService:
         Returns:
             Fallback content
         """
-        logger.warning("⚠️  FALLBACK: Using fallback script generation due to LLM failure")
+        logger.warning(
+            "⚠️  FALLBACK: Using fallback script generation due to LLM failure"
+        )
         print(f"   ⚠️  FALLBACK: LLM failed, using emergency fallback script")
-        print(f"   💡 Tip: Set OPENAI_API_KEY to use OpenAI as fallback when local LLM fails")
+        print(
+            f"   💡 Tip: Set OPENAI_API_KEY to use OpenAI as fallback when local LLM fails"
+        )
 
         # Extract title from prompt if possible
         title = "Article"

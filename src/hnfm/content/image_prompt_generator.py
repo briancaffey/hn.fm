@@ -16,13 +16,15 @@ class ImagePromptGenerator:
     def __init__(self):
         """Initialize the image prompt generator."""
         self.llm_service = LLMService()
-        self.default_style = config_manager.get("image_generation.default_style", "detailed cartoon style")
+        self.default_style = config_manager.get(
+            "image_generation.default_style", "detailed cartoon style"
+        )
 
     def generate_image_prompts_for_narration(
         self,
         narration_groups: List[Dict[str, Any]],
         full_script: str,
-        style: Optional[str] = None
+        style: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """Generate image prompts for narration groups using LLM.
 
@@ -39,17 +41,26 @@ class ImagePromptGenerator:
             image_prompts = []
             total_groups = len(narration_groups)
 
-            logger.debug(f"🎨 Starting image prompt generation for {total_groups} narration groups")
+            logger.debug(
+                f"🎨 Starting image prompt generation for {total_groups} narration groups"
+            )
             logger.debug(f"🎭 Style: {style}")
 
             for group in narration_groups:
                 group_id = group["group_id"]
                 group_lines = group["lines"]
 
-                logger.debug(f"📝 Generating prompt for group {group_id} ({len(group_lines)} lines)")
+                logger.debug(
+                    f"📝 Generating prompt for group {group_id} ({len(group_lines)} lines)"
+                )
 
                 # Show preview of the lines being processed
-                lines_preview = "; ".join([line[:40] + "..." if len(line) > 40 else line for line in group_lines[:2]])
+                lines_preview = "; ".join(
+                    [
+                        line[:40] + "..." if len(line) > 40 else line
+                        for line in group_lines[:2]
+                    ]
+                )
                 if len(group_lines) > 2:
                     lines_preview += f" (+{len(group_lines) - 2} more lines)"
                 logger.debug(f"   📖 Content: {lines_preview}")
@@ -59,18 +70,24 @@ class ImagePromptGenerator:
                     group_lines, full_script, style, group_id
                 )
 
-                image_prompts.append({
-                    "group_id": group_id,
-                    "lines": group_lines,
-                    "prompt": prompt,
-                    "style": style
-                })
+                image_prompts.append(
+                    {
+                        "group_id": group_id,
+                        "lines": group_lines,
+                        "prompt": prompt,
+                        "style": style,
+                    }
+                )
 
                 # Show the generated prompt
                 prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
-                logger.debug(f"✅ Generated prompt for group {group_id}: {prompt_preview}")
+                logger.debug(
+                    f"✅ Generated prompt for group {group_id}: {prompt_preview}"
+                )
 
-            logger.debug(f"🎉 Image prompt generation complete! Generated {len(image_prompts)} prompts")
+            logger.debug(
+                f"🎉 Image prompt generation complete! Generated {len(image_prompts)} prompts"
+            )
             return image_prompts
 
         except Exception as e:
@@ -78,11 +95,7 @@ class ImagePromptGenerator:
             raise RuntimeError(f"Image prompt generation failed: {e}")
 
     def _generate_single_image_prompt(
-        self,
-        group_lines: List[str],
-        full_script: str,
-        style: str,
-        group_id: int
+        self, group_lines: List[str], full_script: str, style: str, group_id: int
     ) -> str:
         """Generate a single image prompt for a narration group.
 
@@ -108,7 +121,9 @@ class ImagePromptGenerator:
             response = self.llm_service.generate_content(combined_prompt)
 
             if not response:
-                logger.warning(f"LLM returned empty response for group {group_id}, using fallback")
+                logger.warning(
+                    f"LLM returned empty response for group {group_id}, using fallback"
+                )
                 return self._create_fallback_prompt(group_lines, style)
 
             # Clean up the response
@@ -154,10 +169,7 @@ STYLE GUIDELINES:
 - Consider the emotional tone and atmosphere"""
 
     def _create_user_prompt(
-        self,
-        group_lines: List[str],
-        full_script: str,
-        group_id: int
+        self, group_lines: List[str], full_script: str, group_id: int
     ) -> str:
         """Create the user prompt for image prompt generation.
 
@@ -170,7 +182,9 @@ STYLE GUIDELINES:
             User prompt string
         """
         # Format the group lines for clarity
-        lines_text = "\n".join([f"[S{i+1}] {line}" for i, line in enumerate(group_lines)])
+        lines_text = "\n".join(
+            [f"[S{i+1}] {line}" for i, line in enumerate(group_lines)]
+        )
 
         return f"""CONTEXT - Full Script:
 {full_script[:1000]}{"..." if len(full_script) > 1000 else ""}
@@ -210,9 +224,7 @@ Generate a compelling image prompt:"""
         return f"a {style} image representing: {cleaned_text}"
 
     def batch_generate_prompts(
-        self,
-        content_data: Dict[str, Any],
-        style: Optional[str] = None
+        self, content_data: Dict[str, Any], style: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """Generate image prompts for all pending images in content data.
 
@@ -235,7 +247,9 @@ Generate a compelling image prompt:"""
                 logger.warning("No full script found in content data")
                 return []
 
-            logger.debug(f"Batch generating prompts for {len(narration_groups)} narration groups")
+            logger.debug(
+                f"Batch generating prompts for {len(narration_groups)} narration groups"
+            )
 
             return self.generate_image_prompts_for_narration(
                 narration_groups, full_script, style

@@ -82,7 +82,9 @@ class HNScraper:
         """
         return self.get_stories_by_type("show", limit)
 
-    def get_stories_by_type(self, story_type: STORY_TYPES, limit: int = 30) -> List[Dict[str, Any]]:
+    def get_stories_by_type(
+        self, story_type: STORY_TYPES, limit: int = 30
+    ) -> List[Dict[str, Any]]:
         """Get stories by type from Hacker News.
 
         Args:
@@ -98,12 +100,14 @@ class HNScraper:
                 "top": "topstories",
                 "newest": "newstories",
                 "show": "showstories",
-                "ask": "askstories"
+                "ask": "askstories",
             }
 
             endpoint = endpoint_map.get(story_type)
             if not endpoint:
-                raise ValueError(f"Invalid story type: {story_type}. Must be one of {list(endpoint_map.keys())}")
+                raise ValueError(
+                    f"Invalid story type: {story_type}. Must be one of {list(endpoint_map.keys())}"
+                )
 
             # Get story IDs from the appropriate endpoint
             response = requests.get(f"{self.base_url}/{endpoint}.json")
@@ -197,6 +201,7 @@ class HNScraper:
             # Add some computed fields for clarity
             if "time" in metadata:
                 from datetime import datetime
+
                 try:
                     timestamp = datetime.fromtimestamp(metadata["time"])
                     metadata["time_iso"] = timestamp.isoformat()
@@ -212,7 +217,9 @@ class HNScraper:
                 else:
                     metadata["has_external_link"] = False
 
-            logger.info(f"Retrieved metadata for story {story_id}: {len(metadata)} fields")
+            logger.info(
+                f"Retrieved metadata for story {story_id}: {len(metadata)} fields"
+            )
             return metadata
 
         except Exception as e:
@@ -245,7 +252,9 @@ class HNScraper:
 
             # Save metadata to YAML file
             with open(hn_yaml_path, "w", encoding="utf-8") as f:
-                yaml.dump(metadata, f, default_flow_style=False, indent=2, allow_unicode=True)
+                yaml.dump(
+                    metadata, f, default_flow_style=False, indent=2, allow_unicode=True
+                )
 
             logger.info(f"Saved HN metadata to: {hn_yaml_path}")
             logger.info(f"Metadata fields: {list(metadata.keys())}")
@@ -281,10 +290,10 @@ class HNScraper:
         # Define problematic domains to avoid
         problematic_domains = [
             "biglobe.ne.jp",  # Japanese website causing Firecrawl 500 errors
-            "youtube.com",    # Video content not suitable for text processing
-            "youtu.be",       # YouTube short links
-            "paywall.com",    # Paywall sites
-            "medium.com",     # Often behind paywalls
+            "youtube.com",  # Video content not suitable for text processing
+            "youtu.be",  # YouTube short links
+            "paywall.com",  # Paywall sites
+            "medium.com",  # Often behind paywalls
         ]
 
         # Filter out stories with problematic URLs
@@ -294,11 +303,17 @@ class HNScraper:
             return any(domain in url.lower() for domain in problematic_domains)
 
         # Simple selection: highest scoring story with a valid URL
-        valid_stories = [s for s in stories if s.url and s.score > 0 and not is_problematic_url(s.url)]
+        valid_stories = [
+            s
+            for s in stories
+            if s.url and s.score > 0 and not is_problematic_url(s.url)
+        ]
 
         if not valid_stories:
             # Fallback to any story with a valid URL
-            valid_stories = [s for s in stories if s.url and not is_problematic_url(s.url)]
+            valid_stories = [
+                s for s in stories if s.url and not is_problematic_url(s.url)
+            ]
 
         if not valid_stories:
             # Last resort: any story (but still avoid problematic URLs)

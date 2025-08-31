@@ -16,9 +16,9 @@ class HackerNewsService:
 
     def __init__(self):
         self.session = requests.Session()
-        self.session.headers.update({
-            'User-Agent': 'hn.fm/1.0 (https://github.com/yourusername/hn.fm)'
-        })
+        self.session.headers.update(
+            {"User-Agent": "hn.fm/1.0 (https://github.com/yourusername/hn.fm)"}
+        )
 
     def get_top_stories(self, limit: int = 100) -> List[int]:
         """
@@ -39,7 +39,9 @@ class HackerNewsService:
             if isinstance(story_ids, list):
                 return story_ids[:limit]
             else:
-                logger.error(f"Unexpected response format from HN API: {type(story_ids)}")
+                logger.error(
+                    f"Unexpected response format from HN API: {type(story_ids)}"
+                )
                 return []
 
         except requests.RequestException as e:
@@ -73,8 +75,10 @@ class HackerNewsService:
                 return None
 
             # Validate that this is actually a story
-            if story_data.get('type') != 'story':
-                logger.info(f"Item {story_id} is not a story (type: {story_data.get('type')})")
+            if story_data.get("type") != "story":
+                logger.info(
+                    f"Item {story_id} is not a story (type: {story_data.get('type')})"
+                )
                 return None
 
             # Convert to our model

@@ -26,7 +26,7 @@ celery_app = Celery(
     "hnfm",
     broker=broker_url,
     backend=result_backend,
-    include=["hnfm.web.tasks"]
+    include=["hnfm.web.tasks", "hnfm.web.enhanced_tasks"],
 )
 
 # Log the configuration for debugging
@@ -37,6 +37,8 @@ logger.info(f"Celery app includes: {celery_app.conf.include}")
 # Import tasks AFTER creating the app to ensure they're registered
 try:
     from . import tasks
+    from . import enhanced_tasks
+
     logger.info("Tasks imported successfully")
 except ImportError as e:
     logger.error(f"Failed to import tasks: {e}")
@@ -48,42 +50,40 @@ celery_app.conf.update(
         "process_content_pipeline": {"queue": "hnfm_tasks"},
         "hnfm.web.tasks.process_content_pipeline": {"queue": "hnfm_tasks"},
         "hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
+        # Enhanced task routing
+        "enhanced_content_pipeline": {"queue": "hnfm_tasks"},
+        "retry_failed_segment": {"queue": "hnfm_tasks"},
+        "get_enhanced_pipeline_status": {"queue": "hnfm_tasks"},
+        "cleanup_completed_segments": {"queue": "hnfm_tasks"},
+        "hnfm.web.enhanced_tasks.*": {"queue": "hnfm_tasks"},
     },
-
     # Task serialization
     task_serializer="json",
     accept_content=["json"],
     result_serializer="json",
     timezone="UTC",
     enable_utc=True,
-
     # Task execution
-    task_always_eager=os.getenv("CELERY_ALWAYS_EAGER", "false").lower() == "true",  # Set to True for testing
+    task_always_eager=os.getenv("CELERY_ALWAYS_EAGER", "false").lower()
+    == "true",  # Set to True for testing
     task_eager_propagates=True,
-
     # Result backend
     result_expires=3600,  # Results expire after 1 hour
-
     # Worker configuration
     worker_prefetch_multiplier=1,
     worker_max_tasks_per_child=1000,
-
     # Task timeouts
     task_soft_time_limit=300,  # 5 minutes soft limit
-    task_time_limit=600,        # 10 minutes hard limit
-
+    task_time_limit=600,  # 10 minutes hard limit
     # Retry configuration
     task_acks_late=True,
     worker_disable_rate_limits=False,
-
     # Monitoring
     worker_send_task_events=True,
     task_send_sent_event=True,
-
     # Redis specific
     broker_connection_retry_on_startup=True,
     broker_connection_max_retries=10,
-
     # Task result
     task_ignore_result=False,
     task_store_errors_even_if_ignored=True,
@@ -100,10 +100,12 @@ celery_app.conf.beat_schedule = {
     },
 }
 
+
 # Database helper for tasks
 def get_db():
     """Get database instance for tasks"""
     return ContentDatabase()
+
 
 if __name__ == "__main__":
     celery_app.start()

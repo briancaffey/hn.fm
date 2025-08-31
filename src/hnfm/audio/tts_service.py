@@ -23,12 +23,15 @@ class TTSService:
         # Use default URL if none provided
         if base_url is None:
             from ..utils.config import config_manager
+
             base_url = config_manager.get("tts.base_url", "http://localhost:7860")
 
         # Handle case where base_url might still be None or empty
         if not base_url:
             base_url = "http://localhost:7860"
-            logger.warning("No TTS base URL configured, using default: http://localhost:7860")
+            logger.warning(
+                "No TTS base URL configured, using default: http://localhost:7860"
+            )
 
         self.base_url = base_url.rstrip("/")
         self.max_attempts = config_manager.get("tts.max_attempts", 3)
@@ -62,7 +65,7 @@ class TTSService:
             "timeout_seconds": self.timeout_seconds,
             "retry_delay": self.retry_delay,
             "max_attempts": self.max_attempts,
-            "base_url": self.base_url
+            "base_url": self.base_url,
         }
 
     def _test_connection(self):
@@ -122,12 +125,16 @@ class TTSService:
                     logger.info(f"Waiting {self.retry_delay} seconds before retry...")
                     time.sleep(self.retry_delay)
                 else:
-                    logger.error(f"All {self.max_attempts} attempts failed. Last error: {e}")
+                    logger.error(
+                        f"All {self.max_attempts} attempts failed. Last error: {e}"
+                    )
 
         logger.error(f"Failed to generate speech after {self.max_attempts} attempts")
         return None
 
-    def _call_tts_api_with_timeout(self, text: str, voice: str, seed: int) -> Optional[bytes]:
+    def _call_tts_api_with_timeout(
+        self, text: str, voice: str, seed: int
+    ) -> Optional[bytes]:
         """Call the TTS API with timeout protection.
 
         Args:
@@ -158,14 +165,18 @@ class TTSService:
         # Start TTS worker thread
         worker_thread = threading.Thread(target=_tts_worker, daemon=True)
         worker_thread.start()
-        logger.debug(f"🎵 TTS worker thread started, waiting up to {self.timeout_seconds}s...")
+        logger.debug(
+            f"🎵 TTS worker thread started, waiting up to {self.timeout_seconds}s..."
+        )
 
         # Wait for result with timeout
         try:
             worker_thread.join(timeout=self.timeout_seconds)
 
             if worker_thread.is_alive():
-                logger.warning(f"⏰ TTS request timed out after {self.timeout_seconds} seconds")
+                logger.warning(
+                    f"⏰ TTS request timed out after {self.timeout_seconds} seconds"
+                )
                 # Try to get a quick response with a shorter timeout
                 logger.info("🔄 Attempting quick retry with shorter timeout...")
                 worker_thread.join(timeout=30)  # 30 second quick retry
@@ -188,7 +199,9 @@ class TTSService:
             try:
                 result = result_queue.get_nowait()
                 if result:
-                    logger.debug(f"✅ TTS worker thread returned {len(result)} bytes of audio data")
+                    logger.debug(
+                        f"✅ TTS worker thread returned {len(result)} bytes of audio data"
+                    )
                 else:
                     logger.warning("⚠️ TTS worker thread returned None")
                 return result
@@ -304,7 +317,9 @@ class TTSService:
                 with open(result_path, "rb") as f:
                     audio_data = f.read()
 
-                logger.debug(f"✅ Successfully read audio file: {len(audio_data)} bytes")
+                logger.debug(
+                    f"✅ Successfully read audio file: {len(audio_data)} bytes"
+                )
                 return audio_data
             else:
                 logger.error(f"❌ API returned invalid result: {result}")

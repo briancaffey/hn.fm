@@ -23,13 +23,13 @@ class ContentDatabase:
         """Connect to Redis"""
         try:
             self.redis_client = redis.Redis(
-                host=os.getenv('REDIS_HOST', 'localhost'),
-                port=int(os.getenv('REDIS_PORT', 6379)),
-                db=int(os.getenv('REDIS_DB', 0)),
-                password=os.getenv('REDIS_PASSWORD'),
+                host=os.getenv("REDIS_HOST", "localhost"),
+                port=int(os.getenv("REDIS_PORT", 6379)),
+                db=int(os.getenv("REDIS_DB", 0)),
+                password=os.getenv("REDIS_PASSWORD"),
                 decode_responses=True,
                 socket_connect_timeout=5,
-                socket_timeout=5
+                socket_timeout=5,
             )
             # Test connection
             self.redis_client.ping()
@@ -50,12 +50,14 @@ class ContentDatabase:
 
     def _deserialize_datetime(self, data: Dict[str, Any]) -> Dict[str, Any]:
         """Deserialize datetime strings from JSON"""
-        for field in ['created_at', 'updated_at', 'last_completion']:
+        for field in ["created_at", "updated_at", "last_completion"]:
             if field in data and data[field]:
                 try:
                     data[field] = datetime.fromisoformat(data[field])
                 except ValueError:
-                    logger.warning(f"Could not parse datetime for {field}: {data[field]}")
+                    logger.warning(
+                        f"Could not parse datetime for {field}: {data[field]}"
+                    )
         return data
 
     def _serialize_datetime_for_json(self, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -68,7 +70,14 @@ class ContentDatabase:
                 elif isinstance(value, dict):
                     result[key] = self._serialize_datetime_for_json(value)
                 elif isinstance(value, list):
-                    result[key] = [self._serialize_datetime_for_json(item) if isinstance(item, dict) else item for item in value]
+                    result[key] = [
+                        (
+                            self._serialize_datetime_for_json(item)
+                            if isinstance(item, dict)
+                            else item
+                        )
+                        for item in value
+                    ]
                 else:
                     result[key] = value
             return result
@@ -82,43 +91,57 @@ class ContentDatabase:
 
         try:
             # Store content data
-            content_key = self._get_key('content', content_id)
+            content_key = self._get_key("content", content_id)
 
             # Convert datetime objects to ISO strings for storage
             content_data_copy = content_data.copy()
-            if 'created_at' in content_data_copy and isinstance(content_data_copy['created_at'], datetime):
-                content_data_copy['created_at'] = content_data_copy['created_at'].isoformat()
-            if 'updated_at' in content_data_copy and isinstance(content_data_copy['updated_at'], datetime):
-                content_data_copy['updated_at'] = content_data_copy['updated_at'].isoformat()
+            if "created_at" in content_data_copy and isinstance(
+                content_data_copy["created_at"], datetime
+            ):
+                content_data_copy["created_at"] = content_data_copy[
+                    "created_at"
+                ].isoformat()
+            if "updated_at" in content_data_copy and isinstance(
+                content_data_copy["updated_at"], datetime
+            ):
+                content_data_copy["updated_at"] = content_data_copy[
+                    "updated_at"
+                ].isoformat()
 
             # Store the content data
-            content_json = json.dumps(content_data_copy, default=self._serialize_datetime)
+            content_json = json.dumps(
+                content_data_copy, default=self._serialize_datetime
+            )
             self.redis_client.set(content_key, content_json)
 
             # Store in sorted set for listing (by updated_at timestamp)
-            list_key = self._get_key('content_list', 'all')
-            updated_at = content_data.get('updated_at', content_data.get('created_at', datetime.now().isoformat()))
+            list_key = self._get_key("content_list", "all")
+            updated_at = content_data.get(
+                "updated_at", content_data.get("created_at", datetime.now().isoformat())
+            )
             if isinstance(updated_at, datetime):
                 updated_at = updated_at.timestamp()
             self.redis_client.zadd(list_key, {content_id: updated_at})
 
             # Store metadata for quick access
-            metadata_key = self._get_key('metadata', content_id)
+            metadata_key = self._get_key("metadata", content_id)
             metadata = {
-                'id': content_id,
-                'title': content_data.get('title', ''),
-                'url': content_data.get('url', ''),
-                'content_type': content_data.get('content_type', ''),
-                'status': content_data.get('status', ''),
-                'created_at': content_data.get('created_at', datetime.now().isoformat()),
-                'updated_at': updated_at
+                "id": content_id,
+                "title": content_data.get("title", ""),
+                "url": content_data.get("url", ""),
+                "content_type": content_data.get("content_type", ""),
+                "status": content_data.get("status", ""),
+                "created_at": content_data.get(
+                    "created_at", datetime.now().isoformat()
+                ),
+                "updated_at": updated_at,
             }
 
             # Convert metadata datetime objects to ISO strings
-            if isinstance(metadata['created_at'], datetime):
-                metadata['created_at'] = metadata['created_at'].isoformat()
-            if isinstance(metadata['updated_at'], datetime):
-                metadata['updated_at'] = metadata['updated_at'].isoformat()
+            if isinstance(metadata["created_at"], datetime):
+                metadata["created_at"] = metadata["created_at"].isoformat()
+            if isinstance(metadata["updated_at"], datetime):
+                metadata["updated_at"] = metadata["updated_at"].isoformat()
 
             metadata_json = json.dumps(metadata, default=self._serialize_datetime)
             self.redis_client.set(metadata_key, metadata_json)
@@ -137,7 +160,7 @@ class ContentDatabase:
             return None
 
         try:
-            content_key = self._get_key('content', content_id)
+            content_key = self._get_key("content", content_id)
             content_data = self.redis_client.get(content_key)
 
             if content_data:
@@ -150,16 +173,20 @@ class ContentDatabase:
             logger.error(f"Failed to retrieve content {content_id}: {e}")
             return None
 
-    def list_content(self, page: int = 1, per_page: int = 20,
-                    content_type: Optional[str] = None,
-                    status: Optional[str] = None) -> Dict[str, Any]:
+    def list_content(
+        self,
+        page: int = 1,
+        per_page: int = 20,
+        content_type: Optional[str] = None,
+        status: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """List content items with pagination and filtering"""
         if not self.redis_client:
             logger.error("Redis not connected")
-            return {'items': [], 'total': 0, 'page': page, 'per_page': per_page}
+            return {"items": [], "total": 0, "page": page, "per_page": per_page}
 
         try:
-            list_key = self._get_key('content_list', 'all')
+            list_key = self._get_key("content_list", "all")
 
             # Get all content IDs
             all_ids = self.redis_client.zrevrange(list_key, 0, -1)
@@ -167,14 +194,14 @@ class ContentDatabase:
             # Apply filters if specified
             filtered_ids = []
             for content_id in all_ids:
-                metadata_key = self._get_key('metadata', content_id)
+                metadata_key = self._get_key("metadata", content_id)
                 metadata = self.redis_client.get(metadata_key)
 
                 if metadata:
                     meta = json.loads(metadata)
-                    if content_type and meta.get('content_type') != content_type:
+                    if content_type and meta.get("content_type") != content_type:
                         continue
-                    if status and meta.get('status') != status:
+                    if status and meta.get("status") != status:
                         continue
                     filtered_ids.append(content_id)
 
@@ -192,17 +219,17 @@ class ContentDatabase:
                     items.append(content)
 
             return {
-                'items': items,
-                'total': total,
-                'page': page,
-                'per_page': per_page,
-                'has_next': end < total,
-                'has_prev': page > 1
+                "items": items,
+                "total": total,
+                "page": page,
+                "per_page": per_page,
+                "has_next": end < total,
+                "has_prev": page > 1,
             }
 
         except Exception as e:
             logger.error(f"Failed to list content: {e}")
-            return {'items': [], 'total': 0, 'page': page, 'per_page': per_page}
+            return {"items": [], "total": 0, "page": page, "per_page": per_page}
 
     def _update_sorted_set_score(self, content_id: str, updated_at: datetime) -> bool:
         """Update the score (timestamp) for a content item in the sorted set"""
@@ -210,7 +237,7 @@ class ContentDatabase:
             return False
 
         try:
-            list_key = self._get_key('content_list', 'all')
+            list_key = self._get_key("content_list", "all")
             self.redis_client.zadd(list_key, {content_id: updated_at.timestamp()})
             return True
         except Exception as e:
@@ -231,7 +258,7 @@ class ContentDatabase:
 
             # Apply updates
             existing.update(updates)
-            existing['updated_at'] = datetime.now().isoformat()
+            existing["updated_at"] = datetime.now().isoformat()
 
             # Update the sorted set score to reflect the new updated_at time
             self._update_sorted_set_score(content_id, datetime.now())
@@ -251,12 +278,12 @@ class ContentDatabase:
 
         try:
             # Remove from content list
-            list_key = self._get_key('content_list', 'all')
+            list_key = self._get_key("content_list", "all")
             self.redis_client.zrem(list_key, content_id)
 
             # Remove content and metadata
-            content_key = self._get_key('content', content_id)
-            metadata_key = self._get_key('metadata', content_id)
+            content_key = self._get_key("content", content_id)
+            metadata_key = self._get_key("metadata", content_id)
 
             self.redis_client.delete(content_key, metadata_key)
 
@@ -271,16 +298,16 @@ class ContentDatabase:
         """Get pipeline status information"""
         if not self.redis_client:
             return {
-                'is_running': False,
-                'active_jobs': 0,
-                'completed_today': 0,
-                'total_processed': 0,
-                'last_completion': None
+                "is_running": False,
+                "active_jobs": 0,
+                "completed_today": 0,
+                "total_processed": 0,
+                "last_completion": None,
             }
 
         try:
             # Get total processed
-            list_key = self._get_key('content_list', 'all')
+            list_key = self._get_key("content_list", "all")
             total_processed = self.redis_client.zcard(list_key)
 
             # Get completed today
@@ -290,11 +317,11 @@ class ContentDatabase:
             completed_today = 0
             all_ids = self.redis_client.zrange(list_key, 0, -1)
             for content_id in all_ids:
-                metadata_key = self._get_key('metadata', content_id)
+                metadata_key = self._get_key("metadata", content_id)
                 metadata = self.redis_client.get(metadata_key)
                 if metadata:
                     meta = json.loads(metadata)
-                    if meta.get('created_at', 0) >= today_timestamp:
+                    if meta.get("created_at", 0) >= today_timestamp:
                         completed_today += 1
 
             # Get last completion
@@ -302,25 +329,25 @@ class ContentDatabase:
             if all_ids:
                 last_id = all_ids[-1]
                 content = self.get_content(last_id)
-                if content and content.get('status') == 'completed':
-                    last_completion = content.get('updated_at')
+                if content and content.get("status") == "completed":
+                    last_completion = content.get("updated_at")
 
             return {
-                'is_running': False,  # TODO: Implement actual pipeline status tracking
-                'active_jobs': 0,     # TODO: Implement job queue tracking
-                'completed_today': completed_today,
-                'total_processed': total_processed,
-                'last_completion': last_completion
+                "is_running": False,  # TODO: Implement actual pipeline status tracking
+                "active_jobs": 0,  # TODO: Implement job queue tracking
+                "completed_today": completed_today,
+                "total_processed": total_processed,
+                "last_completion": last_completion,
             }
 
         except Exception as e:
             logger.error(f"Failed to get pipeline status: {e}")
             return {
-                'is_running': False,
-                'active_jobs': 0,
-                'completed_today': 0,
-                'total_processed': 0,
-                'last_completion': None
+                "is_running": False,
+                "active_jobs": 0,
+                "completed_today": 0,
+                "total_processed": 0,
+                "last_completion": None,
             }
 
     def health_check(self) -> bool:
@@ -348,7 +375,7 @@ class ContentDatabase:
             return False
 
         try:
-            hn_key = self._get_key('hn_items', 'processed')
+            hn_key = self._get_key("hn_items", "processed")
             return self.redis_client.zscore(hn_key, story_id) is not None
         except Exception as e:
             logger.error(f"Failed to check if HN story {story_id} is processed: {e}")
@@ -369,16 +396,18 @@ class ContentDatabase:
             return False
 
         try:
-            hn_key = self._get_key('hn_items', 'processed')
+            hn_key = self._get_key("hn_items", "processed")
             # Store with timestamp and content_id as score
             timestamp = datetime.now().timestamp()
             self.redis_client.zadd(hn_key, {story_id: timestamp})
 
             # Also store mapping from story_id to content_id
-            mapping_key = self._get_key('hn_mapping', str(story_id))
+            mapping_key = self._get_key("hn_mapping", str(story_id))
             self.redis_client.set(mapping_key, content_id)
 
-            logger.info(f"Marked HN story {story_id} as processed -> content {content_id}")
+            logger.info(
+                f"Marked HN story {story_id} as processed -> content {content_id}"
+            )
             return True
         except Exception as e:
             logger.error(f"Failed to mark HN story {story_id} as processed: {e}")
@@ -398,7 +427,7 @@ class ContentDatabase:
             return None
 
         try:
-            mapping_key = self._get_key('hn_mapping', str(story_id))
+            mapping_key = self._get_key("hn_mapping", str(story_id))
             return self.redis_client.get(mapping_key)
         except Exception as e:
             logger.error(f"Failed to get HN story mapping for {story_id}: {e}")
@@ -412,14 +441,10 @@ class ContentDatabase:
             Dictionary with processing statistics
         """
         if not self.redis_client:
-            return {
-                'total_processed': 0,
-                'total_skipped': 0,
-                'last_processed': None
-            }
+            return {"total_processed": 0, "total_skipped": 0, "last_processed": None}
 
         try:
-            hn_key = self._get_key('hn_items', 'processed')
+            hn_key = self._get_key("hn_items", "processed")
             total_processed = self.redis_client.zcard(hn_key)
 
             # Get last processed story
@@ -429,19 +454,15 @@ class ContentDatabase:
                 if last_items:
                     last_story_id, timestamp = last_items[0]
                     last_processed = {
-                        'story_id': int(last_story_id),
-                        'timestamp': datetime.fromtimestamp(timestamp).isoformat()
+                        "story_id": int(last_story_id),
+                        "timestamp": datetime.fromtimestamp(timestamp).isoformat(),
                     }
 
             return {
-                'total_processed': total_processed,
-                'total_skipped': 0,  # TODO: Track skipped stories if needed
-                'last_processed': last_processed
+                "total_processed": total_processed,
+                "total_skipped": 0,  # TODO: Track skipped stories if needed
+                "last_processed": last_processed,
             }
         except Exception as e:
             logger.error(f"Failed to get HN processing stats: {e}")
-            return {
-                'total_processed': 0,
-                'total_skipped': 0,
-                'last_processed': None
-            }
+            return {"total_processed": 0, "total_skipped": 0, "last_processed": None}

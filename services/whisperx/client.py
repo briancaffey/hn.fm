@@ -4,15 +4,18 @@ import os
 from typing import Optional, Dict, Any
 from datetime import datetime
 
+
 class WhisperXClient:
     """Client for the WhisperX FastAPI server"""
 
     def __init__(self, base_url: str = "http://localhost:8042"):
-        self.base_url = base_url.rstrip('/')
+        self.base_url = base_url.rstrip("/")
         # Get HF token from environment variable
-        self.hf_token = os.getenv('HF_TOKEN')
+        self.hf_token = os.getenv("HF_TOKEN")
         if not self.hf_token:
-            raise ValueError("HF_TOKEN environment variable not set. Please export HF_TOKEN='your_token_here'")
+            raise ValueError(
+                "HF_TOKEN environment variable not set. Please export HF_TOKEN='your_token_here'"
+            )
 
     def health_check(self) -> Dict[str, Any]:
         """Check server health"""
@@ -25,7 +28,7 @@ class WhisperXClient:
         audio_file_path: str,
         model_size: str = "large-v2",
         min_speakers: Optional[int] = None,
-        max_speakers: Optional[int] = None
+        max_speakers: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
         Process audio file with transcription and speaker diarization
@@ -41,26 +44,21 @@ class WhisperXClient:
         """
 
         # Open the file and keep it open for the request
-        audio_file = open(audio_file_path, 'rb')
+        audio_file = open(audio_file_path, "rb")
 
         try:
             # Prepare the files and data for the request
-            files = {'audio_file': audio_file}
-            data = {
-                'model_size': model_size,
-                'hf_token': self.hf_token
-            }
+            files = {"audio_file": audio_file}
+            data = {"model_size": model_size, "hf_token": self.hf_token}
 
             if min_speakers is not None:
-                data['min_speakers'] = min_speakers
+                data["min_speakers"] = min_speakers
             if max_speakers is not None:
-                data['max_speakers'] = max_speakers
+                data["max_speakers"] = max_speakers
 
             # Make the request
             response = requests.post(
-                f"{self.base_url}/process-audio",
-                files=files,
-                data=data
+                f"{self.base_url}/process-audio", files=files, data=data
             )
 
             response.raise_for_status()
@@ -70,13 +68,15 @@ class WhisperXClient:
             # Always close the file
             audio_file.close()
 
-    def save_results_to_json(self, results: Dict[str, Any], filename: Optional[str] = None) -> str:
+    def save_results_to_json(
+        self, results: Dict[str, Any], filename: Optional[str] = None
+    ) -> str:
         """Save results to a JSON file with timestamp"""
         if filename is None:
             timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
             filename = f"whisperx_results_{timestamp}.json"
 
-        with open(filename, 'w', encoding='utf-8') as f:
+        with open(filename, "w", encoding="utf-8") as f:
             json.dump(results, f, indent=2, ensure_ascii=False)
 
         print(f"💾 Results saved to: {filename}")
@@ -89,7 +89,7 @@ class WhisperXClient:
         print("=" * 80)
 
         # Print metadata
-        metadata = results.get('metadata', {})
+        metadata = results.get("metadata", {})
         print(f"\n📊 METADATA:")
         print(f"   Language: {results.get('language', 'Unknown')}")
         print(f"   Model Size: {metadata.get('model_size', 'Unknown')}")
@@ -99,16 +99,16 @@ class WhisperXClient:
         print(f"   Number of Speakers: {metadata.get('num_speakers', 0)}")
 
         # Print segments with speaker information
-        segments = results.get('segments', [])
+        segments = results.get("segments", [])
         if segments:
             print(f"\n🎤 TRANSCRIPTION WITH SPEAKER DIARIZATION:")
             print("-" * 80)
 
             for i, segment in enumerate(segments):
-                start_time = segment.get('start', 0)
-                end_time = segment.get('end', 0)
-                speaker = segment.get('speaker', 'UNKNOWN')
-                text = segment.get('text', '').strip()
+                start_time = segment.get("start", 0)
+                end_time = segment.get("end", 0)
+                speaker = segment.get("speaker", "UNKNOWN")
+                text = segment.get("text", "").strip()
 
                 # Format timestamps
                 start_str = f"{int(start_time//60):02d}:{start_time%60:05.2f}"
@@ -117,6 +117,7 @@ class WhisperXClient:
                 print(f"[{start_str} → {end_str}] Speaker {speaker}: {text}")
 
         print("\n" + "=" * 80)
+
 
 def main():
     """Example usage of the WhisperX client"""
@@ -145,8 +146,7 @@ def main():
 
         # Process the audio
         results = client.process_audio(
-            audio_file_path=audio_file_path,
-            model_size="large-v2"
+            audio_file_path=audio_file_path, model_size="large-v2"
         )
 
         # Print results
@@ -156,15 +156,18 @@ def main():
         client.save_results_to_json(results)
 
     except requests.exceptions.ConnectionError:
-        print("❌ Error: Could not connect to the server. Make sure it's running on http://localhost:8042")
+        print(
+            "❌ Error: Could not connect to the server. Make sure it's running on http://localhost:8042"
+        )
     except requests.exceptions.HTTPError as e:
         print(f"❌ HTTP Error: {e}")
-        if hasattr(e, 'response') and e.response is not None:
+        if hasattr(e, "response") and e.response is not None:
             print(f"Response: {e.response.text}")
     except FileNotFoundError:
         print(f"❌ Error: Audio file not found at {audio_file_path}")
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
+
 
 if __name__ == "__main__":
     main()

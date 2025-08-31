@@ -124,6 +124,11 @@ onMounted(() => {
       </div>
     </section>
 
+    <!-- Pipeline Dashboard -->
+    <section>
+      <PipelineDashboard />
+    </section>
+
     <!-- Features Grid -->
     <section class="grid md:grid-cols-3 gap-6">
       <Card class="p-6">

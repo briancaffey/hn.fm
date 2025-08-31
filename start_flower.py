@@ -6,7 +6,7 @@ import sys
 import subprocess
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from hnfm.web.celery_app import celery_app
 
@@ -29,11 +29,13 @@ if __name__ == "__main__":
 
     # Start Flower
     cmd = [
-        "celery", "-A", "src.hnfm.web.celery_app:celery_app",
+        "celery",
+        "-A",
+        "src.hnfm.web.celery_app:celery_app",
         "flower",
         "--broker=" + broker_url,
         "--port=5555",
-        "--address=0.0.0.0"
+        "--address=0.0.0.0",
     ]
 
     try:

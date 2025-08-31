@@ -33,6 +33,7 @@ interface ContentListResponse {
 const contentItems = ref<ContentItem[]>([])
 const loading = ref(true)
 const error = ref<string | null>(null)
+const deleting = ref<string | null>(null)
 
 // Get runtime config for API base URL
 const config = useRuntimeConfig()
@@ -50,6 +51,29 @@ const fetchContent = async () => {
     console.error('Error fetching content:', err)
   } finally {
     loading.value = false
+  }
+}
+
+const deleteContent = async (itemId: string) => {
+  if (!confirm('Are you sure you want to delete this content item? This action cannot be undone.')) {
+    return
+  }
+
+  try {
+    deleting.value = itemId
+
+    await $fetch(`${apiBase}/api/content/${itemId}`, {
+      method: 'DELETE'
+    })
+
+    // Remove the item from the list
+    contentItems.value = contentItems.value.filter(item => item.id !== itemId)
+  } catch (err) {
+    const errorMessage = err instanceof Error ? err.message : 'Failed to delete content'
+    console.error('Error deleting content:', err)
+    alert(errorMessage)
+  } finally {
+    deleting.value = null
   }
 }
 
@@ -151,14 +175,31 @@ onMounted(() => {
                 </CardTitle>
               </div>
               <div class="flex flex-col gap-2 ml-4">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="h-8 w-8 p-0"
+                  @click.stop="() => navigateTo(`/items/${item.id}`)"
+                  title="View Details"
+                >
+                  <Icon name="lucide:eye" class="h-4 w-4" />
+                </Button>
                 <Button size="sm" variant="outline" class="h-8 w-8 p-0" @click.stop>
                   <Icon name="lucide:play" class="h-4 w-4" />
                 </Button>
-                <Button size="sm" variant="outline" class="h-8 w-8 p-0" @click.stop>
-                  <Icon name="lucide:image" class="h-4 w-4" />
-                </Button>
-                <Button size="sm" variant="outline" class="h-8 w-8 p-0" @click.stop>
-                  <Icon name="lucide:more-horizontal" class="h-4 w-4" />
+                <Button
+                  size="sm"
+                  variant="destructive"
+                  class="h-8 w-8 p-0"
+                  @click.stop="deleteContent(item.id)"
+                  :disabled="deleting === item.id"
+                  :title="deleting === item.id ? 'Deleting...' : 'Delete Content'"
+                >
+                  <Icon
+                    name="lucide:trash-2"
+                    class="h-4 w-4"
+                    :class="{ 'animate-spin': deleting === item.id }"
+                  />
                 </Button>
               </div>
             </div>

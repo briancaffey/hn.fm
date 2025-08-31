@@ -114,7 +114,9 @@ class AudioProcessor:
             logger.error(f"Failed to combine audio files: {e}")
             raise RuntimeError(f"Audio combination failed: {e}")
 
-    def process_audio_for_asr(self, audio_file_path: str, story_dir: Union[str, Path]) -> dict:
+    def process_audio_for_asr(
+        self, audio_file_path: str, story_dir: Union[str, Path]
+    ) -> dict:
         """Process audio file through ASR service and save results.
 
         Args:

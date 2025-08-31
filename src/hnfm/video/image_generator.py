@@ -20,13 +20,19 @@ class ImageGenerationService:
     def __init__(self):
         """Initialize the image generation service."""
         self.base_url = config_manager.get("image_generation.base_url")
-        self.default_height = config_manager.get("image_generation.default_height", 1024)
+        self.default_height = config_manager.get(
+            "image_generation.default_height", 1024
+        )
         self.default_width = config_manager.get("image_generation.default_width", 1024)
-        self.default_cfg_scale = config_manager.get("image_generation.default_cfg_scale", 5)
+        self.default_cfg_scale = config_manager.get(
+            "image_generation.default_cfg_scale", 5
+        )
         self.default_mode = config_manager.get("image_generation.default_mode", "base")
         self.default_steps = config_manager.get("image_generation.default_steps", 50)
         self.default_samples = config_manager.get("image_generation.default_samples", 1)
-        self.output_directory = config_manager.get("image_generation.output_directory", "images")
+        self.output_directory = config_manager.get(
+            "image_generation.output_directory", "images"
+        )
 
     def generate_image(
         self,
@@ -85,7 +91,9 @@ class ImageGenerationService:
             # Show the beginning of the prompt for context
             prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
             logger.debug(f"🎨 Generating image with prompt: {prompt_preview}")
-            logger.debug(f"   📐 Settings: {width}x{height}, {steps} steps, CFG {cfg_scale}")
+            logger.debug(
+                f"   📐 Settings: {width}x{height}, {steps} steps, CFG {cfg_scale}"
+            )
 
             response = requests.post(
                 f"{self.base_url}/v1/infer",
@@ -96,7 +104,7 @@ class ImageGenerationService:
             response.raise_for_status()
 
             result = response.json()
-            artifacts_count = len(result.get('artifacts', []))
+            artifacts_count = len(result.get("artifacts", []))
             logger.info(f"✅ Successfully generated {artifacts_count} image(s)")
             return result
 
@@ -136,6 +144,7 @@ class ImageGenerationService:
             else:
                 # Generate filename based on timestamp
                 import time
+
                 timestamp = int(time.time())
                 if Path(output_path).is_dir():
                     output_file = Path(output_path) / f"generated_image_{timestamp}.png"
@@ -207,7 +216,9 @@ class ImageGenerationService:
         generated_images = []
         total_segments = len(script_segments)
 
-        logger.info(f"🎬 Starting image generation for {total_segments} script segments")
+        logger.info(
+            f"🎬 Starting image generation for {total_segments} script segments"
+        )
         logger.debug(f"📁 Output directory: {output_path}")
 
         for i, segment in enumerate(script_segments):
@@ -222,7 +233,11 @@ class ImageGenerationService:
                 prompt = self._create_image_prompt(text_content)
 
                 # Show what we're generating for this segment
-                text_preview = text_content[:80] + "..." if len(text_content) > 80 else text_content
+                text_preview = (
+                    text_content[:80] + "..."
+                    if len(text_content) > 80
+                    else text_content
+                )
                 logger.debug(f"🖼️  Generating image {i+1}/{total_segments}")
                 logger.debug(f"   📝 Text: {text_preview}")
                 logger.debug(f"   🎯 Prompt: {prompt[:80]}...")
@@ -234,14 +249,18 @@ class ImageGenerationService:
                 )
                 generated_images.append(image_path)
 
-                logger.info(f"✅ Completed image {i+1}/{total_segments}: {image_path.name}")
+                logger.info(
+                    f"✅ Completed image {i+1}/{total_segments}: {image_path.name}"
+                )
 
             except Exception as e:
                 logger.error(f"❌ Failed to generate image for segment {i}: {e}")
                 # Continue with next segment
                 continue
 
-        logger.info(f"🎉 Image generation complete! Generated {len(generated_images)}/{total_segments} images")
+        logger.info(
+            f"🎉 Image generation complete! Generated {len(generated_images)}/{total_segments} images"
+        )
         return generated_images
 
     def _create_image_prompt(self, text_content: str) -> str:
@@ -255,7 +274,7 @@ class ImageGenerationService:
         """
         # Simple prompt creation - can be enhanced with LLM later
         # For now, just use the first sentence or a truncated version
-        sentences = text_content.split('.')
+        sentences = text_content.split(".")
         first_sentence = sentences[0].strip()
 
         # Limit length and clean up

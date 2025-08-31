@@ -60,7 +60,7 @@ class SystemChecker:
                     url="unknown",
                     status="error",
                     response_time=0.0,
-                    error_message=str(e)
+                    error_message=str(e),
                 )
                 results.append(status)
                 all_healthy = False
@@ -78,7 +78,7 @@ class SystemChecker:
                 url="not configured",
                 status="offline",
                 response_time=0.0,
-                error_message="LLM base URL not configured"
+                error_message="LLM base URL not configured",
             )
 
         try:
@@ -93,7 +93,7 @@ class SystemChecker:
                     url=base_url,
                     status="online",
                     response_time=response_time,
-                    details={"models": len(models)}
+                    details={"models": len(models)},
                 )
             else:
                 return ServiceStatus(
@@ -101,7 +101,7 @@ class SystemChecker:
                     url=base_url,
                     status="offline",
                     response_time=response_time,
-                    error_message=f"HTTP {response.status_code}"
+                    error_message=f"HTTP {response.status_code}",
                 )
 
         except requests.exceptions.RequestException as e:
@@ -110,7 +110,7 @@ class SystemChecker:
                 url=base_url,
                 status="offline",
                 response_time=0.0,
-                error_message=str(e)
+                error_message=str(e),
             )
 
     def _check_firecrawl(self) -> ServiceStatus:
@@ -124,7 +124,7 @@ class SystemChecker:
                 url="not configured",
                 status="offline",
                 response_time=0.0,
-                error_message="Firecrawl base URL not configured"
+                error_message="Firecrawl base URL not configured",
             )
 
         try:
@@ -139,7 +139,13 @@ class SystemChecker:
                     url=base_url,
                     status="online",
                     response_time=response_time,
-                    details={"response": response.text[:100] + "..." if len(response.text) > 100 else response.text}
+                    details={
+                        "response": (
+                            response.text[:100] + "..."
+                            if len(response.text) > 100
+                            else response.text
+                        )
+                    },
                 )
             else:
                 return ServiceStatus(
@@ -147,7 +153,7 @@ class SystemChecker:
                     url=base_url,
                     status="offline",
                     response_time=response_time,
-                    error_message=f"HTTP {response.status_code}"
+                    error_message=f"HTTP {response.status_code}",
                 )
 
         except requests.exceptions.RequestException as e:
@@ -156,7 +162,7 @@ class SystemChecker:
                 url=base_url,
                 status="offline",
                 response_time=0.0,
-                error_message=str(e)
+                error_message=str(e),
             )
 
     def _check_gradio_tts(self) -> ServiceStatus:
@@ -170,7 +176,7 @@ class SystemChecker:
                 url="not configured",
                 status="offline",
                 response_time=0.0,
-                error_message="TTS base URL not configured"
+                error_message="TTS base URL not configured",
             )
 
         try:
@@ -185,7 +191,7 @@ class SystemChecker:
                     url=base_url,
                     status="online",
                     response_time=response_time,
-                    details={"response": "Gradio interface accessible"}
+                    details={"response": "Gradio interface accessible"},
                 )
             else:
                 return ServiceStatus(
@@ -193,7 +199,7 @@ class SystemChecker:
                     url=base_url,
                     status="offline",
                     response_time=response_time,
-                    error_message=f"HTTP {response.status_code}"
+                    error_message=f"HTTP {response.status_code}",
                 )
 
         except requests.exceptions.RequestException as e:
@@ -202,7 +208,7 @@ class SystemChecker:
                 url=base_url,
                 status="offline",
                 response_time=0.0,
-                error_message=str(e)
+                error_message=str(e),
             )
 
     def _check_studio_voice(self) -> ServiceStatus:
@@ -214,6 +220,7 @@ class SystemChecker:
         if not health_url:
             # Fallback to environment variable
             import os
+
             health_url = os.getenv("STUDIO_VOICE_HTTP_HEALTH_URL")
 
         if not health_url:
@@ -222,7 +229,7 @@ class SystemChecker:
                 url="not configured",
                 status="offline",
                 response_time=0.0,
-                error_message="Studio Voice HTTP health URL not configured"
+                error_message="Studio Voice HTTP health URL not configured",
             )
 
         try:
@@ -236,7 +243,14 @@ class SystemChecker:
                     url=health_url,
                     status="online",
                     response_time=response_time,
-                    details={"health_endpoint": health_url, "response": response.text[:100] + "..." if len(response.text) > 100 else response.text}
+                    details={
+                        "health_endpoint": health_url,
+                        "response": (
+                            response.text[:100] + "..."
+                            if len(response.text) > 100
+                            else response.text
+                        ),
+                    },
                 )
             else:
                 return ServiceStatus(
@@ -244,7 +258,7 @@ class SystemChecker:
                     url=health_url,
                     status="offline",
                     response_time=response_time,
-                    error_message=f"HTTP {response.status_code}"
+                    error_message=f"HTTP {response.status_code}",
                 )
 
         except requests.exceptions.RequestException as e:
@@ -253,7 +267,7 @@ class SystemChecker:
                 url=health_url,
                 status="offline",
                 response_time=0.0,
-                error_message=str(e)
+                error_message=str(e),
             )
 
     def _check_asr_service(self) -> ServiceStatus:
@@ -267,7 +281,7 @@ class SystemChecker:
                 url="not configured",
                 status="offline",
                 response_time=0.0,
-                error_message="ASR base URL not configured"
+                error_message="ASR base URL not configured",
             )
 
         try:
@@ -281,7 +295,14 @@ class SystemChecker:
                     url=base_url,
                     status="online",
                     response_time=response_time,
-                    details={"health_endpoint": f"{base_url}/health", "response": response.text[:100] + "..." if len(response.text) > 100 else response.text}
+                    details={
+                        "health_endpoint": f"{base_url}/health",
+                        "response": (
+                            response.text[:100] + "..."
+                            if len(response.text) > 100
+                            else response.text
+                        ),
+                    },
                 )
             else:
                 return ServiceStatus(
@@ -289,7 +310,7 @@ class SystemChecker:
                     url=base_url,
                     status="offline",
                     response_time=response_time,
-                    error_message=f"HTTP {response.status_code}"
+                    error_message=f"HTTP {response.status_code}",
                 )
 
         except requests.exceptions.RequestException as e:
@@ -298,7 +319,7 @@ class SystemChecker:
                 url=base_url,
                 status="offline",
                 response_time=0.0,
-                error_message=str(e)
+                error_message=str(e),
             )
 
     def _check_image_generation(self) -> ServiceStatus:
@@ -312,7 +333,7 @@ class SystemChecker:
                 url="not configured",
                 status="offline",
                 response_time=0.0,
-                error_message="Image generation base URL not configured"
+                error_message="Image generation base URL not configured",
             )
 
         try:
@@ -327,7 +348,14 @@ class SystemChecker:
                     url=base_url,
                     status="online",
                     response_time=response_time,
-                    details={"health_endpoint": f"{base_url}/v1/health/ready", "response": response.text[:100] + "..." if len(response.text) > 100 else response.text}
+                    details={
+                        "health_endpoint": f"{base_url}/v1/health/ready",
+                        "response": (
+                            response.text[:100] + "..."
+                            if len(response.text) > 100
+                            else response.text
+                        ),
+                    },
                 )
             else:
                 return ServiceStatus(
@@ -335,7 +363,7 @@ class SystemChecker:
                     url=base_url,
                     status="offline",
                     response_time=response_time,
-                    error_message=f"HTTP {response.status_code}"
+                    error_message=f"HTTP {response.status_code}",
                 )
 
         except requests.exceptions.RequestException as e:
@@ -344,5 +372,5 @@ class SystemChecker:
                 url=base_url,
                 status="offline",
                 response_time=0.0,
-                error_message=str(e)
+                error_message=str(e),
             )

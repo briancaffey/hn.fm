@@ -5,7 +5,7 @@ import os
 import sys
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from hnfm.web.celery_app import celery_app
 
@@ -15,8 +15,6 @@ if __name__ == "__main__":
     print("Press Ctrl+C to stop Beat")
 
     # Start Beat
-    celery_app.start([
-        "beat",
-        "--loglevel=info",
-        "--scheduler=celery.beat.PersistentScheduler"
-    ])
+    celery_app.start(
+        ["beat", "--loglevel=info", "--scheduler=celery.beat.PersistentScheduler"]
+    )

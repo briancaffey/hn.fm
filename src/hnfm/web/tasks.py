@@ -16,6 +16,7 @@ hn_service = HackerNewsService()
 # Optional services - these might not be available in all environments
 try:
     from ..content.content_processor import ContentProcessor
+
     content_processor = ContentProcessor()
 except ImportError:
     logger.warning("ContentProcessor not available")
@@ -23,6 +24,7 @@ except ImportError:
 
 try:
     from ..content.script_generator import ScriptGenerator
+
     script_generator = ScriptGenerator()
 except ImportError:
     logger.warning("ScriptGenerator not available")
@@ -30,6 +32,7 @@ except ImportError:
 
 try:
     from ..audio.tts_service import TTSService
+
     tts_service = TTSService()
 except ImportError:
     logger.warning("TTSService not available")
@@ -37,6 +40,7 @@ except ImportError:
 
 try:
     from ..video.image_generator import ImageGenerationService
+
     image_generator = ImageGenerationService()
 except ImportError:
     logger.warning("ImageGenerationService not available")
@@ -44,10 +48,12 @@ except ImportError:
 
 try:
     from ..video.video_generator import VideoGenerator
+
     video_generator = VideoGenerator()
 except ImportError:
     logger.warning("VideoGenerator not available")
     video_generator = None
+
 
 # Database helper for tasks
 def get_db():
@@ -81,9 +87,9 @@ def process_hn_story(self, story_id: int):
         if db.is_hn_story_processed(story_id):
             logger.info(f"Story {story_id} already processed, skipping")
             return {
-                'status': 'skipped',
-                'reason': 'already_processed',
-                'story_id': story_id
+                "status": "skipped",
+                "reason": "already_processed",
+                "story_id": story_id,
             }
 
         # Fetch HN story data
@@ -93,41 +99,45 @@ def process_hn_story(self, story_id: int):
         if not hn_story:
             logger.error(f"Failed to fetch HN story {story_id}")
             return {
-                'status': 'failed',
-                'reason': 'failed_to_fetch_hn_data',
-                'story_id': story_id,
-                'error': 'Could not fetch story from HN API'
+                "status": "failed",
+                "reason": "failed_to_fetch_hn_data",
+                "story_id": story_id,
+                "error": "Could not fetch story from HN API",
             }
 
         # Create content item with HN data
         content_id = str(uuid.uuid4())
         content_data = {
-            'id': content_id,
-            'title': hn_story.title or f"HN Story {story_id}",
-            'url': hn_story.url or f"https://news.ycombinator.com/item?id={story_id}",
-            'content_type': 'article',
-            'status': 'processing',
-            'created_at': datetime.now(),
-            'updated_at': datetime.now(),
-            'hn_story_data': hn_story.dict(),
-            'processing_steps': ['hn_data_fetched'],
-            'metadata': {
-                'source': 'hacker_news',
-                'hn_id': story_id,
-                'hn_score': hn_story.score,
-                'hn_author': hn_story.by,
-                'hn_time': datetime.fromtimestamp(hn_story.time).isoformat() if hn_story.time else None
-            }
+            "id": content_id,
+            "title": hn_story.title or f"HN Story {story_id}",
+            "url": hn_story.url or f"https://news.ycombinator.com/item?id={story_id}",
+            "content_type": "article",
+            "status": "processing",
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+            "hn_story_data": hn_story.dict(),
+            "processing_steps": ["hn_data_fetched"],
+            "metadata": {
+                "source": "hacker_news",
+                "hn_id": story_id,
+                "hn_score": hn_story.score,
+                "hn_author": hn_story.by,
+                "hn_time": (
+                    datetime.fromtimestamp(hn_story.time).isoformat()
+                    if hn_story.time
+                    else None
+                ),
+            },
         }
 
         # Save to Redis
         if not db.store_content(content_id, content_data):
             logger.error(f"Failed to store content {content_id} in Redis")
             return {
-                'status': 'failed',
-                'reason': 'failed_to_store_in_redis',
-                'story_id': story_id,
-                'error': 'Could not store content in database'
+                "status": "failed",
+                "reason": "failed_to_store_in_redis",
+                "story_id": story_id,
+                "error": "Could not store content in database",
             }
 
         # Mark HN story as processed
@@ -146,26 +156,29 @@ def process_hn_story(self, story_id: int):
         # - Video generation
 
         # For now, just mark as completed
-        db.update_content(content_id, {
-            'status': 'completed',
-            'processing_steps': ['hn_data_fetched', 'saved_to_redis'],
-            'updated_at': datetime.now()
-        })
+        db.update_content(
+            content_id,
+            {
+                "status": "completed",
+                "processing_steps": ["hn_data_fetched", "saved_to_redis"],
+                "updated_at": datetime.now(),
+            },
+        )
 
         return {
-            'status': 'completed',
-            'story_id': story_id,
-            'content_id': content_id,
-            'message': 'HN story processed and saved successfully'
+            "status": "completed",
+            "story_id": story_id,
+            "content_id": content_id,
+            "message": "HN story processed and saved successfully",
         }
 
     except Exception as e:
         logger.error(f"Error processing HN story {story_id}: {e}")
         return {
-            'status': 'failed',
-            'reason': 'unexpected_error',
-            'story_id': story_id,
-            'error': str(e)
+            "status": "failed",
+            "reason": "unexpected_error",
+            "story_id": story_id,
+            "error": str(e),
         }
 
 
@@ -198,17 +211,20 @@ def process_content(self, content_id: str, url: str, content_type: str = "articl
         db = get_db()
 
         # Update status to processing
-        db.update_content(content_id, {
-            "status": "processing",
-            "processing_steps": ["processing_started"]
-        })
+        db.update_content(
+            content_id,
+            {"status": "processing", "processing_steps": ["processing_started"]},
+        )
 
         # For now, just mark as completed
-        db.update_content(content_id, {
-            "status": "completed",
-            "processing_steps": ["completed"],
-            "summary": f"Successfully processed {content_type} from {url}"
-        })
+        db.update_content(
+            content_id,
+            {
+                "status": "completed",
+                "processing_steps": ["completed"],
+                "summary": f"Successfully processed {content_type} from {url}",
+            },
+        )
 
         logger.info(f"Content processing completed for {content_id}")
 
@@ -216,17 +232,14 @@ def process_content(self, content_id: str, url: str, content_type: str = "articl
             "task_id": self.request.id,
             "content_id": content_id,
             "status": "completed",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
         logger.error(f"Content processing failed for {content_id}: {e}")
 
         # Update status to failed
-        db.update_content(content_id, {
-            "status": "failed",
-            "errors": [str(e)]
-        })
+        db.update_content(content_id, {"status": "failed", "errors": [str(e)]})
 
         # Re-raise to mark task as failed
         raise
@@ -241,17 +254,20 @@ def full_pipeline(self, content_id: str, url: str, content_type: str = "article"
         db = get_db()
 
         # Update status to processing
-        db.update_content(content_id, {
-            "status": "processing",
-            "processing_steps": ["pipeline_started"]
-        })
+        db.update_content(
+            content_id,
+            {"status": "processing", "processing_steps": ["pipeline_started"]},
+        )
 
         # For now, just mark as completed
-        db.update_content(content_id, {
-            "status": "completed",
-            "processing_steps": ["pipeline_completed"],
-            "summary": f"Full pipeline completed for {content_type} from {url}"
-        })
+        db.update_content(
+            content_id,
+            {
+                "status": "completed",
+                "processing_steps": ["pipeline_completed"],
+                "summary": f"Full pipeline completed for {content_type} from {url}",
+            },
+        )
 
         logger.info(f"Full pipeline completed for {content_id}")
 
@@ -259,17 +275,14 @@ def full_pipeline(self, content_id: str, url: str, content_type: str = "article"
             "task_id": self.request.id,
             "content_id": content_id,
             "status": "pipeline_completed",
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
         logger.error(f"Full pipeline failed for {content_id}: {e}")
 
         # Update status to failed
-        db.update_content(content_id, {
-            "status": "failed",
-            "errors": [str(e)]
-        })
+        db.update_content(content_id, {"status": "failed", "errors": [str(e)]})
 
         # Re-raise to mark task as failed
         raise
@@ -288,39 +301,46 @@ def process_content_pipeline(self, content_id: str):
         if not content:
             raise RuntimeError(f"Content {content_id} not found")
 
-        url = content.get('url')
-        title = content.get('title', 'Unknown Title')
+        url = content.get("url")
+        title = content.get("title", "Unknown Title")
 
         # Update status and add processing step
-        db.update_content(content_id, {
-            "status": "processing",
-            "processing_steps": ["pipeline_started"]
-        })
+        db.update_content(
+            content_id,
+            {"status": "processing", "processing_steps": ["pipeline_started"]},
+        )
 
         # Import pipeline manager
-        from ..pipeline.pipeline_manager import PipelineManager
+        from ..pipeline.enhanced_pipeline_manager import EnhancedPipelineManager
 
         # Initialize pipeline manager in text-only mode (no TTS, images, video)
-        pipeline = PipelineManager(text_only=True)
+        pipeline = EnhancedPipelineManager(text_only=True, redis_integration=False)
 
         # Run the pipeline steps we need: firecrawl_content, content_processing, script_generation
         logger.info(f"Running pipeline for content {content_id}: {url}")
 
         # Execute firecrawl content extraction
         # The pipeline expects a selected_article structure
-        firecrawl_result = pipeline._execute_firecrawl_content({
-            "selected_article": {
-                "url": url,
-                "title": title,
-                "id": content_id  # Use content_id as the article ID
-            }
-        })
+        firecrawl_result = pipeline.execute_step_with_locking(
+            "firecrawl_content",
+            {
+                "selected_article": {
+                    "url": url,
+                    "title": title,
+                    "id": content_id,  # Use content_id as the article ID
+                }
+            },
+        )
 
         # Execute content processing
-        processing_result = pipeline._execute_content_processing(firecrawl_result)
+        processing_result = pipeline.execute_step_with_locking(
+            "content_processing", firecrawl_result
+        )
 
         # Execute script generation
-        script_result = pipeline._execute_script_generation(processing_result)
+        script_result = pipeline.execute_step_with_locking(
+            "script_generation", processing_result
+        )
 
         # Extract the script content
         script_content = ""
@@ -331,14 +351,22 @@ def process_content_pipeline(self, content_id: str):
                     script_content = f.read()
 
         # Update content with results
-        db.update_content(content_id, {
-            "status": "completed",
-            "processing_steps": ["pipeline_started", "firecrawl_content", "content_processing", "script_generation"],
-            "raw_text": firecrawl_result.get("raw_content", ""),
-            "processed_text": processing_result.get("cleaned_content", ""),
-            "script": script_content,
-            "summary": f"Successfully processed content and generated script with {len(script_content)} characters"
-        })
+        db.update_content(
+            content_id,
+            {
+                "status": "completed",
+                "processing_steps": [
+                    "pipeline_started",
+                    "firecrawl_content",
+                    "content_processing",
+                    "script_generation",
+                ],
+                "raw_text": firecrawl_result.get("raw_content", ""),
+                "processed_text": processing_result.get("cleaned_content", ""),
+                "script": script_content,
+                "summary": f"Successfully processed content and generated script with {len(script_content)} characters",
+            },
+        )
 
         logger.info(f"Content pipeline processing completed for {content_id}")
 
@@ -347,17 +375,14 @@ def process_content_pipeline(self, content_id: str):
             "content_id": content_id,
             "status": "completed",
             "script_length": len(script_content),
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:
         logger.error(f"Content pipeline processing failed for {content_id}: {e}")
 
         # Update status to failed
-        db.update_content(content_id, {
-            "status": "failed",
-            "errors": [str(e)]
-        })
+        db.update_content(content_id, {"status": "failed", "errors": [str(e)]})
 
         # Re-raise to mark task as failed
         raise

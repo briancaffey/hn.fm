@@ -21,20 +21,18 @@ def main():
     )
     parser.add_argument(
         "output_folder",
-        help="Path to output folder containing content/asr.json and final_audio.wav"
+        help="Path to output folder containing content/asr.json and final_audio.wav",
     )
     parser.add_argument(
         "--audio-file",
-        help="Path to audio file (defaults to final_audio.wav in output folder)"
+        help="Path to audio file (defaults to final_audio.wav in output folder)",
     )
     parser.add_argument(
         "--output-video",
-        help="Output video path (defaults to content/video.mp4 in output folder)"
+        help="Output video path (defaults to content/video.mp4 in output folder)",
     )
     parser.add_argument(
-        "--verbose", "-v",
-        action="store_true",
-        help="Enable verbose logging"
+        "--verbose", "-v", action="store_true", help="Enable verbose logging"
     )
 
     args = parser.parse_args()
@@ -95,7 +93,7 @@ def main():
         result = video_generator.generate_video(
             asr_file_path=str(asr_file),
             audio_file_path=str(audio_file),
-            output_path=str(output_video)
+            output_path=str(output_video),
         )
 
         print(f"✅ Video generation completed successfully!")

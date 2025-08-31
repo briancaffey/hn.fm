@@ -5,10 +5,10 @@ import os
 import sys
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 # Set environment variables for debugging
-os.environ.setdefault('CELERY_WORKER_RUNNING', '1')
+os.environ.setdefault("CELERY_WORKER_RUNNING", "1")
 
 from hnfm.web.celery_app import celery_app
 
@@ -23,10 +23,12 @@ if __name__ == "__main__":
     print(f"Result backend: {celery_app.conf.result_backend}")
 
     # Start the worker
-    celery_app.worker_main([
-        "worker",
-        "--loglevel=info",
-        "--queues=hnfm_tasks",
-        "--concurrency=2",
-        "--hostname=hnfm-worker@%h"
-    ])
+    celery_app.worker_main(
+        [
+            "worker",
+            "--loglevel=info",
+            "--queues=hnfm_tasks",
+            "--concurrency=2",
+            "--hostname=hnfm-worker@%h",
+        ]
+    )

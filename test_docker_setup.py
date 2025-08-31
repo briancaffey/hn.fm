@@ -6,11 +6,13 @@ import time
 import sys
 import os
 
+
 def test_redis_connection():
     """Test Redis connection"""
     try:
         import redis
-        r = redis.Redis(host='localhost', port=6379, db=0)
+
+        r = redis.Redis(host="localhost", port=6379, db=0)
         r.ping()
         print("✅ Redis connection successful")
         return True
@@ -18,10 +20,11 @@ def test_redis_connection():
         print(f"❌ Redis connection failed: {e}")
         return False
 
+
 def test_web_server():
     """Test web server health endpoint"""
     try:
-        response = requests.get('http://localhost:8000/health', timeout=10)
+        response = requests.get("http://localhost:8000/health", timeout=10)
         if response.status_code == 200:
             print("✅ Web server health check successful")
             return True
@@ -32,10 +35,11 @@ def test_web_server():
         print(f"❌ Web server connection failed: {e}")
         return False
 
+
 def test_celery_worker():
     """Test Celery worker status"""
     try:
-        response = requests.get('http://localhost:5555/api/workers', timeout=10)
+        response = requests.get("http://localhost:5555/api/workers", timeout=10)
         if response.status_code == 200:
             workers = response.json()
             if workers:
@@ -51,10 +55,11 @@ def test_celery_worker():
         print(f"❌ Celery worker check failed: {e}")
         return False
 
+
 def test_flower_monitoring():
     """Test Flower monitoring interface"""
     try:
-        response = requests.get('http://localhost:5555/', timeout=10)
+        response = requests.get("http://localhost:5555/", timeout=10)
         if response.status_code == 200:
             print("✅ Flower monitoring is accessible")
             return True
@@ -64,6 +69,7 @@ def test_flower_monitoring():
     except Exception as e:
         print(f"❌ Flower monitoring check failed: {e}")
         return False
+
 
 def main():
     """Run all tests"""
@@ -108,6 +114,7 @@ def main():
     else:
         print("⚠️  Some tests failed. Check service logs and configuration.")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

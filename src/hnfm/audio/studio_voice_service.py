@@ -71,9 +71,7 @@ class StudioVoiceService:
         logger.debug(f"🎵 Initializing Studio Voice service: {target} ({model_type})")
         logger.debug(f"🎵 Sample rate: {self.sample_rate}Hz, Streaming: {streaming}")
 
-    def convert_sample_rate(
-        self, audio_data: bytes, target_rate: int = 48000
-    ) -> bytes:
+    def convert_sample_rate(self, audio_data: bytes, target_rate: int = 48000) -> bytes:
         """Convert audio data to target sample rate.
 
         Args:

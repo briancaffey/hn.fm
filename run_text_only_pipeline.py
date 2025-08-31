@@ -34,7 +34,7 @@ def run_text_only_pipeline():
         result = pipeline.run_pipeline(
             story_id="auto",  # Will be determined by actual story
             story_title="auto",  # Will be determined by actual story
-            story_type="top"
+            story_type="top",
         )
 
         if result:
@@ -42,12 +42,16 @@ def run_text_only_pipeline():
             print(f"📁 Story ID: {result.story_id}")
             print(f"📁 Story Title: {result.story_title}")
 
-                        # Check if main.yaml was created
+            # Check if main.yaml was created
             # Find the most recent story directory in outputs
             outputs_dir = Path("outputs")
             if outputs_dir.exists():
                 # Get the most recently modified directory
-                story_dirs = [d for d in outputs_dir.iterdir() if d.is_dir() and not d.name.startswith('.')]
+                story_dirs = [
+                    d
+                    for d in outputs_dir.iterdir()
+                    if d.is_dir() and not d.name.startswith(".")
+                ]
                 if story_dirs:
                     # Sort by modification time, newest first
                     latest_story_dir = max(story_dirs, key=lambda d: d.stat().st_mtime)
@@ -56,9 +60,13 @@ def run_text_only_pipeline():
                     if main_yaml_path.exists():
                         print(f"📄 Main content file: {main_yaml_path}")
                         print(f"📁 Story directory: {latest_story_dir.name}")
-                        print("   You can now review the content and run the full pipeline later")
+                        print(
+                            "   You can now review the content and run the full pipeline later"
+                        )
                     else:
-                        print("⚠️  Main content file not found in latest story directory")
+                        print(
+                            "⚠️  Main content file not found in latest story directory"
+                        )
                         print(f"   Latest story dir: {latest_story_dir}")
                         print(f"   Expected location: {main_yaml_path}")
                 else:

@@ -20,17 +20,14 @@ class VideoGenerator:
         self.width = 1024
         self.height = 1024
         self.fps = 30
-        self.speaker_colors = {
-            "SPEAKER_00": "white",
-            "SPEAKER_01": "orange"
-        }
+        self.speaker_colors = {"SPEAKER_00": "white", "SPEAKER_01": "orange"}
 
     def generate_video(
         self,
         asr_file_path: str,
         audio_file_path: str,
         main_yaml_path: str,
-        output_path: str
+        output_path: str,
     ) -> Dict[str, Any]:
         """Generate a video with generated images and spoken words.
 
@@ -76,7 +73,7 @@ class VideoGenerator:
                 subtitle_file,
                 content_data,
                 output_path,
-                audio_duration
+                audio_duration,
             )
 
             # Clean up temporary files
@@ -91,7 +88,7 @@ class VideoGenerator:
                 "video_path": video_path,
                 "duration": audio_duration,
                 "resolution": f"{self.width}x{self.height}",
-                "fps": self.fps
+                "fps": self.fps,
             }
 
         except Exception as e:
@@ -101,7 +98,7 @@ class VideoGenerator:
     def _load_asr_data(self, asr_file_path: str) -> Dict[str, Any]:
         """Load ASR data from JSON file."""
         try:
-            with open(asr_file_path, 'r') as f:
+            with open(asr_file_path, "r") as f:
                 data = json.load(f)
 
             if not data.get("success"):
@@ -115,10 +112,12 @@ class VideoGenerator:
     def _load_main_content(self, main_yaml_path: str) -> Dict[str, Any]:
         """Load main content structure from YAML file."""
         try:
-            with open(main_yaml_path, 'r', encoding='utf-8') as f:
+            with open(main_yaml_path, "r", encoding="utf-8") as f:
                 data = yaml.safe_load(f)
 
-            logger.info(f"📋 Loaded content structure with {len(data.get('narration', []))} narration groups")
+            logger.info(
+                f"📋 Loaded content structure with {len(data.get('narration', []))} narration groups"
+            )
             return data
         except Exception as e:
             logger.error(f"Failed to load main content: {e}")
@@ -129,10 +128,13 @@ class VideoGenerator:
         try:
             cmd = [
                 "ffprobe",
-                "-v", "quiet",
-                "-show_entries", "format=duration",
-                "-of", "default=noprint_wrappers=1:nokey=1",
-                audio_file_path
+                "-v",
+                "quiet",
+                "-show_entries",
+                "format=duration",
+                "-of",
+                "default=noprint_wrappers=1:nokey=1",
+                audio_file_path,
             ]
 
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
@@ -146,16 +148,20 @@ class VideoGenerator:
             logger.error(f"Invalid duration value: {e}")
             return None
 
-    def _create_subtitle_file(self, asr_data: Dict[str, Any], audio_duration: float) -> str:
+    def _create_subtitle_file(
+        self, asr_data: Dict[str, Any], audio_duration: float
+    ) -> str:
         """Create an ASS subtitle file from ASR data with speaker-specific styling."""
         try:
             # Create temporary ASS subtitle file
-            with tempfile.NamedTemporaryFile(mode='w', suffix='.ass', delete=False) as f:
+            with tempfile.NamedTemporaryFile(
+                mode="w", suffix=".ass", delete=False
+            ) as f:
                 subtitle_file = f.name
 
             segments = asr_data.get("segments", [])
 
-            with open(subtitle_file, 'w', encoding='utf-8') as f:
+            with open(subtitle_file, "w", encoding="utf-8") as f:
                 # Write ASS header
                 f.write("[Script Info]\n")
                 f.write("Title: Generated Subtitles\n")
@@ -166,15 +172,23 @@ class VideoGenerator:
 
                 # Write styles section
                 f.write("[V4+ Styles]\n")
-                f.write("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n")
+                f.write(
+                    "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+                )
                 # Speaker00: White text with orange border
-                f.write("Style: Speaker00,DejaVu Sans,48,&H00FFFFFF,&H000000FF,&H00008CFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n")
+                f.write(
+                    "Style: Speaker00,DejaVu Sans,48,&H00FFFFFF,&H000000FF,&H00008CFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n"
+                )
                 # Speaker01: Orange text with white border
-                f.write("Style: Speaker01,DejaVu Sans,48,&H00008CFF,&H000000FF,&H00FFFFFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n")
+                f.write(
+                    "Style: Speaker01,DejaVu Sans,48,&H00008CFF,&H000000FF,&H00FFFFFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
+                )
 
                 # Write events section
                 f.write("[Events]\n")
-                f.write("Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n")
+                f.write(
+                    "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+                )
 
                 for segment in segments:
                     words = segment.get("words", [])
@@ -196,7 +210,9 @@ class VideoGenerator:
                         style = "Speaker01" if speaker == "SPEAKER_01" else "Speaker00"
 
                         # Write subtitle entry
-                        f.write(f"Dialogue: 0,{start_ass},{end_ass},{style},,0,0,0,,{word}\n")
+                        f.write(
+                            f"Dialogue: 0,{start_ass},{end_ass},{style},,0,0,0,,{word}\n"
+                        )
 
             logger.info(f"📝 Created ASS subtitle file with word-level styling")
             return subtitle_file
@@ -220,7 +236,7 @@ class VideoGenerator:
         subtitle_file: str,
         content_data: Dict[str, Any],
         output_path: str,
-        audio_duration: float
+        audio_duration: float,
     ) -> str:
         """Create video using ffmpeg with generated images and subtitles."""
         try:
@@ -233,35 +249,61 @@ class VideoGenerator:
             images_section = content_data.get("images", {})
             if isinstance(images_section, dict) and "generated" in images_section:
                 image_groups = images_section["generated"]
-                logger.debug(f"🔍 Found images.generated section with {len(image_groups)} groups")
+                logger.debug(
+                    f"🔍 Found images.generated section with {len(image_groups)} groups"
+                )
             else:
                 # Fallback: try to find images in other locations
-                logger.warning(f"🔍 No images.generated section found, trying fallback locations")
+                logger.warning(
+                    f"🔍 No images.generated section found, trying fallback locations"
+                )
                 image_groups = []
 
                 # Try narration.generated if it exists
                 narration_section = content_data.get("narration", {})
-                if isinstance(narration_section, dict) and "generated" in narration_section:
+                if (
+                    isinstance(narration_section, dict)
+                    and "generated" in narration_section
+                ):
                     image_groups = narration_section["generated"]
-                    logger.debug(f"🔍 Found narration.generated section with {len(image_groups)} groups")
+                    logger.debug(
+                        f"🔍 Found narration.generated section with {len(image_groups)} groups"
+                    )
                 elif isinstance(narration_section, list):
                     # Try to find groups with status and image_file directly
-                    image_groups = [group for group in narration_section if group.get("image_file") and group.get("status") == "generated"]
-                    logger.debug(f"🔍 Found {len(image_groups)} groups with images in narration list")
+                    image_groups = [
+                        group
+                        for group in narration_section
+                        if group.get("image_file")
+                        and group.get("status") == "generated"
+                    ]
+                    logger.debug(
+                        f"🔍 Found {len(image_groups)} groups with images in narration list"
+                    )
 
-            logger.info(f"🎨 Found {len(image_groups)} image groups for video generation")
-            logger.debug(f"🔍 Content structure: images section type={type(images_section)}")
+            logger.info(
+                f"🎨 Found {len(image_groups)} image groups for video generation"
+            )
+            logger.debug(
+                f"🔍 Content structure: images section type={type(images_section)}"
+            )
             if isinstance(images_section, dict):
                 logger.debug(f"🔍 Images section keys: {list(images_section.keys())}")
                 if "generated" in images_section:
-                    logger.debug(f"🔍 Generated images count: {len(images_section['generated'])}")
+                    logger.debug(
+                        f"🔍 Generated images count: {len(images_section['generated'])}"
+                    )
                     # Log first few groups for debugging
                     for i, group in enumerate(images_section["generated"][:3]):
-                        logger.debug(f"🔍 Image Group {i}: status={group.get('status')}, image_file={group.get('image_file')}")
+                        logger.debug(
+                            f"🔍 Image Group {i}: status={group.get('status')}, image_file={group.get('image_file')}"
+                        )
 
             if not image_groups:
                 logger.warning("⚠️ No images found, falling back to black background")
-                return self._create_video_with_ffmpeg_fallback(audio_file, subtitle_file, output_path, audio_duration)
+                return self._create_video_with_ffmpeg_fallback(
+                    audio_file, subtitle_file, output_path, audio_duration
+                )
 
             # Create a simple approach: show each image for equal duration
             # In the future, this could be enhanced to use actual ASR timestamps
@@ -285,23 +327,29 @@ class VideoGenerator:
 
                     # Log which image we're processing
                     image_name = Path(image_path).name
-                    logger.debug(f"   🖼️  Processing image {i+1}/{num_images}: {image_name}")
+                    logger.debug(
+                        f"   🖼️  Processing image {i+1}/{num_images}: {image_name}"
+                    )
 
                     # Create a video segment for this image
                     segment_path = temp_dir_path / f"segment_{i:03d}.mp4"
                     self._create_image_segment(image_path, segment_path, image_duration)
                     video_segments.append(segment_path)
 
-                    logger.debug(f"   ✅ Created video segment {i+1}/{num_images}: {segment_path.name}")
+                    logger.debug(
+                        f"   ✅ Created video segment {i+1}/{num_images}: {segment_path.name}"
+                    )
 
                 if not video_segments:
                     raise RuntimeError("No valid video segments created")
 
-                logger.debug(f"🎬 Successfully created {len(video_segments)} video segments")
+                logger.debug(
+                    f"🎬 Successfully created {len(video_segments)} video segments"
+                )
 
                 # Create a file list for ffmpeg concat
                 concat_list_path = temp_dir_path / "concat_list.txt"
-                with open(concat_list_path, 'w') as f:
+                with open(concat_list_path, "w") as f:
                     for segment in video_segments:
                         f.write(f"file '{segment}'\n")
 
@@ -309,35 +357,43 @@ class VideoGenerator:
                 cmd = [
                     "ffmpeg",
                     "-y",  # Overwrite output file
-                    "-f", "concat",
-                    "-safe", "0",
-                    "-i", str(concat_list_path),
-                    "-i", audio_file,
-                    "-vf", f"ass={subtitle_file}",
-                    "-c:v", "libx264",
-                    "-c:a", "aac",
-                    "-preset", "medium",
-                    "-crf", "23",
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(concat_list_path),
+                    "-i",
+                    audio_file,
+                    "-vf",
+                    f"ass={subtitle_file}",
+                    "-c:v",
+                    "libx264",
+                    "-c:a",
+                    "aac",
+                    "-preset",
+                    "medium",
+                    "-crf",
+                    "23",
                     "-shortest",
-                    output_path
+                    output_path,
                 ]
 
-                logger.info(f"🎬 Running ffmpeg concat command with {len(video_segments)} image segments...")
+                logger.info(
+                    f"🎬 Running ffmpeg concat command with {len(video_segments)} image segments..."
+                )
                 logger.debug(f"ffmpeg command: {' '.join(cmd)}")
 
                 # Run ffmpeg
-                result = subprocess.run(
-                    cmd,
-                    capture_output=True,
-                    text=True,
-                    check=True
-                )
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
                 if not Path(output_path).exists():
                     raise RuntimeError("ffmpeg completed but output file not found")
 
                 logger.info(f"✅ ffmpeg completed successfully with images")
-                logger.debug(f"🎉 Video generation complete! Output: {Path(output_path).name}")
+                logger.debug(
+                    f"🎉 Video generation complete! Output: {Path(output_path).name}"
+                )
                 return output_path
 
         except subprocess.CalledProcessError as e:
@@ -348,29 +404,34 @@ class VideoGenerator:
             logger.error(f"Video creation with images failed: {e}")
             raise RuntimeError(f"Video creation with images failed: {e}")
 
-    def _create_image_segment(self, image_path: str, output_path: Path, duration: float) -> None:
+    def _create_image_segment(
+        self, image_path: str, output_path: Path, duration: float
+    ) -> None:
         """Create a video segment from a single image."""
         try:
             cmd = [
                 "ffmpeg",
                 "-y",  # Overwrite output file
-                "-loop", "1",
-                "-i", image_path,
-                "-t", str(duration),
-                "-vf", f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:black",
-                "-c:v", "libx264",
-                "-preset", "ultrafast",
-                "-crf", "23",
-                "-pix_fmt", "yuv420p",
-                str(output_path)
+                "-loop",
+                "1",
+                "-i",
+                image_path,
+                "-t",
+                str(duration),
+                "-vf",
+                f"scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:black",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "23",
+                "-pix_fmt",
+                "yuv420p",
+                str(output_path),
             ]
 
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
             logger.debug(f"Created image segment: {output_path}")
 
@@ -381,7 +442,9 @@ class VideoGenerator:
             logger.error(f"Failed to create image segment: {e}")
             raise RuntimeError(f"Failed to create image segment: {e}")
 
-    def _create_image_filter_complex(self, image_groups: List[Dict], audio_duration: float) -> str:
+    def _create_image_filter_complex(
+        self, image_groups: List[Dict], audio_duration: float
+    ) -> str:
         """Create complex filter for image transitions based on ASR timing."""
         try:
             # For now, we'll create a simple approach: show each image for equal duration
@@ -403,7 +466,9 @@ class VideoGenerator:
                     continue
 
                 inputs.append(f"-loop 1 -t {image_duration} -i {image_path}")
-                filters.append(f"[{i}:v]scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:black[v{i}]")
+                filters.append(
+                    f"[{i}:v]scale={self.width}:{self.height}:force_original_aspect_ratio=decrease,pad={self.width}:{self.height}:(ow-iw)/2:(oh-ih)/2:black[v{i}]"
+                )
 
             if not inputs:
                 raise RuntimeError("No valid images found for video generation")
@@ -429,7 +494,7 @@ class VideoGenerator:
         audio_file: str,
         subtitle_file: str,
         output_path: str,
-        audio_duration: float
+        audio_duration: float,
     ) -> str:
         """Create video using ffmpeg with black background and subtitles (fallback)."""
         try:
@@ -437,31 +502,36 @@ class VideoGenerator:
             cmd = [
                 "ffmpeg",
                 "-y",  # Overwrite output file
-                "-f", "lavfi",
-                "-i", f"color=black:size={self.width}x{self.height}:duration={audio_duration}",
-                "-i", audio_file,
-                "-vf", f"ass={subtitle_file}",
-                "-c:a", "aac",
-                "-c:v", "libx264",
-                "-preset", "medium",
-                "-crf", "23",
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=black:size={self.width}x{self.height}:duration={audio_duration}",
+                "-i",
+                audio_file,
+                "-vf",
+                f"ass={subtitle_file}",
+                "-c:a",
+                "aac",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "medium",
+                "-crf",
+                "23",
                 "-shortest",
-                output_path
+                output_path,
             ]
 
             logger.info(f"🎬 Running ffmpeg fallback command...")
             logger.debug(f"ffmpeg fallback command: {' '.join(cmd)}")
 
             # Run ffmpeg
-            result = subprocess.run(
-                cmd,
-                capture_output=True,
-                text=True,
-                check=True
-            )
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
 
             if not Path(output_path).exists():
-                raise RuntimeError("ffmpeg fallback completed but output file not found")
+                raise RuntimeError(
+                    "ffmpeg fallback completed but output file not found"
+                )
 
             logger.info(f"✅ ffmpeg fallback completed successfully")
             return output_path
@@ -479,7 +549,7 @@ class VideoGenerator:
         asr_file_path: str,
         audio_file_path: str,
         main_yaml_path: str,
-        output_path: str
+        output_path: str,
     ) -> Dict[str, Any]:
         """Process ASR data, audio, and content to generate video, then save to output path.
 
@@ -494,4 +564,6 @@ class VideoGenerator:
         Returns:
             Dictionary containing video generation results
         """
-        return self.generate_video(asr_file_path, audio_file_path, main_yaml_path, output_path)
+        return self.generate_video(
+            asr_file_path, audio_file_path, main_yaml_path, output_path
+        )

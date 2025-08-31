@@ -22,9 +22,7 @@ class ScrapedContent:
 class ContentScraper:
     """Scrapes content from URLs using Firecrawl."""
 
-    def __init__(
-        self, api_key: str = None, base_url: str = "http://localhost:3002"
-    ):
+    def __init__(self, api_key: str = None, base_url: str = "http://localhost:3002"):
         """Initialize the content scraper.
 
         Args:
@@ -69,8 +67,6 @@ class ContentScraper:
             return ScrapedContent(
                 title="Error", content="", url=url, success=False, error=str(e)
             )
-
-
 
     def _scrape_with_local_firecrawl(self, url: str) -> ScrapedContent:
         """Scrape using local Firecrawl instance."""

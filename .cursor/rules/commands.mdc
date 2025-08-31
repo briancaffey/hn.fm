@@ -1,0 +1,7 @@
+---
+description: When running backend commands, always try to use docker compose commands or the Makefile commands
+globs:
+alwaysApply: true
+---
+
+When running commands for the backend, always use either docker compose commands directly or the commands in the Makefile, such as `make dev-docker` to start up the servics, or `make docker-down` to stop all of the services.

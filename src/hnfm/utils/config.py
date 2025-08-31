@@ -35,7 +35,9 @@ class ConfigManager:
         try:
             config_path = Path(self.config_file)
             if not config_path.exists():
-                logger.warning(f"Config file {self.config_file} not found, using defaults")
+                logger.warning(
+                    f"Config file {self.config_file} not found, using defaults"
+                )
                 return self._get_default_config()
 
             with open(config_path, "r") as f:
@@ -74,12 +76,16 @@ class ConfigManager:
             if value is not None:
                 return value
             else:
-                logger.warning(f"Environment variable {env_var} not found, using template value")
+                logger.warning(
+                    f"Environment variable {env_var} not found, using template value"
+                )
                 return config
         else:
             return config
 
-    def _merge_configs(self, default_config: Dict[str, Any], user_config: Dict[str, Any]) -> Dict[str, Any]:
+    def _merge_configs(
+        self, default_config: Dict[str, Any], user_config: Dict[str, Any]
+    ) -> Dict[str, Any]:
         """Merge user config with default config, ensuring all required keys exist."""
         merged = default_config.copy()
 

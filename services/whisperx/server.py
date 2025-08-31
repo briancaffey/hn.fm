@@ -2,29 +2,31 @@
 import numpy as np
 import warnings
 
+
 def fix_numpy_compatibility():
     """Fix common NumPy 2.0 compatibility issues"""
 
     # Fix np.NaN -> np.nan issue
-    if not hasattr(np, 'NaN'):
+    if not hasattr(np, "NaN"):
         # Add backward compatibility for np.NaN
         np.NaN = np.nan
 
     # Add backward compatibility for common patterns
-    if not hasattr(np, 'float'):
+    if not hasattr(np, "float"):
         np.float = np.float64
 
-    if not hasattr(np, 'int'):
+    if not hasattr(np, "int"):
         np.int = np.int64
 
-    if not hasattr(np, 'bool'):
+    if not hasattr(np, "bool"):
         np.bool = np.bool_
 
     # Suppress deprecation warnings
-    warnings.filterwarnings('ignore', category=DeprecationWarning, module='numpy')
-    warnings.filterwarnings('ignore', category=FutureWarning, module='numpy')
+    warnings.filterwarnings("ignore", category=DeprecationWarning, module="numpy")
+    warnings.filterwarnings("ignore", category=FutureWarning, module="numpy")
 
     print("✅ NumPy compatibility fixes applied")
+
 
 # Apply fixes when imported
 fix_numpy_compatibility()
@@ -64,10 +66,13 @@ if torch.cuda.is_available():
     print(f"   CUDA version: {torch.version.cuda}")
     print(f"   cuDNN version: {torch.backends.cudnn.version()}")
     print(f"   GPU device: {torch.cuda.get_device_name(0)}")
-    print(f"   GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB")
+    print(
+        f"   GPU memory: {torch.cuda.get_device_properties(0).total_memory / 1024**3:.1f} GB"
+    )
     print(f"   Selected device: {DEVICE}")
 else:
     print("   CUDA not available, using CPU")
+
 
 @app.post("/process-audio")
 async def process_audio(
@@ -75,7 +80,7 @@ async def process_audio(
     model_size: str = Form("large-v2"),
     min_speakers: Optional[int] = Form(None),
     max_speakers: Optional[int] = Form(None),
-    word_timestamps: bool = Form(True)
+    word_timestamps: bool = Form(True),
 ):
     """
     Process audio file with WhisperX for transcription, alignment, and speaker diarization.
@@ -92,14 +97,19 @@ async def process_audio(
     """
 
     # Get HF token from environment variable
-    hf_token = os.getenv('HF_TOKEN')
+    hf_token = os.getenv("HF_TOKEN")
     if not hf_token:
-        raise HTTPException(status_code=500, detail="HF_TOKEN environment variable not set. Please set export HF_TOKEN='your_token_here'")
+        raise HTTPException(
+            status_code=500,
+            detail="HF_TOKEN environment variable not set. Please set export HF_TOKEN='your_token_here'",
+        )
 
     try:
         # Create temporary file to save uploaded audio
         print(f"📁 Creating temporary file for audio upload...")
-        with tempfile.NamedTemporaryFile(delete=False, suffix=f".{audio_file.filename.split('.')[-1]}") as temp_file:
+        with tempfile.NamedTemporaryFile(
+            delete=False, suffix=f".{audio_file.filename.split('.')[-1]}"
+        ) as temp_file:
             content = await audio_file.read()
             temp_file.write(content)
             temp_file_path = temp_file.name
@@ -118,7 +128,9 @@ async def process_audio(
 
             print(f"📝 Step 3: Transcribing audio...")
             result = model.transcribe(audio, batch_size=BATCH_SIZE)
-            print(f"✅ Transcription complete, language: {result.get('language', 'Unknown')}")
+            print(
+                f"✅ Transcription complete, language: {result.get('language', 'Unknown')}"
+            )
 
             # Clean up transcription model
             print(f"🧹 Cleaning up transcription model...")
@@ -131,8 +143,7 @@ async def process_audio(
             # 2. Align whisper output
             print(f"🔗 Step 4: Loading alignment model...")
             model_a, metadata = whisperx.load_align_model(
-                language_code=result["language"],
-                device=DEVICE
+                language_code=result["language"], device=DEVICE
             )
             print(f"✅ Alignment model loaded")
 
@@ -143,7 +154,7 @@ async def process_audio(
                 metadata,
                 audio,
                 DEVICE,
-                return_char_alignments=word_timestamps
+                return_char_alignments=word_timestamps,
             )
             print(f"✅ Alignment complete")
 
@@ -158,20 +169,23 @@ async def process_audio(
             # 3. Speaker diarization
             print(f"👥 Step 6: Loading diarization model...")
             diarize_model = whisperx.diarize.DiarizationPipeline(
-                use_auth_token=hf_token,
-                device=DEVICE
+                use_auth_token=hf_token, device=DEVICE
             )
             print(f"✅ Diarization model loaded")
 
             print(f"🎤 Step 7: Performing speaker diarization...")
             if min_speakers and max_speakers:
-                diarize_segments = diarize_model(audio, min_speakers=min_speakers, max_speakers=max_speakers)
+                diarize_segments = diarize_model(
+                    audio, min_speakers=min_speakers, max_speakers=max_speakers
+                )
             else:
                 diarize_segments = diarize_model(audio)
             print(f"✅ Diarization complete")
 
             print(f"🏷️  Step 8: Assigning speaker labels...")
-            final_result = whisperx.assign_word_speakers(diarize_segments, aligned_result)
+            final_result = whisperx.assign_word_speakers(
+                diarize_segments, aligned_result
+            )
             print(f"✅ Speaker assignment complete")
 
             # Clean up diarization model
@@ -186,23 +200,36 @@ async def process_audio(
             print(f"Debug: diarize_segments type: {type(diarize_segments)}")
 
             try:
-                if hasattr(diarize_segments, 'to_dict'):
+                if hasattr(diarize_segments, "to_dict"):
                     # If it's a pandas DataFrame, convert to records format
-                    diarization_data = diarize_segments.to_dict('records')
-                    print(f"Debug: Converted DataFrame to {len(diarization_data)} records")
+                    diarization_data = diarize_segments.to_dict("records")
+                    print(
+                        f"Debug: Converted DataFrame to {len(diarization_data)} records"
+                    )
 
                     # Convert any non-serializable objects in the records
                     def convert_to_serializable(obj):
-                        if hasattr(obj, '__dict__'):
+                        if hasattr(obj, "__dict__"):
                             # Convert objects to dictionaries
-                            return {k: convert_to_serializable(v) for k, v in obj.__dict__.items()}
-                        elif hasattr(obj, 'start') and hasattr(obj, 'end'):
+                            return {
+                                k: convert_to_serializable(v)
+                                for k, v in obj.__dict__.items()
+                            }
+                        elif hasattr(obj, "start") and hasattr(obj, "end"):
                             # Handle Segment-like objects with start/end times
                             return {
-                                'start': float(obj.start) if hasattr(obj.start, '__float__') else str(obj.start),
-                                'end': float(obj.end) if hasattr(obj.end, '__float__') else str(obj.end)
+                                "start": (
+                                    float(obj.start)
+                                    if hasattr(obj.start, "__float__")
+                                    else str(obj.start)
+                                ),
+                                "end": (
+                                    float(obj.end)
+                                    if hasattr(obj.end, "__float__")
+                                    else str(obj.end)
+                                ),
                             }
-                        elif hasattr(obj, 'to_dict'):
+                        elif hasattr(obj, "to_dict"):
                             # Handle objects with to_dict method
                             return obj.to_dict()
                         elif isinstance(obj, (list, tuple)):
@@ -210,20 +237,24 @@ async def process_audio(
                             return [convert_to_serializable(item) for item in obj]
                         elif isinstance(obj, dict):
                             # Handle dictionaries
-                            return {k: convert_to_serializable(v) for k, v in obj.items()}
-                        elif hasattr(obj, '__str__'):
+                            return {
+                                k: convert_to_serializable(v) for k, v in obj.items()
+                            }
+                        elif hasattr(obj, "__str__"):
                             # Fallback: convert to string
                             return str(obj)
                         else:
                             return obj
 
                     # Convert all records to serializable format
-                    diarization_data = [convert_to_serializable(record) for record in diarization_data]
+                    diarization_data = [
+                        convert_to_serializable(record) for record in diarization_data
+                    ]
                     print("Debug: Converted records to serializable format")
 
-                elif hasattr(diarize_segments, 'to_json'):
+                elif hasattr(diarize_segments, "to_json"):
                     # Alternative conversion method
-                    diarization_data = diarize_segments.to_json(orient='records')
+                    diarization_data = diarize_segments.to_json(orient="records")
                     print("Debug: Converted using to_json method")
                 else:
                     # If it's already a list/dict, use as is
@@ -248,8 +279,13 @@ async def process_audio(
                     "word_timestamps": word_timestamps,
                     "audio_duration": len(audio) / 16000,  # Assuming 16kHz sample rate
                     "num_segments": len(final_result["segments"]),
-                    "num_speakers": len(set(seg.get("speaker", "UNKNOWN") for seg in final_result["segments"]))
-                }
+                    "num_speakers": len(
+                        set(
+                            seg.get("speaker", "UNKNOWN")
+                            for seg in final_result["segments"]
+                        )
+                    ),
+                },
             }
 
             return JSONResponse(content=response_data)
@@ -263,6 +299,7 @@ async def process_audio(
         print(f"❌ Error processing audio: {str(e)}")
         print(f"🔍 Error type: {type(e).__name__}")
         import traceback
+
         print("📋 Full traceback:")
         traceback.print_exc()
 
@@ -271,24 +308,30 @@ async def process_audio(
             print(f"🔍 CUDA Memory Status:")
             print(f"   Allocated: {torch.cuda.memory_allocated() / 1024**2:.1f} MB")
             print(f"   Cached: {torch.cuda.memory_reserved() / 1024**2:.1f} MB")
-            print(f"   Max allocated: {torch.cuda.max_memory_allocated() / 1024**2:.1f} MB")
+            print(
+                f"   Max allocated: {torch.cuda.max_memory_allocated() / 1024**2:.1f} MB"
+            )
 
         raise HTTPException(status_code=500, detail=f"Error processing audio: {str(e)}")
+
 
 @app.get("/health")
 async def health_check():
     """Health check endpoint"""
-    hf_token = os.getenv('HF_TOKEN')
+    hf_token = os.getenv("HF_TOKEN")
     return {
         "status": "healthy",
         "device": DEVICE,
         "cuda_available": torch.cuda.is_available(),
-        "force_cpu": False, # Force_CPU is removed, so this will always be False
+        "force_cpu": False,  # Force_CPU is removed, so this will always be False
         "cuda_working": DEVICE == "cuda",
         "hf_token_set": hf_token is not None,
         "hf_token_length": len(hf_token) if hf_token else 0,
-        "hf_token_prefix": hf_token[:8] + "..." if hf_token and len(hf_token) > 8 else "None"
+        "hf_token_prefix": (
+            hf_token[:8] + "..." if hf_token and len(hf_token) > 8 else "None"
+        ),
     }
+
 
 @app.get("/")
 async def root():
@@ -299,9 +342,10 @@ async def root():
         "endpoints": {
             "POST /process-audio": "Process audio file with transcription and diarization",
             "GET /health": "Health check",
-            "GET /": "API information"
-        }
+            "GET /": "API information",
+        },
     }
+
 
 if __name__ == "__main__":
     import uvicorn

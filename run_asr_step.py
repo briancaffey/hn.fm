@@ -7,8 +7,9 @@ from pathlib import Path
 # Add the src directory to the path
 sys.path.insert(0, str(Path(__file__).parent / "src"))
 
-from hnfm.pipeline.pipeline_manager import PipelineManager
+from hnfm.pipeline.enhanced_pipeline_manager import EnhancedPipelineManager
 from hnfm.utils.config import config_manager
+
 
 def run_asr_step(story_dir_name: str):
     """Run just the ASR step for a specific story.
@@ -18,7 +19,7 @@ def run_asr_step(story_dir_name: str):
     """
     try:
         # Initialize pipeline manager
-        pipeline = PipelineManager()
+        pipeline = EnhancedPipelineManager(redis_integration=False)
 
         # Construct the story directory path
         story_dir = Path("outputs") / story_dir_name
@@ -77,7 +78,7 @@ def run_asr_step(story_dir_name: str):
         print("\n🔵 STEP ASR PROCESSING")
         print("   ====================")
 
-        result = pipeline._execute_asr_processing(inputs)
+        result = pipeline.execute_step_with_locking("asr_processing", inputs)
 
         print(f"\n✅ ASR step completed successfully!")
         print(f"📄 Results saved to: {result['asr_results_path']}")
@@ -85,12 +86,16 @@ def run_asr_step(story_dir_name: str):
     except Exception as e:
         print(f"❌ ASR step failed: {e}")
         import traceback
+
         traceback.print_exc()
+
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
         print("Usage: python run_asr_step.py <story_directory_name>")
-        print("Example: python run_asr_step.py im_too_dumb_for_zigs_new_io_interface_68a9d4")
+        print(
+            "Example: python run_asr_step.py im_too_dumb_for_zigs_new_io_interface_68a9d4"
+        )
         sys.exit(1)
 
     story_dir_name = sys.argv[1]

@@ -10,8 +10,14 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from .models import (
-    ContentItem, ContentListResponse, ContentCreateRequest,
-    ContentUpdateRequest, PipelineStatus, HealthCheck, ServiceStatus, ServicesStatusResponse
+    ContentItem,
+    ContentListResponse,
+    ContentCreateRequest,
+    ContentUpdateRequest,
+    PipelineStatus,
+    HealthCheck,
+    ServiceStatus,
+    ServicesStatusResponse,
 )
 from .database import ContentDatabase
 from .celery_app import celery_app
@@ -23,7 +29,7 @@ logger = logging.getLogger(__name__)
 app = FastAPI(
     title="hn.fm API",
     description="API for managing Hacker News content pipeline",
-    version="0.1.0"
+    version="0.1.0",
 )
 
 # Initialize database and services
@@ -58,7 +64,7 @@ async def health_check():
         status="healthy",
         timestamp=datetime.now(),
         version="0.1.0",
-        redis_status=redis_status
+        redis_status=redis_status,
     )
 
 
@@ -74,19 +80,19 @@ async def get_services_status():
         # Convert ServiceStatus dataclass to our Pydantic model
         services = []
         for status in service_statuses:
-            services.append(ServiceStatus(
-                name=status.name,
-                url=status.url,
-                status=status.status,
-                response_time=status.response_time,
-                error_message=status.error_message,
-                details=status.details
-            ))
+            services.append(
+                ServiceStatus(
+                    name=status.name,
+                    url=status.url,
+                    status=status.status,
+                    response_time=status.response_time,
+                    error_message=status.error_message,
+                    details=status.details,
+                )
+            )
 
         return ServicesStatusResponse(
-            all_healthy=all_healthy,
-            services=services,
-            timestamp=datetime.now()
+            all_healthy=all_healthy, services=services, timestamp=datetime.now()
         )
 
     except Exception as e:
@@ -99,7 +105,7 @@ async def list_content(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
     content_type: Optional[str] = Query(None, description="Filter by content type"),
-    status: Optional[str] = Query(None, description="Filter by status")
+    status: Optional[str] = Query(None, description="Filter by status"),
 ):
     """List content items with pagination and filtering"""
     try:
@@ -114,7 +120,7 @@ async def list_content(
 async def list_recent_content(
     limit: int = Query(20, ge=1, le=100, description="Number of items to return"),
     content_type: Optional[str] = Query(None, description="Filter by content type"),
-    status: Optional[str] = Query(None, description="Filter by status")
+    status: Optional[str] = Query(None, description="Filter by status"),
 ):
     """List most recently updated content items"""
     try:
@@ -149,16 +155,16 @@ async def create_content(request: ContentCreateRequest):
         now = datetime.now()
 
         content_data = {
-            'id': content_id,
-            'title': f"Processing: {request.url}",
-            'url': request.url,
-            'content_type': request.content_type,
-            'status': 'pending',
-            'created_at': now,
-            'updated_at': now,
-            'metadata': request.options,
-            'processing_steps': [],
-            'errors': []
+            "id": content_id,
+            "title": f"Processing: {request.url}",
+            "url": request.url,
+            "content_type": request.content_type,
+            "status": "pending",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": request.options,
+            "processing_steps": [],
+            "errors": [],
         }
 
         if db.store_content(content_id, content_data):
@@ -179,11 +185,11 @@ async def update_content(content_id: str, request: ContentUpdateRequest):
     try:
         updates = {}
         if request.title is not None:
-            updates['title'] = request.title
+            updates["title"] = request.title
         if request.status is not None:
-            updates['status'] = request.status
+            updates["status"] = request.status
         if request.metadata is not None:
-            updates['metadata'] = request.metadata
+            updates["metadata"] = request.metadata
 
         if not updates:
             raise HTTPException(status_code=400, detail="No updates provided")
@@ -229,14 +235,17 @@ async def process_content(content_id: str):
             raise HTTPException(status_code=404, detail="Content not found")
 
         # Check if content is already being processed
-        if content.get('status') == 'processing':
-            raise HTTPException(status_code=400, detail="Content is already being processed")
+        if content.get("status") == "processing":
+            raise HTTPException(
+                status_code=400, detail="Content is already being processed"
+            )
 
         # Update status to processing
-        db.update_content(content_id, {'status': 'processing'})
+        db.update_content(content_id, {"status": "processing"})
 
         # Start the processing task
         from .tasks import process_content_pipeline
+
         task = process_content_pipeline.delay(content_id)
 
         logger.info(f"Started processing task {task.id} for content {content_id}")
@@ -244,7 +253,7 @@ async def process_content(content_id: str):
         return {
             "message": "Processing started",
             "task_id": task.id,
-            "content_id": content_id
+            "content_id": content_id,
         }
 
     except HTTPException:
@@ -274,16 +283,16 @@ async def process_content(request: ContentCreateRequest):
         now = datetime.now()
 
         content_data = {
-            'id': content_id,
-            'title': f"Processing: {request.url}",
-            'url': request.url,
-            'content_type': request.content_type,
-            'status': 'processing',
-            'created_at': now,
-            'updated_at': now,
-            'metadata': request.options,
-            'processing_steps': ['created'],
-            'errors': []
+            "id": content_id,
+            "title": f"Processing: {request.url}",
+            "url": request.url,
+            "content_type": request.content_type,
+            "status": "processing",
+            "created_at": now,
+            "updated_at": now,
+            "metadata": request.options,
+            "processing_steps": ["created"],
+            "errors": [],
         }
 
         if not db.store_content(content_id, content_data):
@@ -296,7 +305,7 @@ async def process_content(request: ContentCreateRequest):
         return {
             "message": "Content processing started",
             "content_id": content_id,
-            "status": "processing"
+            "status": "processing",
         }
 
     except HTTPException:
@@ -307,7 +316,9 @@ async def process_content(request: ContentCreateRequest):
 
 
 @app.post("/api/hn/process-top-stories")
-async def process_top_hn_stories(limit: int = Query(50, ge=1, le=100, description="Number of top stories to process")):
+async def process_top_hn_stories(
+    limit: int = Query(50, ge=1, le=100, description="Number of top stories to process")
+):
     """
     Fetch top stories from Hacker News and queue them for processing
 
@@ -323,7 +334,9 @@ async def process_top_hn_stories(limit: int = Query(50, ge=1, le=100, descriptio
         # Fetch top stories from HN
         story_ids = hn_service.get_top_stories(limit)
         if not story_ids:
-            raise HTTPException(status_code=500, detail="Failed to fetch top stories from HN API")
+            raise HTTPException(
+                status_code=500, detail="Failed to fetch top stories from HN API"
+            )
 
         logger.info(f"Fetched {len(story_ids)} top stories from HN")
 
@@ -345,14 +358,9 @@ async def process_top_hn_stories(limit: int = Query(50, ge=1, le=100, descriptio
             try:
                 # Queue the Celery task
                 task = celery_app.send_task(
-                    'process_hn_story',
-                    args=[story_id],
-                    queue='hnfm_tasks'
+                    "process_hn_story", args=[story_id], queue="hnfm_tasks"
                 )
-                queued_tasks.append({
-                    'story_id': story_id,
-                    'task_id': task.id
-                })
+                queued_tasks.append({"story_id": story_id, "task_id": task.id})
                 logger.info(f"Queued story {story_id} for processing (task: {task.id})")
             except Exception as e:
                 logger.error(f"Failed to queue story {story_id}: {e}")
@@ -369,11 +377,13 @@ async def process_top_hn_stories(limit: int = Query(50, ge=1, le=100, descriptio
                 "total_fetched": len(story_ids),
                 "queued_for_processing": len(queued_stories),
                 "skipped_already_processed": len(skipped_stories),
-                "failed_to_queue": len(story_ids) - len(queued_stories) - len(skipped_stories)
+                "failed_to_queue": len(story_ids)
+                - len(queued_stories)
+                - len(skipped_stories),
             },
             "queued_tasks": queued_tasks,
             "hn_processing_stats": hn_stats,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except HTTPException:
@@ -388,10 +398,7 @@ async def get_hn_stats():
     """Get Hacker News processing statistics"""
     try:
         stats = db.get_hn_processing_stats()
-        return {
-            "hn_processing_stats": stats,
-            "timestamp": datetime.now().isoformat()
-        }
+        return {"hn_processing_stats": stats, "timestamp": datetime.now().isoformat()}
     except Exception as e:
         logger.error(f"Failed to get HN stats: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -411,7 +418,7 @@ async def test_endpoint():
                 "content_type": "article",
                 "status": "completed",
                 "created_at": "2024-01-15T10:30:00Z",
-                "updated_at": "2024-01-15T11:45:00Z"
+                "updated_at": "2024-01-15T11:45:00Z",
             },
             {
                 "id": "test-2",
@@ -420,9 +427,9 @@ async def test_endpoint():
                 "content_type": "article",
                 "status": "pending",
                 "created_at": "2024-01-15T12:00:00Z",
-                "updated_at": "2024-01-15T12:00:00Z"
-            }
-        ]
+                "updated_at": "2024-01-15T12:00:00Z",
+            },
+        ],
     }
 
 

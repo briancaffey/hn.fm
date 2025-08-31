@@ -8,11 +8,12 @@ Make sure to set: export HF_TOKEN='your_token_here'
 import os
 from client import WhisperXClient
 
+
 def main():
     """Test audio processing with HF_TOKEN from environment"""
 
     # Check if HF_TOKEN is set
-    if not os.getenv('HF_TOKEN'):
+    if not os.getenv("HF_TOKEN"):
         print("❌ HF_TOKEN environment variable not set!")
         print("\n💡 To fix this:")
         print("   export HF_TOKEN='your_huggingface_token_here'")
@@ -31,8 +32,7 @@ def main():
         # Process the audio file
         print("\n🎵 Processing audio.wav...")
         results = client.process_audio(
-            audio_file_path="audio.wav",
-            model_size="large-v2"
+            audio_file_path="audio.wav", model_size="large-v2"
         )
 
         # Print results
@@ -44,6 +44,7 @@ def main():
 
     except Exception as e:
         print(f"❌ Error: {e}")
+
 
 if __name__ == "__main__":
     main()
