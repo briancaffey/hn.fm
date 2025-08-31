@@ -35,14 +35,23 @@ class ConfigManager:
         try:
             config_path = Path(self.config_file)
             if not config_path.exists():
-                logger.warning(f"Config file {config_file} not found, using defaults")
+                logger.warning(f"Config file {self.config_file} not found, using defaults")
                 return self._get_default_config()
 
             with open(config_path, "r") as f:
                 config = yaml.safe_load(f)
 
+            logger.info(f"Loaded raw config from {self.config_file}: {config}")
+
             # Replace environment variables
             config = self._replace_env_vars(config)
+            logger.info(f"After env var replacement: {config}")
+
+            # Merge with defaults to ensure all required keys exist
+            default_config = self._get_default_config()
+            logger.info(f"Default config: {default_config}")
+            config = self._merge_configs(default_config, config)
+            logger.info(f"After merging: {config}")
 
             logger.info(f"Loaded configuration from {self.config_file}")
             return config
@@ -61,9 +70,34 @@ class ConfigManager:
             isinstance(config, str) and config.startswith("${") and config.endswith("}")
         ):
             env_var = config[2:-1]
-            return os.getenv(env_var, config)
+            value = os.getenv(env_var)
+            if value is not None:
+                return value
+            else:
+                logger.warning(f"Environment variable {env_var} not found, using template value")
+                return config
         else:
             return config
+
+    def _merge_configs(self, default_config: Dict[str, Any], user_config: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge user config with default config, ensuring all required keys exist."""
+        merged = default_config.copy()
+
+        def merge_recursive(default: Any, user: Any) -> Any:
+            if isinstance(default, dict) and isinstance(user, dict):
+                result = default.copy()
+                for key, value in user.items():
+                    if key in default:
+                        result[key] = merge_recursive(default[key], value)
+                    else:
+                        result[key] = value
+                return result
+            elif isinstance(default, list) and isinstance(user, list):
+                return user  # Use user list if provided
+            else:
+                return user if user is not None else default
+
+        return merge_recursive(default_config, user_config)
 
     def _get_default_config(self) -> Dict[str, Any]:
         """Get default configuration."""
@@ -85,9 +119,17 @@ class ConfigManager:
                 "enabled": True,
                 "target": "${STUDIO_VOICE_TARGET}",
                 "model_type": "${STUDIO_VOICE_MODEL_TYPE}",
+                "http_health_url": "${STUDIO_VOICE_HTTP_HEALTH_URL}",
                 "streaming": False,
                 "ssl_mode": None,
                 "sample_rate": 48000,
+            },
+            "llm": {
+                "enabled": True,
+                "base_url": "${LLM_BASE_URL}",
+                "fallback_url": "${LLM_FALLBACK_URL}",
+                "model": "${LLM_MODEL}",
+                "provider": "${LLM_PROVIDER}",
             },
             "content": {
                 "max_episode_length": 15,

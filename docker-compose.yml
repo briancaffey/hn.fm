@@ -9,6 +9,7 @@ x-common-app-config: &common-app-config
     - ./src:/app/src:ro  # Mount source code for hot reloading
     - ./outputs:/app/outputs  # Mount outputs directory
     - ./cache:/app/cache  # Mount cache directory
+    - ./config.yaml:/app/config.yaml:ro  # Mount config file
   environment:
     - PYTHONPATH=/app/src
     - DEBUG=${DEBUG:-false}

@@ -74,7 +74,7 @@ output:
 # API Configuration
 apis:
   firecrawl:
-    base_url: "http://localhost:3002"
+    base_url: "${FIRECRAWL_BASE_URL}"
     api_key: "${FIRECRAWL_API_KEY}"
 
   openai:
