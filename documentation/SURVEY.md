@@ -205,3 +205,40 @@ shadcn-ui 组件库
 通过 TTS 转换为音频, 感谢 Minimax Audio 赞助 TTS 服务。
 存储到 Cloudflare R2 和 KV
 通过 RSS feed 和网页提供访问
+
+---
+
+🎙️ Automatic Podcast Generator
+
+https://github.com/falmanna/autopod
+
+Turn your saved reading list into engaging, personalized podcasts! This app leverages automation and AI to simplify content consumption, providing a unique solution for staying informed on-the-go.
+
+🚀 Features
+Powered by n8n: Streamlined workflow automation for managing content and podcast generation.
+Knowledge Service Integration: Currently supports Raindrop for connecting to your saved articles.
+AI-Powered: Uses OpenAI models for high-quality text-to-podcast conversion.
+Cost-Optimized: Designed to be affordable, with costs as low as $0.20 for a 20-minute podcast.
+Customizable Prompts: Inspired by Podcastfy, with a tailored prompt for creating informative and engaging content.
+🛠️ How It Works
+Connect Your Knowledge Service: Start by linking your Raindrop account to sync your saved articles.
+Automate with n8n: Use the pre-configured n8n workflow to fetch articles, process content, and generate podcasts.
+AI Processing: The app uses OpenAI models to transform your articles into well-structured podcast scripts.
+Store & Enjoy: Podcasts are automatically stored in your Google Drive, ready for you to listen anytime.
+🌟 Why This App?
+Save Time: Listen to your reading list while on the move.
+Full Control: Customize podcast length, detail level, and more.
+Future-Proof: Easily swap or upgrade AI models as they improve.
+🤝 Contributions & Ideas
+We’re excited to welcome contributions and feedback!
+
+Have ideas for new features or integrations? Let us know!
+Want to improve the workflow or optimize costs further? Contributions are highly encouraged!
+📋 Requirements
+n8n
+Raindrop account (more services coming soon!)
+OpenAI API key
+Google Drive for podcast storage
+📦 Installation
+Manually copy workflows to your n8n instance
+Or use restore from github template

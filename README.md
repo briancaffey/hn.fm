@@ -206,6 +206,35 @@ outputs/
 
 ## 🔧 Development
 
+### Auto-Reload Development Setup
+
+The project includes auto-reload functionality for Celery workers and beat, making development much more efficient:
+
+```bash
+# Start services with auto-reload (recommended for development)
+make celery-worker    # Start worker with auto-reload
+make celery-beat       # Start beat with auto-reload
+make dev-start         # Start all services with auto-reload
+
+# Docker development with auto-reload
+make dev-docker        # Start all services in Docker with auto-reload
+make docker-up         # Start development services
+make docker-down       # Stop all services
+
+# Simple mode (no auto-reload) for debugging
+make celery-worker-simple
+make celery-beat-simple
+```
+
+**Features:**
+- **Automatic Restart**: Workers and beat restart when Python code changes
+- **File Watching**: Monitors `src/hnfm/` directory tree for changes
+- **Docker Support**: Full auto-reload support in Docker containers
+- **Graceful Shutdown**: Clean shutdown with Ctrl+C
+- **Detailed Logging**: Comprehensive logging of restart events
+
+For detailed information, see [AUTORELOAD_README.md](AUTORELOAD_README.md).
+
 ### Project Structure
 
 ```

@@ -1,4 +1,5 @@
-# Docker Compose configuration for hn.fm backend services
+# Docker Compose configuration for hn.fm development
+# Includes hot reloading and auto-reload functionality
 
 # Define reusable service configurations using anchors
 x-common-app-config: &common-app-config
@@ -6,14 +7,10 @@ x-common-app-config: &common-app-config
     context: .
     dockerfile: Dockerfile
   volumes:
-    - ./src:/app/src:ro  # Mount source code for hot reloading
-    - ./outputs:/app/outputs  # Mount outputs directory
-    - ./cache:/app/cache  # Mount cache directory
-    - ./config.yaml:/app/config.yaml:ro  # Mount config file
-  environment:
-    - PYTHONPATH=/app/src
-    - DEBUG=${DEBUG:-false}
-    - LOG_LEVEL=${LOG_LEVEL:-INFO}
+    - ./src:/app/src  # Mount source code for hot reloading
+    - ./outputs:/app/outputs
+    - ./cache:/app/cache
+    - ./config.yaml:/app/config.yaml:ro
   depends_on:
     redis:
       condition: service_healthy
@@ -21,53 +18,45 @@ x-common-app-config: &common-app-config
   networks:
     - hnfm-network
 
+# Define common environment variables
 x-common-env: &common-env
+  # Python and Debug
+  PYTHONPATH: /app/src
+  DEBUG: "true"
+  LOG_LEVEL: DEBUG
+  # Redis Configuration
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  REDIS_DB: "0"
+  REDIS_URL: redis://redis:6379/0
+  CELERY_BROKER_URL: redis://redis:6379/0
+  CELERY_RESULT_BACKEND: redis://redis:6379/0
   # API Keys
   FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
-
   # TTS Service Configuration
   TTS_BASE_URL: ${TTS_BASE_URL:-http://localhost:7860}
   TTS_DEFAULT_VOICE: ${TTS_DEFAULT_VOICE:-notebooklm}
   TTS_TIMEOUT_SECONDS: ${TTS_TIMEOUT_SECONDS:-120}
-  TTS_RETRY_DELAY: ${TTS_RETRY_DELAY:-5}
-  TTS_MAX_ATTEMPTS: ${TTS_MAX_ATTEMPTS:-3}
-
   # Studio Voice Configuration
   STUDIO_VOICE_TARGET: ${STUDIO_VOICE_TARGET:-localhost:8001}
   STUDIO_VOICE_MODEL_TYPE: ${STUDIO_VOICE_MODEL_TYPE:-48k-hq}
-  STUDIO_VOICE_HTTP_HEALTH_URL: ${STUDIO_VOICE_HTTP_HEALTH_URL:-http://localhost:8000/v1/health/ready}
-
   # ASR Service Configuration
   ASR_BASE_URL: ${ASR_BASE_URL:-http://localhost:8042}
   ASR_MODEL_SIZE: ${ASR_MODEL_SIZE:-large-v2}
   ASR_TIMEOUT_SECONDS: ${ASR_TIMEOUT_SECONDS:-300}
-  ASR_RETRY_DELAY: ${ASR_RETRY_DELAY:-10}
-  ASR_MAX_ATTEMPTS: ${ASR_MAX_ATTEMPTS:-5}
-
   # Local LLM Configuration
   LLM_BASE_URL: ${LLM_BASE_URL:-http://localhost:1234/v1}
-  LLM_FALLBACK_URL: ${LLM_FALLBACK_URL:-http://localhost:1234}
   LLM_MODEL: ${LLM_MODEL:-openai/gpt-oss-20b}
   LLM_PROVIDER: ${LLM_PROVIDER:-local}
-
-  # Image Generation Service Configuration
-  IMAGE_GENERATION_BASE_URL: ${IMAGE_GENERATION_BASE_URL:-http://localhost:8000}
-
   # Firecrawl Configuration
   FIRECRAWL_BASE_URL: ${FIRECRAWL_BASE_URL:-http://localhost:3002}
-
   # Hacker News Configuration
   HN_USER_AGENT: ${HN_USER_AGENT:-hn.fm/0.1.0 (briancaffey)}
-
   # Content Configuration
   MAX_EPISODE_LENGTH: ${MAX_EPISODE_LENGTH:-15}
   INCLUDE_COMMENTS: ${INCLUDE_COMMENTS:-true}
   QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-0.8}
-
-  # Output Configuration
-  OUTPUT_FORMATS: ${OUTPUT_FORMATS:-podcast,short_video,web}
-  IMAGE_ASPECT_RATIOS: ${IMAGE_ASPECT_RATIOS:-16:9,9:16,1:1}
 
 services:
   # Redis service for Celery broker and result backend
@@ -106,24 +95,16 @@ services:
     networks:
       - hnfm-network
 
-  # FastAPI web server
+  # FastAPI web server with hot reloading
   web:
     <<: *common-app-config
     container_name: hnfm-web
     ports:
-      - "${WEB_PORT:-8000}:8000"
+      - "8000:8000"
     environment:
       <<: *common-env
-      WEB_HOST: 0.0.0.0
-      WEB_PORT: 8000
       WEB_RELOAD: "true"
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-    command: ["python", "run_web_server.py"]
+    command: ["python", "src/hnfm/scripts/run_web_server.py"]
     healthcheck:
       test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/health')"]
       interval: 30s
@@ -131,51 +112,41 @@ services:
       retries: 3
       start_period: 40s
 
-  # Celery worker for background task processing
+  # Celery worker with auto-reload
   celery-worker:
     <<: *common-app-config
     container_name: hnfm-celery-worker
     environment:
       <<: *common-env
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
       CELERY_ALWAYS_EAGER: "false"
-      CELERY_WORKER_CONCURRENCY: ${CELERY_WORKER_CONCURRENCY:-2}
-      CELERY_WORKER_MAX_TASKS_PER_CHILD: ${CELERY_WORKER_MAX_TASKS_PER_CHILD:-1000}
-      CELERY_TASK_SOFT_TIME_LIMIT: ${CELERY_TASK_SOFT_TIME_LIMIT:-300}
-      CELERY_TASK_TIME_LIMIT: ${CELERY_TASK_TIME_LIMIT:-600}
-    command: ["python", "start_celery_worker.py"]
+      CELERY_WORKER_CONCURRENCY: "2"
+      CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
+      CELERY_TASK_SOFT_TIME_LIMIT: "300"
+      CELERY_TASK_TIME_LIMIT: "600"
+    command: ["python", "src/hnfm/scripts/start_celery_worker_autoreload.py"]
     healthcheck:
-      test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app", "inspect", "ping"]
+      test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-  # Celery Beat for scheduled tasks
+  # Celery Beat with auto-reload
   celery-beat:
     <<: *common-app-config
     container_name: hnfm-celery-beat
     environment:
       <<: *common-env
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      REDIS_DB: 0
-      REDIS_URL: redis://redis:6379/0
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-    command: ["python", "start_celery_beat.py"]
+      PIDFILE: "/tmp/celerybeat.pid"
+    command: ["python", "src/hnfm/scripts/start_celery_beat_autoreload.py"]
     healthcheck:
-      test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app", "inspect", "ping"]
+      test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
+  # Flower monitoring
   flower:
     image: mher/flower:2.0.1
     container_name: hnfm-flower
@@ -185,6 +156,10 @@ services:
       - CELERY_BROKER_URL=redis://redis:6379/0
       - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - FLOWER_PORT=5555
+      - FLOWER_BROKER_API=redis://redis:6379/0
+      - FLOWER_RESULT_BACKEND=redis://redis:6379/0
+      - FLOWER_BROKER_API_REDIS_HOST=redis
+      - FLOWER_BROKER_API_REDIS_PORT=6379
     depends_on:
       redis:
         condition: service_healthy
@@ -197,7 +172,6 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
-
 
 volumes:
   redis_data:

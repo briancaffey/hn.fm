@@ -26,7 +26,7 @@ celery_app = Celery(
     "hnfm",
     broker=broker_url,
     backend=result_backend,
-    include=["hnfm.web.tasks", "hnfm.web.enhanced_tasks"],
+    include=["hnfm.web.enhanced_tasks"],
 )
 
 # Log the configuration for debugging
@@ -36,7 +36,6 @@ logger.info(f"Celery app includes: {celery_app.conf.include}")
 
 # Import tasks AFTER creating the app to ensure they're registered
 try:
-    from . import tasks
     from . import enhanced_tasks
 
     logger.info("Tasks imported successfully")
@@ -48,13 +47,15 @@ celery_app.conf.update(
     # Task routing - Fix the routing to ensure tasks go to the right queue
     task_routes={
         "process_content_pipeline": {"queue": "hnfm_tasks"},
-        "hnfm.web.tasks.process_content_pipeline": {"queue": "hnfm_tasks"},
-        "hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
-        # Enhanced task routing
         "enhanced_content_pipeline": {"queue": "hnfm_tasks"},
         "retry_failed_segment": {"queue": "hnfm_tasks"},
         "get_enhanced_pipeline_status": {"queue": "hnfm_tasks"},
         "cleanup_completed_segments": {"queue": "hnfm_tasks"},
+        "debug_task": {"queue": "hnfm_tasks"},
+        "process_content": {"queue": "hnfm_tasks"},
+        "full_pipeline": {"queue": "hnfm_tasks"},
+        "cleanup_old_results": {"queue": "hnfm_tasks"},
+        "process_hn_story": {"queue": "hnfm_tasks"},
         "hnfm.web.enhanced_tasks.*": {"queue": "hnfm_tasks"},
     },
     # Task serialization
@@ -95,7 +96,7 @@ logger.info(f"Registered tasks: {list(celery_app.tasks.keys())}")
 # Optional: Configure Celery Beat for periodic tasks
 celery_app.conf.beat_schedule = {
     "cleanup-old-results": {
-        "task": "hnfm.web.tasks.cleanup_old_results",
+        "task": "hnfm.web.enhanced_tasks.cleanup_old_results",
         "schedule": 3600.0,  # Every hour
     },
 }

@@ -1,4 +1,4 @@
-.PHONY: help black black-check clean clean-cache clean-pycache test install-dev
+.PHONY: help black black-check clean clean-cache clean-pycache test install-dev celery-worker celery-beat celery-worker-simple celery-beat-simple flower dev-start dev-start-background docker-up docker-down
 
 # Default target
 help:
@@ -19,6 +19,21 @@ help:
 	@echo "  test         - Run tests"
 	@echo "  test-firecrawl-quick - Run Firecrawl quick test"
 	@echo "  test-firecrawl-full  - Run Firecrawl full test suite"
+	@echo ""
+	@echo "Celery Commands:"
+	@echo "  celery-worker    - Start Celery worker with auto-reload"
+	@echo "  celery-beat       - Start Celery Beat with auto-reload"
+	@echo "  celery-worker-simple - Start Celery worker (simple mode)"
+	@echo "  celery-beat-simple    - Start Celery Beat (simple mode)"
+	@echo "  flower            - Start Flower monitoring"
+	@echo ""
+	@echo "Development Services:"
+	@echo "  dev-start         - Start all services with auto-reload"
+	@echo "  dev-start-background - Start services in background"
+	@echo "  dev-docker        - Start all services in Docker"
+	@echo "  docker-up         - Start services (docker compose up)"
+	@echo "  docker-down       - Stop services (docker compose down)"
+	@echo "  docker-logs       - View logs (docker compose logs)"
 	@echo ""
 	@echo "Use 'make <command>' to run a specific command"
 
@@ -70,16 +85,24 @@ test:
 
 # Celery commands
 celery-worker:
-	@echo "Starting Celery worker..."
-	uv run python start_celery_worker.py
+	@echo "Starting Celery worker with auto-reload..."
+	uv run python src/hnfm/scripts/start_celery_worker_autoreload.py
 
 celery-beat:
-	@echo "Starting Celery Beat..."
-	uv run python start_celery_beat.py
+	@echo "Starting Celery Beat with auto-reload..."
+	uv run python src/hnfm/scripts/start_celery_beat_autoreload.py
+
+celery-worker-simple:
+	@echo "Starting Celery worker (simple mode)..."
+	uv run python src/hnfm/scripts/start_celery_worker.py
+
+celery-beat-simple:
+	@echo "Starting Celery Beat (simple mode)..."
+	uv run python src/hnfm/scripts/start_celery_beat.py
 
 flower:
 	@echo "Starting Flower monitoring..."
-	uv run python start_flower.py
+	uv run python src/hnfm/scripts/start_flower.py
 
 # Test commands
 test-celery:
@@ -122,24 +145,24 @@ dev-setup: install-deps
 	@echo "Start services with: make dev-start"
 
 dev-start:
-	@echo "Starting development services..."
+	@echo "Starting development services with auto-reload..."
 	@echo "Web server: http://localhost:8000"
 	@echo "Flower monitoring: http://localhost:5555"
 	@echo "Press Ctrl+C to stop all services"
 	@trap 'kill 0' SIGINT; \
-	uv run python run_web_server.py & \
-	uv run python start_celery_worker.py & \
-	uv run python start_flower.py & \
+	uv run python src/hnfm/scripts/run_web_server.py & \
+	uv run python src/hnfm/scripts/start_celery_worker_autoreload.py & \
+	uv run python src/hnfm/scripts/start_flower.py & \
 	wait
 
 dev-start-background:
-	@echo "Starting development services in background..."
+	@echo "Starting development services in background with auto-reload..."
 	@echo "Starting Redis..."
-	docker-compose up redis -d
-	@echo "Starting Celery worker..."
-	uv run python start_celery_worker.py &
+	docker compose up redis -d
+	@echo "Starting Celery worker with auto-reload..."
+	uv run python src/hnfm/scripts/start_celery_worker_autoreload.py &
 	@echo "Starting web server..."
-	uv run python run_web_server.py &
+	uv run python src/hnfm/scripts/run_web_server.py &
 	@echo "Services started in background!"
 	@echo "Web server: http://localhost:8000"
 	@echo "API docs: http://localhost:8000/docs"
@@ -148,89 +171,71 @@ dev-start-background:
 # Docker commands
 docker-build:
 	@echo "🐳 Building Docker images..."
-	docker-compose build
+	docker compose build
 	@echo "✅ Docker images built!"
 
 docker-build-no-cache:
 	@echo "🐳 Building Docker images (no cache)..."
-	docker-compose build --no-cache
+	docker compose build --no-cache
 	@echo "✅ Docker images built!"
 
 docker-up:
-	@echo "🐳 Starting all services..."
-	docker-compose up -d
+	@echo "🐳 Starting services with hot reloading..."
+	docker compose up -d
 	@echo "✅ Services started! Check status with: make docker-status"
-
-docker-up-dev:
-	@echo "🐳 Starting development services with hot reloading..."
-	docker-compose -f docker-compose.yml -f docker-compose.dev.yml up -d
-	@echo "✅ Development services started! Check status with: make docker-status"
-
-docker-up-prod:
-	@echo "🐳 Starting production services..."
-	docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
-	@echo "✅ Production services started! Check status with: make docker-status"
 
 docker-down:
 	@echo "🐳 Stopping all services..."
-	docker-compose down
+	docker compose down
 	@echo "✅ Services stopped!"
 
 docker-down-volumes:
 	@echo "🐳 Stopping all services and removing volumes..."
-	docker-compose down -v
+	docker compose down -v
 	@echo "✅ Services stopped and volumes removed!"
 
 docker-restart:
 	@echo "🐳 Restarting all services..."
-	docker-compose restart
+	docker compose restart
 	@echo "✅ Services restarted!"
 
 docker-logs:
 	@echo "🐳 Showing logs for all services..."
-	docker-compose logs -f
+	docker compose logs -f
 
 docker-logs-web:
 	@echo "🐳 Showing web service logs..."
-	docker-compose logs -f web
+	docker compose logs -f web
 
 docker-logs-celery:
 	@echo "🐳 Showing Celery worker logs..."
-	docker-compose logs -f celery-worker
+	docker compose logs -f celery-worker
 
 docker-logs-beat:
 	@echo "🐳 Showing Celery Beat logs..."
-	docker-compose logs -f celery-beat
+	docker compose logs -f celery-beat
 
 docker-status:
 	@echo "🐳 Service status:"
-	docker-compose ps
+	docker compose ps
 
 docker-shell:
 	@echo "🐳 Opening shell in web container..."
-	docker-compose exec web bash
+	docker compose exec web bash
 
 docker-shell-celery:
 	@echo "🐳 Opening shell in Celery worker container..."
-	docker-compose exec celery-worker bash
+	docker compose exec celery-worker bash
 
 docker-clean:
 	@echo "🐳 Cleaning up Docker resources..."
-	docker-compose down -v --remove-orphans
+	docker compose down -v --remove-orphans
 	docker system prune -f
 	@echo "✅ Docker cleanup complete!"
 
 # Development with Docker
-dev-docker: docker-up-dev
+dev-docker: docker-up
 	@echo "🚀 Development environment ready with Docker!"
-	@echo "Web server: http://localhost:8000"
-	@echo "API docs: http://localhost:8000/docs"
-	@echo "Flower monitoring: http://localhost:5555"
-	@echo "Stop services with: make docker-down"
-
-# Production with Docker
-prod-docker: docker-up-prod
-	@echo "🚀 Production environment ready with Docker!"
 	@echo "Web server: http://localhost:8000"
 	@echo "API docs: http://localhost:8000/docs"
 	@echo "Flower monitoring: http://localhost:5555"

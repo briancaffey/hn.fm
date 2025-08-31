@@ -30,9 +30,9 @@ RUN pip install uv && \
     . .venv/bin/activate && \
     uv pip install -e .
 
-# Copy source code
+# Copy source code and scripts
 COPY src/ ./src/
-COPY run_web_server.py start_celery_worker.py start_celery_beat.py ./
+COPY config.yaml ./
 
 # Change ownership to app user
 RUN chown -R app:app /app
@@ -46,4 +46,4 @@ HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
 
 # Default command
-CMD ["python", "run_web_server.py"]
+CMD ["python", "src/hnfm/scripts/run_web_server.py"]

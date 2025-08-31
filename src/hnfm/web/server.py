@@ -30,8 +30,10 @@ from .models import (
     EnhancedPipelineStatus,
 )
 from .celery_app import celery_app
-from .tasks import debug_task, process_content, full_pipeline
 from .enhanced_tasks import (
+    debug_task,
+    process_content,
+    full_pipeline,
     enhanced_content_pipeline,
     get_enhanced_pipeline_status,
     retry_failed_segment,
@@ -481,7 +483,7 @@ async def process_content(content_id: str):
         db.update_content(content_id, {"status": "processing"})
 
         # Start the processing task
-        from .tasks import process_content_pipeline
+        from .enhanced_tasks import process_content_pipeline
 
         task = process_content_pipeline.delay(content_id)
 
