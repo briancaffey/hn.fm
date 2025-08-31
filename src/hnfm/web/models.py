@@ -3,9 +3,29 @@
 from datetime import datetime
 from typing import List, Optional, Dict, Any
 from pydantic import BaseModel, Field
+from .custom_types import CustomBaseModel
 
 
-class ContentItem(BaseModel):
+class HNStoryData(BaseModel):
+    """Hacker News story data from the HN API"""
+    id: int = Field(..., description="The item's unique id from HN")
+    deleted: Optional[bool] = Field(None, description="true if the item is deleted")
+    type: str = Field(..., description="The type of item (job, story, comment, poll, pollopt)")
+    by: Optional[str] = Field(None, description="The username of the item's author")
+    time: int = Field(..., description="Creation date of the item, in Unix Time")
+    text: Optional[str] = Field(None, description="The comment, story or poll text. HTML.")
+    dead: Optional[bool] = Field(None, description="true if the item is dead")
+    parent: Optional[int] = Field(None, description="The comment's parent: either another comment or the relevant story")
+    poll: Optional[int] = Field(None, description="The pollopt's associated poll")
+    kids: Optional[List[int]] = Field(None, description="The ids of the item's comments, in ranked display order")
+    url: Optional[str] = Field(None, description="The URL of the story")
+    score: Optional[int] = Field(None, description="The story's score, or the votes for a pollopt")
+    title: Optional[str] = Field(None, description="The title of the story, poll or job. HTML.")
+    parts: Optional[List[int]] = Field(None, description="A list of related pollopts, in display order")
+    descendants: Optional[int] = Field(None, description="In the case of stories or polls, the total comment count")
+
+
+class ContentItem(CustomBaseModel):
     """Represents a single content item from the pipeline"""
     id: str = Field(
         ...,
@@ -32,14 +52,14 @@ class ContentItem(BaseModel):
         description="Processing status",
         example="completed"
     )
-    created_at: datetime = Field(
+    created_at: str = Field(
         ...,
-        description="When the content was created",
+        description="When the content was created (ISO format)",
         example="2024-01-15T10:30:00Z"
     )
-    updated_at: datetime = Field(
+    updated_at: str = Field(
         ...,
-        description="When the content was last updated",
+        description="When the content was last updated (ISO format)",
         example="2024-01-15T11:45:00Z"
     )
     metadata: Dict[str, Any] = Field(
@@ -51,6 +71,12 @@ class ContentItem(BaseModel):
             "read_time": "8 min",
             "difficulty": "Intermediate"
         }
+    )
+
+    # Hacker News specific fields
+    hn_story_data: Optional[HNStoryData] = Field(
+        None,
+        description="Original Hacker News story data if this content came from HN"
     )
 
     # Content fields
@@ -165,7 +191,7 @@ class ContentUpdateRequest(BaseModel):
     )
 
 
-class PipelineStatus(BaseModel):
+class PipelineStatus(CustomBaseModel):
     """Pipeline status information"""
     is_running: bool = Field(..., description="Whether the pipeline is currently running", example=False)
     active_jobs: int = Field(..., description="Number of active jobs", example=3)
@@ -174,7 +200,7 @@ class PipelineStatus(BaseModel):
     last_completion: Optional[datetime] = Field(None, description="Last completion time", example="2024-01-15T14:30:00Z")
 
 
-class HealthCheck(BaseModel):
+class HealthCheck(CustomBaseModel):
     """Health check response"""
     status: str = Field(..., description="Service status", example="healthy")
     timestamp: datetime = Field(..., description="Current timestamp", example="2024-01-15T15:00:00Z")
@@ -196,7 +222,7 @@ class ServiceStatus(BaseModel):
     )
 
 
-class ServicesStatusResponse(BaseModel):
+class ServicesStatusResponse(CustomBaseModel):
     """Response model for services status"""
     all_healthy: bool = Field(..., description="Whether all services are healthy", example=False)
     services: List[ServiceStatus] = Field(..., description="List of service statuses")
@@ -227,7 +253,7 @@ class ActiveTasksResponse(BaseModel):
     active_tasks: List[Dict[str, Any]] = Field(..., description="List of active tasks with worker information")
 
 
-class ErrorResponse(BaseModel):
+class ErrorResponse(CustomBaseModel):
     """Standard error response model"""
     detail: str = Field(..., description="Error message", example="Content not found")
     error_code: Optional[str] = Field(None, description="Error code for programmatic handling", example="CONTENT_NOT_FOUND")

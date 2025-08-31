@@ -2,6 +2,59 @@
 import { Button } from '~/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
 import { Icon } from '#components'
+
+// Get runtime config for API base URL
+const config = useRuntimeConfig()
+const apiBase = config.public.apiBase
+
+// State for processing
+const isProcessing = ref(false)
+const processingStatus = ref('')
+const processingResults = ref<any>(null)
+
+// Function to process top stories
+async function processTopStories() {
+  if (isProcessing.value) return
+
+  isProcessing.value = true
+  processingStatus.value = 'Fetching top stories from Hacker News...'
+  processingResults.value = null
+
+  try {
+    const response = await $fetch(`${apiBase}/api/hn/process-top-stories`, {
+      method: 'POST',
+      body: { limit: 50 }
+    })
+
+    processingResults.value = response
+    processingStatus.value = 'Processing completed successfully!'
+
+    // Refresh stats after processing
+    await refreshStats()
+
+  } catch (error: any) {
+    console.error('Failed to process top stories:', error)
+    processingStatus.value = `Error: ${error.data?.detail || error.message || 'Unknown error'}`
+  } finally {
+    isProcessing.value = false
+  }
+}
+
+// Function to refresh stats
+async function refreshStats() {
+  try {
+    const stats = await $fetch(`${apiBase}/api/hn/stats`)
+    // Update the stats display if needed
+    console.log('Updated HN stats:', stats)
+  } catch (error) {
+    console.error('Failed to refresh stats:', error)
+  }
+}
+
+// Load initial stats
+onMounted(() => {
+  refreshStats()
+})
 </script>
 
 <template>
@@ -15,14 +68,59 @@ import { Icon } from '#components'
         Your gateway to curated Hacker News content, transformed into engaging audio and visual experiences.
       </p>
       <div class="flex justify-center space-x-4">
-        <Button size="lg">
-          <Icon name="lucide:play" class="h-4 w-4 mr-2" />
-          Get Started
+        <Button
+          size="lg"
+          @click="processTopStories"
+          :disabled="isProcessing"
+          class="min-w-[200px]"
+        >
+          <Icon
+            :name="isProcessing ? 'lucide:loader-2' : 'lucide:zap'"
+            class="h-4 w-4 mr-2"
+            :class="{ 'animate-spin': isProcessing }"
+          />
+          {{ isProcessing ? 'Processing...' : 'Process Top Stories' }}
         </Button>
         <Button variant="outline" size="lg">
           <Icon name="lucide:info" class="h-4 w-4 mr-2" />
           Learn More
         </Button>
+      </div>
+
+      <!-- Processing Status -->
+      <div v-if="processingStatus" class="mt-4">
+        <div class="text-sm text-muted-foreground">
+          {{ processingStatus }}
+        </div>
+      </div>
+
+      <!-- Processing Results -->
+      <div v-if="processingResults" class="mt-6 max-w-2xl mx-auto">
+        <Card class="p-4">
+          <CardHeader>
+            <CardTitle class="text-lg">Processing Results</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div class="space-y-2 text-sm">
+              <div class="flex justify-between">
+                <span>Total Stories Fetched:</span>
+                <span class="font-medium">{{ processingResults.summary.total_fetched }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Queued for Processing:</span>
+                <span class="font-medium text-green-600">{{ processingResults.summary.queued_for_processing }}</span>
+              </div>
+              <div class="flex justify-between">
+                <span>Already Processed:</span>
+                <span class="font-medium text-blue-600">{{ processingResults.summary.skipped_already_processed }}</span>
+              </div>
+              <div v-if="processingResults.summary.failed_to_queue > 0" class="flex justify-between">
+                <span>Failed to Queue:</span>
+                <span class="font-medium text-red-600">{{ processingResults.summary.failed_to_queue }}</span>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
     </section>
 
@@ -76,7 +174,7 @@ import { Icon } from '#components'
       <div class="grid md:grid-cols-4 gap-6 text-center">
         <div>
           <div class="text-3xl font-bold text-foreground">1,234</div>
-          <div class="text-sm text-muted-foreground">Articles Processed</div>
+          <div class="text-sm text-muted-foreground">Items Processed</div>
         </div>
         <div>
           <div class="text-3xl font-bold text-foreground">567</div>

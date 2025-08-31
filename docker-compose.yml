@@ -88,6 +88,24 @@ services:
     networks:
       - hnfm-network
 
+  # RedisInsight for Redis monitoring and management
+  redisinsight:
+    image: redis/redisinsight:latest
+    container_name: hnfm-redisinsight
+    ports:
+      - "8001:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - redisinsight_data:/data
+    environment:
+      - RI_APP_PORT=5540
+      - RI_APP_HOST=0.0.0.0
+    restart: unless-stopped
+    networks:
+      - hnfm-network
+
   # FastAPI web server
   web:
     <<: *common-app-config
@@ -158,18 +176,15 @@ services:
       retries: 3
       start_period: 40s
 
-  # Flower monitoring for Celery
   flower:
     image: mher/flower:2.0.1
     container_name: hnfm-flower
     ports:
       - "5555:5555"
     environment:
-      - FLOWER_BROKER_API=redis://redis:6379/0
-      - FLOWER_RESULT_BACKEND=redis://redis:6379/0
+      - CELERY_BROKER_URL=redis://redis:6379/0
+      - CELERY_RESULT_BACKEND=redis://redis:6379/0
       - FLOWER_PORT=5555
-      - FLOWER_BROKER_API_REDIS_HOST=redis
-      - FLOWER_BROKER_API_REDIS_PORT=6379
     depends_on:
       redis:
         condition: service_healthy
@@ -183,8 +198,11 @@ services:
       retries: 3
       start_period: 40s
 
+
 volumes:
   redis_data:
+    driver: local
+  redisinsight_data:
     driver: local
 
 networks:

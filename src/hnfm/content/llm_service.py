@@ -81,7 +81,7 @@ class LLMService:
                 messages=[
                     {
                         "role": "system",
-                        "content": "You are a helpful AI assistant that generates high-quality content based on user requests.",
+                        "content": "Reasoning: high\nYou are a helpful AI assistant that generates high-quality content based on user requests.",
                     },
                     {"role": "user", "content": prompt},
                 ],

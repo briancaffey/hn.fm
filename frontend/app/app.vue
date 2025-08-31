@@ -21,11 +21,11 @@ const colorMode = useColorMode()
                 Home
               </NuxtLink>
               <NuxtLink
-                to="/articles"
+                to="/items"
                 class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors"
                 active-class="text-foreground"
               >
-                Articles
+                Items
               </NuxtLink>
               <NuxtLink
                 to="/services"

@@ -29,10 +29,24 @@ celery_app = Celery(
     include=["hnfm.web.tasks"]
 )
 
+# Log the configuration for debugging
+logger.info(f"Celery app created with broker: {broker_url}")
+logger.info(f"Celery app created with backend: {result_backend}")
+logger.info(f"Celery app includes: {celery_app.conf.include}")
+
+# Import tasks AFTER creating the app to ensure they're registered
+try:
+    from . import tasks
+    logger.info("Tasks imported successfully")
+except ImportError as e:
+    logger.error(f"Failed to import tasks: {e}")
+
 # Celery configuration
 celery_app.conf.update(
-    # Task routing
+    # Task routing - Fix the routing to ensure tasks go to the right queue
     task_routes={
+        "process_content_pipeline": {"queue": "hnfm_tasks"},
+        "hnfm.web.tasks.process_content_pipeline": {"queue": "hnfm_tasks"},
         "hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
     },
 
@@ -75,6 +89,9 @@ celery_app.conf.update(
     task_store_errors_even_if_ignored=True,
 )
 
+# Log the registered tasks for debugging
+logger.info(f"Registered tasks: {list(celery_app.tasks.keys())}")
+
 # Optional: Configure Celery Beat for periodic tasks
 celery_app.conf.beat_schedule = {
     "cleanup-old-results": {
@@ -82,13 +99,6 @@ celery_app.conf.beat_schedule = {
         "schedule": 3600.0,  # Every hour
     },
 }
-
-# Task routing
-@celery_app.task(bind=True)
-def debug_task(self):
-    """Debug task to test Celery setup"""
-    logger.info(f"Debug task {self.request.id} executed")
-    return f"Debug task completed: {self.request.id}"
 
 # Database helper for tasks
 def get_db():
