@@ -8,7 +8,7 @@ import uvicorn
 # Add src to path (scripts are now in src/hnfm/scripts/)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
-from hnfm.web.server import app
+from hnfm.web.api import app
 
 if __name__ == "__main__":
     # Get configuration from environment
@@ -20,5 +20,5 @@ if __name__ == "__main__":
     print(f"Open http://localhost:{port} in your browser")
 
     uvicorn.run(
-        "hnfm.web.server:app", host=host, port=port, reload=reload, log_level="info"
+        "hnfm.web.api:app", host=host, port=port, reload=reload, log_level="info"
     )

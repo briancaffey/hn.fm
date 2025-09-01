@@ -34,8 +34,6 @@ app = FastAPI(
 db = ContentDatabase()
 hn_service = HackerNewsService()
 
-# Static files and templates removed - using Nuxt frontend instead
-
 
 @app.get("/")
 async def root():
@@ -43,7 +41,14 @@ async def root():
     return {"message": "hn.fm API", "version": "0.1.0", "docs": "/docs"}
 
 
-@app.get("/api/health", response_model=HealthCheck)
+@app.get("/health")
+async def simple_health_check():
+    """Simple health check endpoint for Docker healthcheck"""
+    return {"status": "healthy"}
+
+
+# Health and Services Endpoints
+@app.get("/api/health", response_model=HealthCheck, tags=["health"])
 async def health_check():
     """Health check endpoint"""
     redis_status = "healthy" if db.health_check() else "unhealthy"
@@ -56,7 +61,7 @@ async def health_check():
     )
 
 
-@app.get("/api/services/status", response_model=ServicesStatusResponse)
+@app.get("/api/services/status", response_model=ServicesStatusResponse, tags=["services"])
 async def get_services_status():
     """Get status of all services"""
     try:
@@ -88,7 +93,8 @@ async def get_services_status():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/content", response_model=ContentListResponse)
+# Content Endpoints
+@app.get("/api/content", response_model=ContentListResponse, tags=["content"])
 async def list_content(
     page: int = Query(1, ge=1, description="Page number"),
     per_page: int = Query(20, ge=1, le=100, description="Items per page"),
@@ -104,23 +110,7 @@ async def list_content(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/content/recent", response_model=ContentListResponse)
-async def list_recent_content(
-    limit: int = Query(20, ge=1, le=100, description="Number of items to return"),
-    content_type: Optional[str] = Query(None, description="Filter by content type"),
-    status: Optional[str] = Query(None, description="Filter by status"),
-):
-    """List most recently updated content items"""
-    try:
-        # Get first page with the requested limit
-        result = db.list_content(1, limit, content_type, status)
-        return ContentListResponse(**result)
-    except Exception as e:
-        logger.error(f"Failed to list recent content: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.get("/api/content/{content_id}", response_model=ContentItem)
+@app.get("/api/content/{content_id}", response_model=ContentItem, tags=["content"])
 async def get_content(content_id: str):
     """Get a specific content item"""
     try:
@@ -135,7 +125,7 @@ async def get_content(content_id: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/content", response_model=ContentItem)
+@app.post("/api/content", response_model=ContentItem, tags=["content"])
 async def create_content(request: ContentCreateRequest):
     """Create a new content item"""
     try:
@@ -148,8 +138,8 @@ async def create_content(request: ContentCreateRequest):
             "url": request.url,
             "content_type": request.content_type,
             "status": "pending",
-            "created_at": now,
-            "updated_at": now,
+            "created_at": now.isoformat(),
+            "updated_at": now.isoformat(),
             "metadata": request.options,
             "processing_steps": [],
             "errors": [],
@@ -167,7 +157,7 @@ async def create_content(request: ContentCreateRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.put("/api/content/{content_id}", response_model=ContentItem)
+@app.put("/api/content/{content_id}", response_model=ContentItem, tags=["content"])
 async def update_content(content_id: str, request: ContentUpdateRequest):
     """Update a content item"""
     try:
@@ -198,7 +188,7 @@ async def update_content(content_id: str, request: ContentUpdateRequest):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.delete("/api/content/{content_id}")
+@app.delete("/api/content/{content_id}", tags=["content"])
 async def delete_content(content_id: str):
     """Delete a content item"""
     try:
@@ -213,45 +203,8 @@ async def delete_content(content_id: str):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/content/{content_id}/process")
-async def process_content(content_id: str):
-    """Process a content item through the pipeline"""
-    try:
-        # Get the content item first
-        content = db.get_content(content_id)
-        if not content:
-            raise HTTPException(status_code=404, detail="Content not found")
-
-        # Check if content is already being processed
-        if content.get("status") == "processing":
-            raise HTTPException(
-                status_code=400, detail="Content is already being processed"
-            )
-
-        # Update status to processing
-        db.update_content(content_id, {"status": "processing"})
-
-        # Start the processing task
-        from .tasks import process_content_text_only
-
-        task = process_content_text_only.delay(content_id)
-
-        logger.info(f"Started processing task {task.id} for content {content_id}")
-
-        return {
-            "message": "Processing started",
-            "task_id": task.id,
-            "content_id": content_id,
-        }
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to start processing for content {content_id}: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.get("/api/pipeline/status", response_model=PipelineStatus)
+# Pipeline Endpoints
+@app.get("/api/pipeline/status", response_model=PipelineStatus, tags=["pipeline"])
 async def get_pipeline_status():
     """Get pipeline status information"""
     try:
@@ -262,9 +215,9 @@ async def get_pipeline_status():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/pipeline/process")
+@app.post("/api/process", tags=["pipeline"])
 async def process_content(request: ContentCreateRequest):
-    """Trigger content processing pipeline"""
+    """Process content through the pipeline"""
     try:
         # Create content item
         content_id = str(uuid.uuid4())
@@ -286,24 +239,28 @@ async def process_content(request: ContentCreateRequest):
         if not db.store_content(content_id, content_data):
             raise HTTPException(status_code=500, detail="Failed to store content")
 
-        # TODO: Trigger actual pipeline processing
-        # This would integrate with your existing pipeline
-        logger.info(f"Content processing triggered for {content_id}")
+        # Start the processing task
+        from .tasks import process_content_text_only
+
+        task = process_content_text_only.delay(content_id)
+
+        logger.info(f"Started processing task {task.id} for content {content_id}")
 
         return {
-            "message": "Content processing started",
+            "message": "Processing started",
+            "task_id": task.id,
             "content_id": content_id,
-            "status": "processing",
         }
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to trigger content processing: {e}")
+        logger.error(f"Failed to start processing: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.post("/api/hn/process-top-stories")
+# Hacker News Endpoints
+@app.post("/api/hn/process-top-stories", tags=["hacker-news"])
 async def process_top_hn_stories(
     limit: int = Query(50, ge=1, le=100, description="Number of top stories to process")
 ):
@@ -381,7 +338,7 @@ async def process_top_hn_stories(
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 
-@app.get("/api/hn/stats")
+@app.get("/api/hn/stats", tags=["hacker-news"])
 async def get_hn_stats():
     """Get Hacker News processing statistics"""
     try:
@@ -392,33 +349,51 @@ async def get_hn_stats():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/test")
-async def test_endpoint():
-    """Simple test endpoint to verify API structure"""
-    return {
-        "message": "API is working!",
-        "timestamp": "2024-01-15T10:30:00Z",
-        "data": [
-            {
-                "id": "test-1",
-                "title": "Test Article 1",
-                "url": "https://example.com/1",
-                "content_type": "article",
-                "status": "completed",
-                "created_at": "2024-01-15T10:30:00Z",
-                "updated_at": "2024-01-15T11:45:00Z",
-            },
-            {
-                "id": "test-2",
-                "title": "Test Article 2",
-                "url": "https://example.com/2",
-                "content_type": "article",
-                "status": "pending",
-                "created_at": "2024-01-15T12:00:00Z",
-                "updated_at": "2024-01-15T12:00:00Z",
-            },
-        ],
-    }
+# Celery Endpoints
+@app.get("/api/celery/task/{task_id}", tags=["celery"])
+async def get_task_status(task_id: str):
+    """Get status of a specific Celery task"""
+    try:
+        task_result = celery_app.AsyncResult(task_id)
+        return {
+            "task_id": task_id,
+            "status": task_result.status,
+            "ready": task_result.ready(),
+            "successful": task_result.successful(),
+            "failed": task_result.failed(),
+            "result": task_result.result if task_result.ready() else None,
+            "error": str(task_result.info) if task_result.failed() else None,
+        }
+    except Exception as e:
+        logger.error(f"Failed to get task status for {task_id}: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/celery/active", tags=["celery"])
+async def get_active_tasks():
+    """Get list of active Celery tasks"""
+    try:
+        # Get active tasks from Celery
+        active_tasks = celery_app.control.inspect().active()
+
+        if not active_tasks:
+            return {"active_tasks": []}
+
+        # Flatten the active tasks
+        all_active = []
+        for worker, tasks in active_tasks.items():
+            for task in tasks:
+                all_active.append({
+                    "task_id": task["id"],
+                    "name": task["name"],
+                    "worker": worker,
+                    "started": task.get("time_start", 0),
+                })
+
+        return {"active_tasks": all_active}
+    except Exception as e:
+        logger.error(f"Failed to get active tasks: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
 
 # Error handlers

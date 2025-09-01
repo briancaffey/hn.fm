@@ -14,9 +14,9 @@ class ContentItem(CustomBaseModel):
         description="Unique identifier for the content item (UUID)",
         example="550e8400-e29b-41d4-a716-446655440000",
     )
-    hn_item_id: int = Field(
-        ...,
-        description="Hacker News item ID",
+    hn_item_id: Optional[int] = Field(
+        None,
+        description="Hacker News item ID (optional)",
         example=123456789,
     )
     title: str = Field(
@@ -82,66 +82,6 @@ class ContentItem(CustomBaseModel):
     )
 
 
-class AudioSegment(CustomBaseModel):
-    """Represents a single audio segment for TTS narration"""
-
-    id: str = Field(
-        ...,
-        description="Unique identifier for the audio segment (UUID)",
-        example="550e8400-e29b-41d4-a716-446655440000",
-    )
-    content_item_id: str = Field(
-        ...,
-        description="Content item UUID this segment belongs to",
-        example="550e8400-e29b-41d4-a716-446655440000",
-    )
-    text: str = Field(
-        ...,
-        description="Text to be narrated",
-        example="Welcome to today's discussion on AI in healthcare.",
-    )
-    sequence_number: int = Field(
-        ...,
-        description="Sequence number for ordering",
-        example=1,
-    )
-    audio_file_path: Optional[str] = Field(
-        None,
-        description="Path to the generated audio file",
-        example="/outputs/audio/segment_001.wav",
-    )
-
-
-class ImageSegment(CustomBaseModel):
-    """Represents a single image segment for visual content"""
-
-    id: str = Field(
-        ...,
-        description="Unique identifier for the image segment (UUID)",
-        example="550e8400-e29b-41d4-a716-446655440000",
-    )
-    content_item_id: str = Field(
-        ...,
-        description="Content item UUID this segment belongs to",
-        example="550e8400-e29b-41d4-a716-446655440000",
-    )
-    prompt: str = Field(
-        ...,
-        description="Image generation prompt",
-        example="A detailed cartoon style illustration of AI in healthcare",
-    )
-    sequence_number: int = Field(
-        ...,
-        description="Sequence number for ordering",
-        example=1,
-    )
-    image_file_path: Optional[str] = Field(
-        None,
-        description="Path to the generated image file",
-        example="/outputs/images/image_001.png",
-    )
-
-
 # Response models for API endpoints
 class ContentListResponse(BaseModel):
     """Response model for listing content items"""
@@ -160,26 +100,6 @@ class ContentListResponse(BaseModel):
 
 class ContentCreateRequest(BaseModel):
     """Request model for creating new content"""
-
-    hn_item_id: int = Field(
-        ...,
-        description="Hacker News item ID to process",
-        example=123456789,
-    )
-    options: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Processing options and configuration",
-        example={
-            "voice": "en-US-Standard-A",
-            "speed": 1.0,
-            "quality": "high",
-            "max_length": 5000,
-        },
-    )
-
-
-class URLProcessRequest(BaseModel):
-    """Request model for processing arbitrary URLs"""
 
     url: str = Field(
         ...,
@@ -216,6 +136,11 @@ class ContentUpdateRequest(BaseModel):
         description="New processing status",
         example="completed",
         pattern="^(pending|processing|completed|failed|cancelled)$",
+    )
+    metadata: Optional[Dict[str, Any]] = Field(
+        None,
+        description="Additional metadata",
+        example={"voice": "en-US-Standard-A", "speed": 1.0},
     )
 
 
@@ -282,57 +207,4 @@ class ServicesStatusResponse(CustomBaseModel):
     services: List[ServiceStatus] = Field(..., description="List of service statuses")
     timestamp: datetime = Field(
         ..., description="When the status was checked", example="2024-01-15T15:00:00Z"
-    )
-
-
-class TaskResponse(BaseModel):
-    """Response model for task operations"""
-
-    message: str = Field(
-        ..., description="Status message", example="Task queued successfully"
-    )
-    task_id: str = Field(
-        ...,
-        description="Unique task identifier",
-        example="550e8400-e29b-41d4-a716-446655440000",
-    )
-    status: str = Field(..., description="Task status", example="queued")
-
-
-class TaskStatus(BaseModel):
-    """Response model for task status"""
-
-    task_id: str = Field(
-        ...,
-        description="Unique task identifier",
-        example="550e8400-e29b-41d4-a716-446655440000",
-    )
-    status: str = Field(..., description="Task status", example="SUCCESS")
-    ready: bool = Field(..., description="Whether task is complete", example=True)
-    successful: bool = Field(..., description="Whether task succeeded", example=True)
-    failed: bool = Field(..., description="Whether task failed", example=False)
-    result: Optional[Any] = Field(None, description="Task result if successful")
-    error: Optional[str] = Field(None, description="Error message if failed")
-    info: Optional[Dict[str, Any]] = Field(None, description="Progress information")
-
-
-class ActiveTasksResponse(BaseModel):
-    """Response model for active tasks"""
-
-    active_tasks: List[Dict[str, Any]] = Field(
-        ..., description="List of active tasks with worker information"
-    )
-
-
-class ErrorResponse(CustomBaseModel):
-    """Standard error response model"""
-
-    detail: str = Field(..., description="Error message", example="Content not found")
-    error_code: Optional[str] = Field(
-        None,
-        description="Error code for programmatic handling",
-        example="CONTENT_NOT_FOUND",
-    )
-    timestamp: datetime = Field(
-        ..., description="When the error occurred", example="2024-01-15T15:00:00Z"
     )

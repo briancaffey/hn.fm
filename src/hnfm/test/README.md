@@ -239,4 +239,4 @@ When adding new tests:
 
 ---
 
-For more information about the project, see the main [README.md](../../../README.md) and [DEVELOPMENT.md](../../../DEVELOPMENT.md).
+For more information about the project, see the main [README.md](../../../README.md) and [documentation/DEVELOPMENT.md](../../../documentation/DEVELOPMENT.md).
