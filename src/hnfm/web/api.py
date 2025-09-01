@@ -4,10 +4,8 @@ import logging
 import uuid
 from datetime import datetime
 from typing import List, Optional
-from fastapi import FastAPI, HTTPException, Query, Depends
-from fastapi.responses import HTMLResponse
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from fastapi import FastAPI, HTTPException, Query, Depends, Request
+from fastapi.responses import JSONResponse
 
 from .models import (
     ContentItem,
@@ -36,23 +34,13 @@ app = FastAPI(
 db = ContentDatabase()
 hn_service = HackerNewsService()
 
-# Templates for web UI
-templates = Jinja2Templates(directory="src/hnfm/web/templates")
-
-# Mount static files
-app.mount("/static", StaticFiles(directory="src/hnfm/web/static"), name="static")
+# Static files and templates removed - using Nuxt frontend instead
 
 
-@app.get("/", response_class=HTMLResponse)
-async def root(request):
-    """Serve the main web UI"""
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-@app.get("/services", response_class=HTMLResponse)
-async def services_page(request):
-    """Serve the services status page"""
-    return templates.TemplateResponse("services.html", {"request": request})
+@app.get("/")
+async def root():
+    """API root endpoint - frontend is served by Nuxt"""
+    return {"message": "hn.fm API", "version": "0.1.0", "docs": "/docs"}
 
 
 @app.get("/api/health", response_model=HealthCheck)

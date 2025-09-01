@@ -1,40 +1,44 @@
 #!/usr/bin/env python3
 """
 Auto-reloading Celery worker for hn.fm development
-Adapted from Django example for FastAPI
+Adapted for Docker environment
 """
 
 import os
-import shlex
+import signal
 import subprocess
 import sys
 import time
 from pathlib import Path
 
-# Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
+# Add src to path (scripts are now in src/hnfm/scripts/)
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 # Set environment variables for debugging
 os.environ.setdefault("CELERY_WORKER_RUNNING", "1")
 os.environ.setdefault("DEBUG", "true")
 
-# PID file for the worker
-PIDFILE = "/tmp/celery_worker.pid"
+# Global variable to track the current process
+current_process = None
 
 
 def restart_celery_worker():
     """Restart the Celery worker process"""
+    global current_process
     print("🔄 Restarting Celery worker...")
 
-    # Kill existing Celery processes
-    try:
-        subprocess.run(shlex.split("pkill -f 'celery.*worker'"),
-                      capture_output=True, timeout=5)
-        time.sleep(1)  # Give time for processes to terminate
-    except subprocess.TimeoutExpired:
-        print("⚠️  Force killing Celery processes...")
-        subprocess.run(shlex.split("pkill -9 -f 'celery.*worker'"),
-                      capture_output=True)
+    # Kill existing process if running
+    if current_process and current_process.poll() is None:
+        print("🛑 Stopping existing worker process...")
+        try:
+            current_process.terminate()
+            current_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            print("⚠️  Force killing worker process...")
+            current_process.kill()
+            current_process.wait()
+        except Exception as e:
+            print(f"⚠️  Error stopping process: {e}")
 
     # Start new worker
     cmd = [
@@ -50,12 +54,28 @@ def restart_celery_worker():
 
     print(f"🚀 Starting worker with command: {' '.join(cmd)}")
     try:
-        subprocess.run(cmd, check=True)
-    except subprocess.CalledProcessError as e:
+        current_process = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            universal_newlines=True,
+            bufsize=1
+        )
+
+        # Give it a moment to start
+        time.sleep(2)
+
+        # Check if process is still running
+        if current_process.poll() is None:
+            print("✅ Worker process started successfully")
+            return True
+        else:
+            print("❌ Worker process failed to start")
+            return False
+
+    except Exception as e:
         print(f"❌ Failed to start Celery worker: {e}")
         return False
-
-    return True
 
 
 def watch_for_changes():
@@ -71,9 +91,6 @@ def watch_for_changes():
         Path("src/hnfm/video"),
         Path("src/hnfm/scraper"),
     ]
-
-    # File extensions to watch
-    watch_extensions = {'.py', '.pyx', '.pyi'}
 
     # Track file modification times
     file_times = {}
@@ -124,9 +141,29 @@ def watch_for_changes():
             time.sleep(5)  # Wait before retrying
 
 
+def signal_handler(signum, frame):
+    """Handle shutdown signals gracefully"""
+    global current_process
+    print(f"\n🛑 Received signal {signum}, shutting down...")
+
+    if current_process and current_process.poll() is None:
+        print("🛑 Stopping worker process...")
+        current_process.terminate()
+        try:
+            current_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            current_process.kill()
+
+    sys.exit(0)
+
+
 if __name__ == "__main__":
     print("🚀 Starting Celery worker with auto-reload...")
     print("Press Ctrl+C to stop")
+
+    # Set up signal handlers for graceful shutdown
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
 
     # Start initial worker
     restart_celery_worker()

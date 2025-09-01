@@ -20,5 +20,5 @@ if __name__ == "__main__":
     print(f"Open http://localhost:{port} in your browser")
 
     uvicorn.run(
-        "src.hnfm.web.server:app", host=host, port=port, reload=reload, log_level="info"
+        "hnfm.web.server:app", host=host, port=port, reload=reload, log_level="info"
     )

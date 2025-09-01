@@ -4,12 +4,9 @@ import os
 import logging
 import json
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Query
+from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
-from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi import Request
+from fastapi.responses import JSONResponse
 from datetime import datetime
 import uuid
 
@@ -170,23 +167,13 @@ async def general_exception_handler(request: Request, exc: Exception):
 db = ContentDatabase()
 hn_service = HackerNewsService()
 
-# Mount static files
-app.mount("/static", StaticFiles(directory="src/hnfm/web/static"), name="static")
-
-# Templates
-templates = Jinja2Templates(directory="src/hnfm/web/templates")
+# Static files and templates removed - using Nuxt frontend instead
 
 
 @app.get("/")
-async def root(request: Request):
-    """Serve the main dashboard"""
-    return templates.TemplateResponse("index.html", {"request": request})
-
-
-@app.get("/services")
-async def services_page(request: Request):
-    """Serve the services status page"""
-    return templates.TemplateResponse("services.html", {"request": request})
+async def root():
+    """API root endpoint - frontend is served by Nuxt"""
+    return {"message": "hn.fm API", "version": "0.1.0", "docs": "/docs"}
 
 
 @app.get("/health", tags=["health"])
