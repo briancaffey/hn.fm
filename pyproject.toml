@@ -85,4 +85,21 @@ dev = [
     "pytest-cov>=6.2.1",
 ]
 
+[tool.pytest.ini_options]
+testpaths = ["src/hnfm/test"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
+addopts = [
+    "-v",
+    "--tb=short",
+    "--strict-markers",
+    "--disable-warnings"
+]
+markers = [
+    "pipeline: pipeline functionality tests",
+    "api: API and web server tests",
+    "integration: end-to-end workflow tests"
+]
+
 

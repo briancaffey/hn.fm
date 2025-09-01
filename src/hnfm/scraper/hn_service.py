@@ -4,7 +4,8 @@ import time
 import logging
 import requests
 from typing import List, Optional, Dict, Any
-from ..web.models import HNStoryData
+
+# Removed HNStoryData import - using simple dict instead
 
 logger = logging.getLogger(__name__)
 
@@ -51,7 +52,7 @@ class HackerNewsService:
             logger.error(f"Unexpected error fetching top stories: {e}")
             return []
 
-    def get_story(self, story_id: int) -> Optional[HNStoryData]:
+    def get_story(self, story_id: int) -> Optional[Dict[str, Any]]:
         """
         Fetch a specific story by ID from Hacker News
 
@@ -59,7 +60,7 @@ class HackerNewsService:
             story_id: The HN story ID
 
         Returns:
-            HNStoryData object if successful, None otherwise
+            Dict with story data if successful, None otherwise
         """
         try:
             # Add 3 second delay as requested
@@ -81,8 +82,8 @@ class HackerNewsService:
                 )
                 return None
 
-            # Convert to our model
-            return HNStoryData(**story_data)
+            # Return raw story data as dict
+            return story_data
 
         except requests.RequestException as e:
             logger.error(f"Failed to fetch story {story_id}: {e}")
@@ -91,7 +92,7 @@ class HackerNewsService:
             logger.error(f"Unexpected error fetching story {story_id}: {e}")
             return None
 
-    def get_stories_batch(self, story_ids: List[int]) -> List[HNStoryData]:
+    def get_stories_batch(self, story_ids: List[int]) -> List[Dict[str, Any]]:
         """
         Fetch multiple stories in batch with delays
 

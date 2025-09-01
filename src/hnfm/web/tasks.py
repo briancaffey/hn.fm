@@ -27,7 +27,7 @@ def execute_pipeline_step(
     """
     try:
         # Import simple pipeline manager
-        from ..pipeline.enhanced_pipeline_manager import PipelineManager
+        from ..pipeline.pipeline_manager import PipelineManager
 
         # Initialize pipeline manager in appropriate mode
         text_only = step_name not in [
@@ -406,7 +406,7 @@ def process_content_pipeline(self, content_id: str):
         )
 
         # Import pipeline manager
-        from ..pipeline.enhanced_pipeline_manager import PipelineManager
+        from ..pipeline.pipeline_manager import PipelineManager
 
         # Initialize pipeline manager in text-only mode (no TTS, images, video)
         pipeline = PipelineManager(text_only=True)

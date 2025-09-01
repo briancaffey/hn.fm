@@ -26,48 +26,28 @@ interface HNStoryData {
 
 interface ContentItem {
   id: string
+  hn_item_id: number
   title: string
   url: string
-  content_type: string
+  post_text?: string
   status: string
   created_at: string
   updated_at: string
-  metadata: Record<string, any>
-  hn_story_data?: HNStoryData
-  raw_text?: string
-  processed_text?: string
+  raw_content?: string
+  processed_content?: string
   script?: string
-  summary?: string
-  audio_path?: string
-  video_path?: string
-  image_paths: string[]
-  processing_steps: string[]
-  errors: string[]
-}
-
-interface PipelineStepStatus {
-  step_name: string
-  status: string
-  segment_id?: string
-  start_time?: string
-  end_time?: string
-  error?: string
-  progress?: number
-  dependencies: string[]
+  audio_file_path?: string
+  asr_data?: Record<string, any>
 }
 
 interface PipelineStatus {
   content_id: string
-  overall_status: string
-  current_step?: string
-  step_statuses: PipelineStepStatus[]
-  completed_steps: string[]
-  failed_steps: string[]
-  total_steps: number
-  progress_percentage: number
-  estimated_completion?: string
-  last_updated: string
-  processing_options: Record<string, any>
+  status: string
+  created_at: string
+  updated_at: string
+  has_script: boolean
+  has_audio: boolean
+  has_asr: boolean
 }
 
 interface ArtifactFile {
@@ -168,8 +148,7 @@ const triggerProcessing = async () => {
     const response = await $fetch(`${apiBase}/api/pipeline/process`, {
       method: 'POST',
       body: {
-        url: contentItem.value?.url,
-        content_type: contentItem.value?.content_type || 'article',
+        hn_item_id: contentItem.value?.hn_item_id,
         options: {
           priority: 'high',
           voice: 'en-US-Standard-A'
@@ -231,7 +210,7 @@ onMounted(() => {
 let refreshInterval: NodeJS.Timeout | null = null
 
 watch(pipelineStatus, (newStatus) => {
-  if (newStatus && newStatus.overall_status === 'processing') {
+  if (newStatus && newStatus.status === 'processing') {
     if (!refreshInterval) {
       refreshInterval = setInterval(() => {
         fetchPipelineStatus()
@@ -370,42 +349,74 @@ onUnmounted(() => {
               <!-- Overall Progress -->
               <div class="space-y-2">
                 <div class="flex justify-between text-sm">
-                  <span>Overall Progress</span>
-                  <span>{{ Math.round(pipelineStatus.progress_percentage) }}%</span>
+                  <span>Status</span>
+                  <span>{{ pipelineStatus.status }}</span>
                 </div>
                 <div class="w-full bg-gray-200 rounded-full h-2">
                   <div
                     class="bg-blue-600 h-2 rounded-full transition-all duration-300"
-                    :style="{ width: pipelineStatus.progress_percentage + '%' }"
+                    :style="{ width: pipelineStatus.status === 'completed' ? '100%' : pipelineStatus.status === 'processing' ? '50%' : '0%' }"
                   ></div>
                 </div>
               </div>
 
-              <!-- Current Step -->
-              <div v-if="pipelineStatus.current_step" class="flex items-center gap-2">
-                <Icon name="lucide:play" class="h-4 w-4 text-blue-600" />
-                <span class="text-sm font-medium">Current Step: {{ pipelineStatus.current_step }}</span>
-              </div>
-
-              <!-- Step Statuses -->
+              <!-- Processing Status -->
               <div class="space-y-3">
-                <h4 class="text-sm font-medium">Step Details</h4>
-                <div v-for="step in pipelineStatus.step_statuses" :key="step.step_name" class="flex items-center justify-between p-3 border rounded-lg">
+                <h4 class="text-sm font-medium">Processing Status</h4>
+                <div class="flex items-center justify-between p-3 border rounded-lg">
                   <div class="flex items-center gap-3">
                     <Icon
-                      :name="step.status === 'completed' ? 'lucide:check-circle' : step.status === 'processing' ? 'lucide:play-circle' : 'lucide:circle'"
+                      :name="pipelineStatus.has_script ? 'lucide:check-circle' : 'lucide:circle'"
                       :class="[
                         'h-4 w-4',
-                        step.status === 'completed' ? 'text-green-600' : step.status === 'processing' ? 'text-blue-600' : 'text-gray-400'
+                        pipelineStatus.has_script ? 'text-green-600' : 'text-gray-400'
                       ]"
                     />
                     <div>
-                      <p class="text-sm font-medium">{{ step.step_name }}</p>
-                      <p class="text-xs text-muted-foreground">{{ step.status }}</p>
+                      <p class="text-sm font-medium">Script Generated</p>
+                      <p class="text-xs text-muted-foreground">{{ pipelineStatus.has_script ? 'Completed' : 'Pending' }}</p>
                     </div>
                   </div>
-                  <Badge :variant="getStatusVariant(step.status)">
-                    {{ step.status }}
+                  <Badge :variant="pipelineStatus.has_script ? 'default' : 'outline'">
+                    {{ pipelineStatus.has_script ? 'Completed' : 'Pending' }}
+                  </Badge>
+                </div>
+
+                <div class="flex items-center justify-between p-3 border rounded-lg">
+                  <div class="flex items-center gap-3">
+                    <Icon
+                      :name="pipelineStatus.has_audio ? 'lucide:check-circle' : 'lucide:circle'"
+                      :class="[
+                        'h-4 w-4',
+                        pipelineStatus.has_audio ? 'text-green-600' : 'text-gray-400'
+                      ]"
+                    />
+                    <div>
+                      <p class="text-sm font-medium">Audio Generated</p>
+                      <p class="text-xs text-muted-foreground">{{ pipelineStatus.has_audio ? 'Completed' : 'Pending' }}</p>
+                    </div>
+                  </div>
+                  <Badge :variant="pipelineStatus.has_audio ? 'default' : 'outline'">
+                    {{ pipelineStatus.has_audio ? 'Completed' : 'Pending' }}
+                  </Badge>
+                </div>
+
+                <div class="flex items-center justify-between p-3 border rounded-lg">
+                  <div class="flex items-center gap-3">
+                    <Icon
+                      :name="pipelineStatus.has_asr ? 'lucide:check-circle' : 'lucide:circle'"
+                      :class="[
+                        'h-4 w-4',
+                        pipelineStatus.has_asr ? 'text-green-600' : 'text-gray-400'
+                      ]"
+                    />
+                    <div>
+                      <p class="text-sm font-medium">ASR Processing</p>
+                      <p class="text-xs text-muted-foreground">{{ pipelineStatus.has_asr ? 'Completed' : 'Pending' }}</p>
+                    </div>
+                  </div>
+                  <Badge :variant="pipelineStatus.has_asr ? 'default' : 'outline'">
+                    {{ pipelineStatus.has_asr ? 'Completed' : 'Pending' }}
                   </Badge>
                 </div>
               </div>
@@ -624,7 +635,7 @@ onUnmounted(() => {
                   Start Processing
                 </Button>
               </div>
-              <div v-else-if="pipelineStatus.overall_status === 'processing'" class="text-center py-4">
+              <div v-else-if="pipelineStatus.status === 'processing'" class="text-center py-4">
                 <div class="flex items-center justify-center gap-2 mb-4">
                   <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
                   <span>Processing in progress...</span>
@@ -632,7 +643,7 @@ onUnmounted(() => {
                 <p class="text-sm text-muted-foreground">The pipeline is currently running. This page will auto-refresh.</p>
               </div>
               <div v-else class="text-center py-4">
-                <p class="text-muted-foreground mb-4">Pipeline status: {{ pipelineStatus.overall_status }}</p>
+                <p class="text-muted-foreground mb-4">Pipeline status: {{ pipelineStatus.status }}</p>
                 <Button @click="triggerProcessing" :disabled="processing">
                   <Icon name="lucide:refresh-cw" class="h-4 w-4 mr-2" />
                   Restart Processing

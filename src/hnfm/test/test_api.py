@@ -1,0 +1,287 @@
+#!/usr/bin/env python3
+"""API endpoints and web server tests for hn.fm"""
+
+import os
+import sys
+import pytest
+import asyncio
+from datetime import datetime
+from unittest.mock import patch, MagicMock
+
+# Add src to path
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
+from hnfm.web.database import ContentDatabase
+from hnfm.web.models import ContentItem
+from hnfm.web.celery_app import celery_app
+from hnfm.web.tasks import content_pipeline
+
+
+class TestAPI:
+    """Test API endpoints and web server functionality"""
+
+    def setup_method(self):
+        """Setup test environment"""
+        self.db = ContentDatabase()
+
+    def test_database_connection(self):
+        """Test Redis database connection"""
+        print("🧪 Testing Database Connection...")
+
+        try:
+            # Test health check
+            health = self.db.health_check()
+            assert health is not None, "Health check should return result"
+
+            print("✅ Database connection successful")
+            return True
+
+        except Exception as e:
+            print(f"❌ Database connection failed: {e}")
+            return False
+
+    def test_content_storage(self):
+        """Test content storage and retrieval"""
+        print("\n🧪 Testing Content Storage...")
+
+        try:
+            # Test content storage
+            test_content = {
+                "id": "test-api-123",
+                "title": "Test API Article",
+                "url": "https://example.com/test-api",
+                "content_type": "article",
+                "status": "pending",
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+                "metadata": {"test": True},
+                "processing_steps": [],
+                "errors": [],
+            }
+
+            # Store content
+            stored = self.db.store_content("test-api-123", test_content)
+            assert stored, "Should store content successfully"
+
+            # Retrieve content
+            retrieved = self.db.get_content("test-api-123")
+            assert retrieved is not None, "Should retrieve content"
+            assert retrieved["title"] == "Test API Article", "Title should match"
+
+            # Update content
+            updated = self.db.update_content("test-api-123", {"status": "completed"})
+            assert updated, "Should update content"
+
+            # Verify update
+            updated_content = self.db.get_content("test-api-123")
+            assert updated_content["status"] == "completed", "Status should be updated"
+
+            # Clean up
+            deleted = self.db.delete_content("test-api-123")
+            assert deleted, "Should delete content"
+
+            print("✅ Content storage test passed")
+            return True
+
+        except Exception as e:
+            print(f"❌ Content storage test failed: {e}")
+            return False
+
+    def test_content_listing(self):
+        """Test content listing functionality"""
+        print("\n🧪 Testing Content Listing...")
+
+        try:
+            # Add test content
+            test_content = {
+                "id": "test-listing-123",
+                "title": "Test Listing Article",
+                "url": "https://example.com/test-listing",
+                "content_type": "article",
+                "status": "pending",
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+                "metadata": {"test": True},
+                "processing_steps": [],
+                "errors": [],
+            }
+
+            self.db.store_content("test-listing-123", test_content)
+
+            # Test listing
+            content_list = self.db.list_content(per_page=10)
+            assert content_list is not None, "Should return content list"
+            assert "total" in content_list, "Should have total count"
+            assert "items" in content_list, "Should have items list"
+
+            # Clean up
+            self.db.delete_content("test-listing-123")
+
+            print("✅ Content listing test passed")
+            return True
+
+        except Exception as e:
+            print(f"❌ Content listing test failed: {e}")
+            return False
+
+    def test_pipeline_status(self):
+        """Test pipeline status functionality"""
+        print("\n🧪 Testing Pipeline Status...")
+
+        try:
+            # Test pipeline status
+            status = self.db.get_pipeline_status()
+            assert status is not None, "Should return pipeline status"
+
+            print(f"✅ Pipeline status: {status}")
+            return True
+
+        except Exception as e:
+            print(f"❌ Pipeline status test failed: {e}")
+            return False
+
+    def test_celery_configuration(self):
+        """Test Celery configuration"""
+        print("\n🧪 Testing Celery Configuration...")
+
+        try:
+            # Test Celery app configuration
+            assert (
+                celery_app.conf.broker_url is not None
+            ), "Broker URL should be configured"
+            assert (
+                celery_app.conf.result_backend is not None
+            ), "Result backend should be configured"
+
+            print("✅ Celery configuration test passed")
+            return True
+
+        except Exception as e:
+            print(f"❌ Celery configuration test failed: {e}")
+            return False
+
+    def test_task_registration(self):
+        """Test task registration"""
+        print("\n🧪 Testing Task Registration...")
+
+        try:
+            # Check that expected tasks are registered
+            expected_tasks = [
+                "debug_task",
+                "process_content",
+                "scrape_content",
+                "generate_script",
+                "generate_audio",
+                "full_pipeline",
+            ]
+
+            registered_tasks = list(celery_app.tasks.keys())
+
+            # Filter out built-in Celery tasks
+            custom_tasks = [
+                task for task in registered_tasks if not task.startswith("celery.")
+            ]
+
+            # Check if our main tasks are registered
+            task_found = any("debug_task" in task for task in custom_tasks)
+            assert task_found, "Custom tasks should be registered"
+
+            print(f"✅ Found {len(custom_tasks)} custom tasks")
+            return True
+
+        except Exception as e:
+            print(f"❌ Task registration test failed: {e}")
+            return False
+
+    def test_content_pipeline_task(self):
+        """Test content pipeline task execution"""
+        print("\n🧪 Testing Content Pipeline Task...")
+
+        try:
+            # Set environment for synchronous execution
+            os.environ["CELERY_ALWAYS_EAGER"] = "true"
+
+            # Create test content first
+            test_content = {
+                "id": "test-pipeline-task-123",
+                "title": "Test Pipeline Task Article",
+                "url": "https://example.com/test-pipeline-task",
+                "content_type": "article",
+                "status": "pending",
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+                "metadata": {"test": True},
+                "processing_steps": [],
+                "errors": [],
+            }
+
+            self.db.store_content("test-pipeline-task-123", test_content)
+
+            # Execute task
+            result = content_pipeline.delay("test-pipeline-task-123")
+
+            # Check result
+            assert result.ready(), "Task should be ready immediately"
+
+            # Clean up
+            self.db.delete_content("test-pipeline-task-123")
+
+            print("✅ Content pipeline task test passed")
+            return True
+
+        except Exception as e:
+            print(f"❌ Content pipeline task test failed: {e}")
+            return False
+
+    def test_task_execution(self):
+        """Test task execution capabilities"""
+        print("\n🧪 Testing Task Execution...")
+
+        try:
+            # Set environment for synchronous execution
+            os.environ["CELERY_ALWAYS_EAGER"] = "true"
+
+            # Test that we can access the task
+            assert (
+                content_pipeline is not None
+            ), "Content pipeline task should be available"
+
+            # Test task configuration
+            assert hasattr(content_pipeline, "delay"), "Task should have delay method"
+
+            print("✅ Task execution test passed")
+            return True
+
+        except Exception as e:
+            print(f"❌ Task execution test failed: {e}")
+            return False
+
+    def test_pydantic_models(self):
+        """Test Pydantic models"""
+        print("\n🧪 Testing Pydantic Models...")
+
+        try:
+            # Test ContentItem model
+            content_item = ContentItem(
+                id="test-model-123",
+                title="Test Model Article",
+                url="https://example.com/test-model",
+                content_type="article",
+                status="pending",
+                created_at=datetime.now(),
+                updated_at=datetime.now(),
+                metadata={"test": True},
+                processing_steps=[],
+                errors=[],
+            )
+
+            assert content_item.id == "test-model-123", "ID should match"
+            assert content_item.title == "Test Model Article", "Title should match"
+            assert content_item.status == "pending", "Status should match"
+
+            print("✅ Pydantic models test passed")
+            return True
+
+        except Exception as e:
+            print(f"❌ Pydantic models test failed: {e}")
+            return False

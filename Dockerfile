@@ -28,7 +28,8 @@ COPY pyproject.toml uv.lock README.md LICENSE ./
 RUN pip install uv && \
     uv venv && \
     . .venv/bin/activate && \
-    uv pip install -e .
+    uv pip install -e . && \
+    uv pip install --group dev
 
 # Copy source code and scripts
 COPY src/ ./src/

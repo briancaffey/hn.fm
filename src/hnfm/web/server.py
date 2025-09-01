@@ -24,12 +24,9 @@ from .models import (
     TaskStatus,
     ActiveTasksResponse,
     ErrorResponse,
-    EnhancedPipelineStatus,
 )
 from .celery_app import celery_app
-from .enhanced_tasks import (
-    debug_task,
-    process_content,
+from .tasks import (
     full_pipeline,
     content_pipeline,
     process_content_pipeline,
@@ -292,6 +289,32 @@ async def list_content(
     """
     try:
         result = db.list_content(page, per_page, content_type, status)
+
+        # Migrate old content items to new format
+        migrated_items = []
+        for item in result["items"]:
+            try:
+                # Add missing required fields for old items
+                if "hn_item_id" not in item:
+                    item["hn_item_id"] = 0  # Default value for old items
+                if "post_text" not in item:
+                    item["post_text"] = item.get("text", "")
+                if "raw_content" not in item:
+                    item["raw_content"] = item.get("raw_text", "")
+                if "processed_content" not in item:
+                    item["processed_content"] = item.get("processed_text", "")
+                if "audio_file_path" not in item:
+                    item["audio_file_path"] = item.get("audio_path", "")
+
+                migrated_items.append(ContentItem(**item))
+            except Exception as e:
+                logger.warning(
+                    f"Failed to migrate content item {item.get('id', 'unknown')}: {e}"
+                )
+                # Skip items that can't be migrated
+                continue
+
+        result["items"] = migrated_items
         return ContentListResponse(**result)
     except Exception as e:
         logger.error(f"Failed to list content: {e}")
@@ -319,6 +342,19 @@ async def get_content(content_id: str):
         content = db.get_content(content_id)
         if not content:
             raise HTTPException(status_code=404, detail="Content not found")
+
+        # Migrate old content item to new format
+        if "hn_item_id" not in content:
+            content["hn_item_id"] = 0  # Default value for old items
+        if "post_text" not in content:
+            content["post_text"] = content.get("text", "")
+        if "raw_content" not in content:
+            content["raw_content"] = content.get("raw_text", "")
+        if "processed_content" not in content:
+            content["processed_content"] = content.get("processed_text", "")
+        if "audio_file_path" not in content:
+            content["audio_file_path"] = content.get("audio_path", "")
+
         return ContentItem(**content)
     except HTTPException:
         raise
@@ -468,7 +504,7 @@ async def process_content(content_id: str):
         db.update_content(content_id, {"status": "processing"})
 
         # Start the processing task
-        from .enhanced_tasks import process_content_pipeline
+        from .tasks import process_content_pipeline
 
         task = process_content_pipeline.delay(content_id)
 
@@ -778,91 +814,73 @@ async def get_content_artifacts(content_id: str):
         if not content:
             raise HTTPException(status_code=404, detail="Content not found")
 
-        # Get enhanced pipeline status if available
+        # Get content item and related segments
         from .redis_repo import RedisRepository
 
         redis_repo = RedisRepository()
-        enhanced_status = redis_repo.get_enhanced_pipeline_status(content_id)
+        content_item = redis_repo.get_content_item(content_id)
+        audio_segments = redis_repo.get_audio_segments_for_content(content_id)
+        image_segments = redis_repo.get_image_segments_for_content(content_id)
 
         artifacts = {
             "content_id": content_id,
             "audio_files": [],
             "image_files": [],
-            "video_files": [],
             "script_files": [],
             "raw_files": [],
         }
 
-        # Extract artifacts from enhanced pipeline if available
-        if enhanced_status:
-            for step_status in enhanced_status.step_statuses:
-                if step_status.status == "completed":
-                    # Get segment artifacts
-                    manifest = redis_repo.get_or_create_manifest(content_id)
-                    segment = manifest.segments.get(step_status.step_name)
-                    if segment and segment.artifacts:
-                        if step_status.step_name == "tts_generation":
-                            if "audio_path" in segment.artifacts:
-                                artifacts["audio_files"].append(
-                                    {
-                                        "path": segment.artifacts["audio_path"],
-                                        "step": step_status.step_name,
-                                        "type": "audio",
-                                    }
-                                )
-                        elif step_status.step_name == "image_generation":
-                            if "image_paths" in segment.artifacts:
-                                for img_path in segment.artifacts["image_paths"]:
-                                    artifacts["image_files"].append(
-                                        {
-                                            "path": img_path,
-                                            "step": step_status.step_name,
-                                            "type": "image",
-                                        }
-                                    )
-                        elif step_status.step_name == "video_generation":
-                            if "video_path" in segment.artifacts:
-                                artifacts["video_files"].append(
-                                    {
-                                        "path": segment.artifacts["video_path"],
-                                        "step": step_status.step_name,
-                                        "type": "video",
-                                    }
-                                )
-                        elif step_status.step_name == "script_generation":
-                            if "script_path" in segment.artifacts:
-                                artifacts["script_files"].append(
-                                    {
-                                        "path": segment.artifacts["script_path"],
-                                        "step": step_status.step_name,
-                                        "type": "script",
-                                    }
-                                )
-                        elif step_status.step_name == "firecrawl_content":
-                            if "raw_content" in segment.artifacts:
-                                artifacts["raw_files"].append(
-                                    {
-                                        "content": segment.artifacts["raw_content"],
-                                        "step": step_status.step_name,
-                                        "type": "raw_text",
-                                    }
-                                )
-
-        # Fallback to basic content data if enhanced status not available
-        if not enhanced_status:
-            if content.get("audio_path"):
+        # Add audio segments
+        for segment in audio_segments:
+            if segment.audio_file_path:
                 artifacts["audio_files"].append(
-                    {"path": content["audio_path"], "step": "legacy", "type": "audio"}
+                    {
+                        "path": segment.audio_file_path,
+                        "step": "tts_generation",
+                        "type": "audio",
+                        "sequence": segment.sequence_number,
+                    }
                 )
-            if content.get("video_path"):
-                artifacts["video_files"].append(
-                    {"path": content["video_path"], "step": "legacy", "type": "video"}
+
+        # Add image segments
+        for segment in image_segments:
+            if segment.image_file_path:
+                artifacts["image_files"].append(
+                    {
+                        "path": segment.image_file_path,
+                        "step": "image_generation",
+                        "type": "image",
+                        "sequence": segment.sequence_number,
+                    }
                 )
-            if content.get("image_paths"):
-                for img_path in content["image_paths"]:
-                    artifacts["image_files"].append(
-                        {"path": img_path, "step": "legacy", "type": "image"}
-                    )
+
+        # Add content item files
+        if content_item:
+            if content_item.audio_file_path:
+                artifacts["audio_files"].append(
+                    {
+                        "path": content_item.audio_file_path,
+                        "step": "audio_assembly",
+                        "type": "audio",
+                        "sequence": 0,
+                    }
+                )
+            if content_item.script:
+                artifacts["script_files"].append(
+                    {
+                        "content": content_item.script,
+                        "step": "script_generation",
+                        "type": "script",
+                    }
+                )
+            if content_item.raw_content:
+                artifacts["raw_files"].append(
+                    {
+                        "content": content_item.raw_content,
+                        "step": "content_processing",
+                        "type": "raw_text",
+                    }
+                )
 
         return artifacts
 
@@ -921,27 +939,33 @@ async def serve_media_file(content_id: str, media_type: str, filename: str):
 
 @app.get(
     "/api/content/{content_id}/pipeline-status",
-    response_model=EnhancedPipelineStatus,
+    response_model=dict,
     tags=["content"],
 )
 async def get_content_pipeline_status(content_id: str):
     """
     Get pipeline status for a content item
 
-    Returns detailed step-by-step processing status
+    Returns simplified processing status
     """
     try:
         from .redis_repo import RedisRepository
 
         redis_repo = RedisRepository()
-        status = redis_repo.get_enhanced_pipeline_status(content_id)
+        content_item = redis_repo.get_content_item(content_id)
 
-        if not status:
-            raise HTTPException(
-                status_code=404, detail="Pipeline status not found for content"
-            )
+        if not content_item:
+            raise HTTPException(status_code=404, detail="Content item not found")
 
-        return status
+        return {
+            "content_id": content_id,
+            "status": content_item.status,
+            "created_at": content_item.created_at,
+            "updated_at": content_item.updated_at,
+            "has_script": bool(content_item.script),
+            "has_audio": bool(content_item.audio_file_path),
+            "has_asr": bool(content_item.asr_data),
+        }
 
     except HTTPException:
         raise
@@ -954,14 +978,13 @@ async def get_content_pipeline_status(content_id: str):
 @app.post("/api/pipeline/process", response_model=TaskResponse, tags=["pipeline"])
 async def content_pipeline_endpoint(request: ContentCreateRequest):
     """
-    Trigger enhanced content processing pipeline with Redis-first design.
+    Trigger simplified content processing pipeline.
 
     Creates a new content item and queues it for processing through the
-            simplified pipeline with direct execution and
-    comprehensive state tracking.
+    simplified pipeline.
 
     Args:
-        request: Content processing request with URL and options
+        request: Content processing request with HN item ID and options
 
     Returns:
         TaskResponse: Processing status with content ID and task ID
@@ -972,22 +995,31 @@ async def content_pipeline_endpoint(request: ContentCreateRequest):
     try:
         # Create content item
         content_id = str(uuid.uuid4())
-        now = datetime.now()
+        now = datetime.now().isoformat()
 
-        content_data = {
-            "id": content_id,
-            "title": f"Processing: {request.url}",
-            "url": request.url,
-            "content_type": request.content_type,
-            "status": "queued",
-            "created_at": now,
-            "updated_at": now,
-            "metadata": request.options,
-            "processing_steps": ["created"],
-            "errors": [],
-        }
+        # Get HN item data
+        from .redis_repo import RedisRepository
 
-        if not db.store_content(content_id, content_data):
+        redis_repo = RedisRepository()
+        hn_data = redis_repo.get_hn_item(request.hn_item_id)
+
+        if not hn_data:
+            raise HTTPException(
+                status_code=404, detail=f"HN item {request.hn_item_id} not found"
+            )
+
+        content_item = ContentItem(
+            id=content_id,
+            hn_item_id=request.hn_item_id,
+            title=hn_data.get("title", f"Processing HN item {request.hn_item_id}"),
+            url=hn_data.get("url", ""),
+            post_text=hn_data.get("text", ""),
+            status="queued",
+            created_at=now,
+            updated_at=now,
+        )
+
+        if not redis_repo.save_content_item(content_item):
             raise HTTPException(status_code=500, detail="Failed to store content")
 
         # Queue the processing task
@@ -1002,47 +1034,53 @@ async def content_pipeline_endpoint(request: ContentCreateRequest):
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to trigger enhanced content processing: {e}")
+        logger.error(f"Failed to trigger content processing: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
 @app.get(
     "/api/pipeline/status/{content_id}",
-    response_model=EnhancedPipelineStatus,
+    response_model=dict,
     tags=["pipeline"],
 )
 async def get_pipeline_status(content_id: str):
     """
-    Get enhanced pipeline status for a content item.
+    Get simplified pipeline status for a content item.
 
-    Returns comprehensive status information including step-level details,
-    progress tracking, and versioned segment information.
+    Returns basic status information for the content item.
 
     Args:
         content_id: Content item identifier
 
     Returns:
-        EnhancedPipelineStatus: Enhanced pipeline status with step details
+        dict: Simplified pipeline status
 
     Raises:
         HTTPException: If status retrieval fails
     """
     try:
-        # Queue the status retrieval task
-        task = get_enhanced_pipeline_status.apply_async(args=[content_id])
+        from .redis_repo import RedisRepository
 
-        # Wait for the task to complete (synchronous for now)
-        result = task.get(timeout=30)
+        redis_repo = RedisRepository()
+        content_item = redis_repo.get_content_item(content_id)
 
-        if result and result.get("status") == "success":
-            return EnhancedPipelineStatus(**result["pipeline_status"])
-        else:
-            raise HTTPException(
-                status_code=500, detail="Failed to retrieve pipeline status"
-            )
+        if not content_item:
+            raise HTTPException(status_code=404, detail="Content item not found")
 
+        return {
+            "content_id": content_id,
+            "status": content_item.status,
+            "created_at": content_item.created_at,
+            "updated_at": content_item.updated_at,
+            "has_script": bool(content_item.script),
+            "has_audio": bool(content_item.audio_file_path),
+            "has_asr": bool(content_item.asr_data),
+        }
+
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"Failed to get enhanced pipeline status for {content_id}: {e}")
+        logger.error(f"Failed to get pipeline status for {content_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

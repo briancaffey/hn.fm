@@ -178,8 +178,8 @@ class ManualTestingGuide:
             "frontend/app/components/ui/tabs-list.vue",
             "frontend/app/components/ui/tabs-trigger.vue",
             "frontend/app/components/ui/tabs-content.vue",
-            "src/hnfm/pipeline/enhanced_pipeline_manager.py",
-            "src/hnfm/pipeline/enhanced_pipeline_manager.py",
+            "src/hnfm/pipeline/pipeline_manager.py",
+            "src/hnfm/pipeline/pipeline_manager.py",
             "src/hnfm/web/redis_repo.py",
             "src/hnfm/web/custom_types.py",
         ]

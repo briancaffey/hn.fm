@@ -7,7 +7,7 @@ from pathlib import Path
 # Add src to path (scripts are now in src/hnfm/scripts/)
 sys.path.insert(0, str(Path(__file__).parent / ".." / ".."))
 
-from hnfm.pipeline.enhanced_pipeline_manager import PipelineManager
+from hnfm.pipeline.pipeline_manager import PipelineManager
 from hnfm.utils.config import config_manager
 
 

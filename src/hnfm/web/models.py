@@ -6,50 +6,18 @@ from pydantic import BaseModel, Field
 from .custom_types import CustomBaseModel
 
 
-class HNStoryData(BaseModel):
-    """Hacker News story data from the HN API"""
-
-    id: int = Field(..., description="The item's unique id from HN")
-    deleted: Optional[bool] = Field(None, description="true if the item is deleted")
-    type: str = Field(
-        ..., description="The type of item (job, story, comment, poll, pollopt)"
-    )
-    by: Optional[str] = Field(None, description="The username of the item's author")
-    time: int = Field(..., description="Creation date of the item, in Unix Time")
-    text: Optional[str] = Field(
-        None, description="The comment, story or poll text. HTML."
-    )
-    dead: Optional[bool] = Field(None, description="true if the item is dead")
-    parent: Optional[int] = Field(
-        None,
-        description="The comment's parent: either another comment or the relevant story",
-    )
-    poll: Optional[int] = Field(None, description="The pollopt's associated poll")
-    kids: Optional[List[int]] = Field(
-        None, description="The ids of the item's comments, in ranked display order"
-    )
-    url: Optional[str] = Field(None, description="The URL of the story")
-    score: Optional[int] = Field(
-        None, description="The story's score, or the votes for a pollopt"
-    )
-    title: Optional[str] = Field(
-        None, description="The title of the story, poll or job. HTML."
-    )
-    parts: Optional[List[int]] = Field(
-        None, description="A list of related pollopts, in display order"
-    )
-    descendants: Optional[int] = Field(
-        None, description="In the case of stories or polls, the total comment count"
-    )
-
-
 class ContentItem(CustomBaseModel):
     """Represents a single content item from the pipeline"""
 
     id: str = Field(
         ...,
-        description="Unique identifier for the content item",
+        description="Unique identifier for the content item (UUID)",
         example="550e8400-e29b-41d4-a716-446655440000",
+    )
+    hn_item_id: int = Field(
+        ...,
+        description="Hacker News item ID",
+        example=123456789,
     )
     title: str = Field(
         ...,
@@ -61,10 +29,10 @@ class ContentItem(CustomBaseModel):
         description="Original URL of the content",
         example="https://example.com/ai-healthcare-future",
     )
-    content_type: str = Field(
-        ...,
-        description="Type of content (article, podcast, video, etc.)",
-        example="article",
+    post_text: Optional[str] = Field(
+        None,
+        description="Text content from the HN post",
+        example="This article explores how AI is improving diagnosis accuracy...",
     )
     status: str = Field(..., description="Processing status", example="completed")
     created_at: str = Field(
@@ -77,29 +45,14 @@ class ContentItem(CustomBaseModel):
         description="When the content was last updated (ISO format)",
         example="2024-01-15T11:45:00Z",
     )
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict,
-        description="Additional metadata",
-        example={
-            "author": "Dr. Jane Smith",
-            "category": "Technology",
-            "read_time": "8 min",
-            "difficulty": "Intermediate",
-        },
-    )
-
-    # Hacker News specific fields
-    hn_story_data: Optional[HNStoryData] = Field(
-        None, description="Original Hacker News story data if this content came from HN"
-    )
 
     # Content fields
-    raw_text: Optional[str] = Field(
+    raw_content: Optional[str] = Field(
         None,
         description="Raw scraped text from the source URL",
         example="Artificial intelligence is revolutionizing healthcare...",
     )
-    processed_text: Optional[str] = Field(
+    processed_content: Optional[str] = Field(
         None,
         description="Processed/cleaned text ready for script generation",
         example="AI in healthcare is transforming patient care...",
@@ -109,45 +62,87 @@ class ContentItem(CustomBaseModel):
         description="Generated script for audio/video narration",
         example="Welcome to today's discussion on AI in healthcare...",
     )
-    summary: Optional[str] = Field(
-        None,
-        description="Content summary and key points",
-        example="This article explores how AI is improving diagnosis accuracy...",
-    )
 
     # Media fields
-    audio_path: Optional[str] = Field(
+    audio_file_path: Optional[str] = Field(
         None,
-        description="Path to generated audio file",
+        description="Path to generated combined audio file",
         example="/outputs/audio/ai-healthcare-20240115.mp3",
     )
-    video_path: Optional[str] = Field(
+
+    # ASR data (JSON)
+    asr_data: Optional[Dict[str, Any]] = Field(
         None,
-        description="Path to generated video file",
-        example="/outputs/video/ai-healthcare-20240115.mp4",
-    )
-    image_paths: List[str] = Field(
-        default_factory=list,
-        description="Paths to generated images",
-        example=[
-            "/outputs/images/ai-healthcare-1.png",
-            "/outputs/images/ai-healthcare-2.png",
-        ],
-    )
-
-    # Processing info
-    processing_steps: List[str] = Field(
-        default_factory=list,
-        description="Completed processing steps",
-        example=["scraped", "processed", "script_generated", "audio_created"],
-    )
-    errors: List[str] = Field(
-        default_factory=list,
-        description="Any processing errors encountered",
-        example=["Image generation failed: API timeout"],
+        description="Automated speech recognition data in JSON format",
+        example={
+            "segments": [
+                {"start": 0.0, "end": 2.5, "text": "Welcome to today's discussion"}
+            ]
+        },
     )
 
 
+class AudioSegment(CustomBaseModel):
+    """Represents a single audio segment for TTS narration"""
+
+    id: str = Field(
+        ...,
+        description="Unique identifier for the audio segment (UUID)",
+        example="550e8400-e29b-41d4-a716-446655440000",
+    )
+    content_item_id: str = Field(
+        ...,
+        description="Content item UUID this segment belongs to",
+        example="550e8400-e29b-41d4-a716-446655440000",
+    )
+    text: str = Field(
+        ...,
+        description="Text to be narrated",
+        example="Welcome to today's discussion on AI in healthcare.",
+    )
+    sequence_number: int = Field(
+        ...,
+        description="Sequence number for ordering",
+        example=1,
+    )
+    audio_file_path: Optional[str] = Field(
+        None,
+        description="Path to the generated audio file",
+        example="/outputs/audio/segment_001.wav",
+    )
+
+
+class ImageSegment(CustomBaseModel):
+    """Represents a single image segment for visual content"""
+
+    id: str = Field(
+        ...,
+        description="Unique identifier for the image segment (UUID)",
+        example="550e8400-e29b-41d4-a716-446655440000",
+    )
+    content_item_id: str = Field(
+        ...,
+        description="Content item UUID this segment belongs to",
+        example="550e8400-e29b-41d4-a716-446655440000",
+    )
+    prompt: str = Field(
+        ...,
+        description="Image generation prompt",
+        example="A detailed cartoon style illustration of AI in healthcare",
+    )
+    sequence_number: int = Field(
+        ...,
+        description="Sequence number for ordering",
+        example=1,
+    )
+    image_file_path: Optional[str] = Field(
+        None,
+        description="Path to the generated image file",
+        example="/outputs/images/image_001.png",
+    )
+
+
+# Response models for API endpoints
 class ContentListResponse(BaseModel):
     """Response model for listing content items"""
 
@@ -166,17 +161,10 @@ class ContentListResponse(BaseModel):
 class ContentCreateRequest(BaseModel):
     """Request model for creating new content"""
 
-    url: str = Field(
+    hn_item_id: int = Field(
         ...,
-        description="URL to scrape and process",
-        example="https://example.com/article",
-        pattern=r"^https?://.+",
-    )
-    content_type: str = Field(
-        default="article",
-        description="Type of content to generate",
-        example="article",
-        pattern="^(article|podcast|video|news|blog)$",
+        description="Hacker News item ID to process",
+        example=123456789,
     )
     options: Dict[str, Any] = Field(
         default_factory=dict,
@@ -203,15 +191,6 @@ class ContentUpdateRequest(BaseModel):
         description="New processing status",
         example="completed",
         pattern="^(pending|processing|completed|failed|cancelled)$",
-    )
-    metadata: Optional[Dict[str, Any]] = Field(
-        None,
-        description="Updated metadata and processing options",
-        example={
-            "priority": "high",
-            "tags": ["tech", "ai"],
-            "notes": "User requested changes",
-        },
     )
 
 
@@ -331,98 +310,4 @@ class ErrorResponse(CustomBaseModel):
     )
     timestamp: datetime = Field(
         ..., description="When the error occurred", example="2024-01-15T15:00:00Z"
-    )
-
-
-class VersionedSegment(CustomBaseModel):
-    """Represents a versioned pipeline segment with artifact tracking"""
-
-    segment_id: str = Field(..., description="Unique segment identifier")
-    content_id: str = Field(..., description="Parent content item ID")
-    step_name: str = Field(..., description="Pipeline step name")
-    version: int = Field(..., description="Segment version number")
-    status: str = Field(..., description="Segment processing status")
-    created_at: datetime = Field(..., description="Creation timestamp")
-    completed_at: Optional[datetime] = Field(None, description="Completion timestamp")
-    artifacts: Dict[str, str] = Field(
-        default_factory=dict, description="Output file paths"
-    )
-    metadata: Dict[str, Any] = Field(
-        default_factory=dict, description="Processing metadata"
-    )
-    error: Optional[str] = Field(None, description="Error message if failed")
-    processing_time: Optional[float] = Field(
-        None, description="Processing time in seconds"
-    )
-    retry_count: int = Field(default=0, description="Number of retry attempts")
-
-
-class ProcessingManifest(CustomBaseModel):
-    """Tracks complete processing state for a content item"""
-
-    content_id: str = Field(..., description="Content item identifier")
-    current_step: str = Field(..., description="Currently executing step")
-    completed_steps: List[str] = Field(
-        default_factory=list, description="Completed steps"
-    )
-    segments: Dict[str, VersionedSegment] = Field(
-        default_factory=dict, description="Step segments"
-    )
-    last_updated: datetime = Field(..., description="Last update timestamp")
-    processing_options: Dict[str, Any] = Field(
-        default_factory=dict, description="Processing configuration"
-    )
-    pipeline_version: str = Field(default="1.0", description="Pipeline version")
-    estimated_completion: Optional[datetime] = Field(
-        None, description="Estimated completion time"
-    )
-    priority: int = Field(default=1, description="Processing priority (1-10)")
-
-
-class PipelineStatus(BaseModel):
-    """Status information for the pipeline system"""
-
-    status: str = Field(..., description="Overall pipeline status")
-    timestamp: datetime = Field(..., description="Status timestamp")
-    message: str = Field(..., description="Status message")
-
-
-class PipelineStepStatus(BaseModel):
-    """Status of a pipeline step execution"""
-
-    step_name: str = Field(..., description="Pipeline step name")
-    status: str = Field(
-        ..., description="Step status (pending, processing, completed, failed)"
-    )
-    segment_id: Optional[str] = Field(None, description="Associated segment ID")
-    start_time: Optional[datetime] = Field(None, description="Step start time")
-    end_time: Optional[datetime] = Field(None, description="Step completion time")
-    error: Optional[str] = Field(None, description="Error message if failed")
-    progress: Optional[float] = Field(None, description="Progress percentage (0-100)")
-    dependencies: List[str] = Field(
-        default_factory=list, description="Required dependencies"
-    )
-
-
-class EnhancedPipelineStatus(CustomBaseModel):
-    """Enhanced pipeline status with step-level details"""
-
-    content_id: str = Field(..., description="Content item identifier")
-    overall_status: str = Field(..., description="Overall pipeline status")
-    current_step: Optional[str] = Field(None, description="Currently executing step")
-    step_statuses: List[PipelineStepStatus] = Field(
-        default_factory=list, description="Individual step statuses"
-    )
-    completed_steps: List[str] = Field(
-        default_factory=list, description="Completed steps"
-    )
-    failed_steps: List[str] = Field(default_factory=list, description="Failed steps")
-    total_steps: int = Field(..., description="Total number of steps")
-    progress_percentage: float = Field(..., description="Overall progress (0-100)")
-    estimated_completion: Optional[datetime] = Field(
-        None, description="Estimated completion time"
-    )
-    last_updated: datetime = Field(..., description="Last status update")
-    processing_options: Dict[str, Any] = Field(
-        default_factory=dict, description="Processing configuration"
     )

@@ -16,7 +16,10 @@ help:
 	@echo ""
 	@echo "Development:"
 	@echo "  install-dev  - Install development dependencies"
-	@echo "  test         - Run tests"
+	@echo "  test         - Run all tests"
+	@echo "  test-pipeline - Run pipeline tests only"
+	@echo "  test-api     - Run API tests only"
+	@echo "  test-integration - Run integration tests only"
 
 	@echo ""
 	@echo "Celery Commands:"
@@ -76,11 +79,27 @@ install-dev:
 	uv add --dev black isort flake8 pytest pytest-cov pre-commit
 	@echo "✅ Development dependencies installed!"
 
-# Run tests
+# Run all tests
 test:
-	@echo "🧪 Running tests..."
-	uv run pytest tests/ -v
+	@echo "🧪 Running all tests..."
+	docker-compose run --rm web pytest src/hnfm/test/ -v
 	@echo "✅ Tests complete!"
+
+# Run specific test files
+test-pipeline:
+	@echo "🧪 Running pipeline tests..."
+	docker-compose run --rm web pytest src/hnfm/test/test_pipeline.py -v
+	@echo "✅ Pipeline tests complete!"
+
+test-api:
+	@echo "🧪 Running API tests..."
+	docker-compose run --rm web pytest src/hnfm/test/test_api.py -v
+	@echo "✅ API tests complete!"
+
+test-integration:
+	@echo "🧪 Running integration tests..."
+	docker-compose run --rm web pytest src/hnfm/test/test_integration.py -v
+	@echo "✅ Integration tests complete!"
 
 # Celery commands
 celery-worker:
