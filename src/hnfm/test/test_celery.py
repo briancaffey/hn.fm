@@ -11,7 +11,8 @@ from unittest.mock import patch, MagicMock
 os.environ["CELERY_ALWAYS_EAGER"] = "true"
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+
 
 def test_celery_configuration():
     """Test that Celery is configured correctly"""
@@ -22,7 +23,9 @@ def test_celery_configuration():
         from hnfm.web.celery_app import celery_app
 
         assert celery_app.conf.broker_url is not None, "Broker URL should be configured"
-        assert celery_app.conf.result_backend is not None, "Result backend should be configured"
+        assert (
+            celery_app.conf.result_backend is not None
+        ), "Result backend should be configured"
 
         print("✅ Celery configuration test passed")
         return True
@@ -30,6 +33,7 @@ def test_celery_configuration():
     except Exception as e:
         print(f"❌ Celery configuration test failed: {e}")
         return False
+
 
 def test_task_registration():
     """Test that all tasks are properly registered"""
@@ -40,25 +44,27 @@ def test_task_registration():
 
         # Check that expected tasks are registered
         expected_tasks = [
-            'debug_task',
-            'process_content',
-            'scrape_content',
-            'generate_script',
-            'generate_audio',
-            'full_pipeline',
-            'long_running_task',
-            'cleanup_old_results'
+            "debug_task",
+            "process_content",
+            "scrape_content",
+            "generate_script",
+            "generate_audio",
+            "full_pipeline",
+            "long_running_task",
+            "cleanup_old_results",
         ]
 
         registered_tasks = list(celery_app.tasks.keys())
 
         # Filter out built-in Celery tasks
-        custom_tasks = [task for task in registered_tasks if not task.startswith('celery.')]
+        custom_tasks = [
+            task for task in registered_tasks if not task.startswith("celery.")
+        ]
 
         print(f"   Found {len(custom_tasks)} custom tasks: {custom_tasks}")
 
         # Check if our main tasks are registered
-        task_found = any('debug_task' in task for task in custom_tasks)
+        task_found = any("debug_task" in task for task in custom_tasks)
         if task_found:
             print("✅ Custom tasks are registered")
             return True
@@ -69,6 +75,7 @@ def test_task_registration():
     except Exception as e:
         print(f"❌ Task registration test failed: {e}")
         return False
+
 
 def test_debug_task():
     """Test debug task execution"""
@@ -81,13 +88,15 @@ def test_debug_task():
         result = debug_task.delay()
 
         # Check result
-        assert result.ready(), "Task should be ready immediately with CELERY_ALWAYS_EAGER"
+        assert (
+            result.ready()
+        ), "Task should be ready immediately with CELERY_ALWAYS_EAGER"
         assert result.successful(), "Task should be successful"
 
         task_result = result.result
-        assert 'task_id' in task_result, "Result should contain task_id"
-        assert 'status' in task_result, "Result should contain status"
-        assert task_result['status'] == 'completed', "Task status should be completed"
+        assert "task_id" in task_result, "Result should contain task_id"
+        assert "status" in task_result, "Result should contain status"
+        assert task_result["status"] == "completed", "Task status should be completed"
 
         print("✅ Debug task test passed")
         return True
@@ -95,6 +104,7 @@ def test_debug_task():
     except Exception as e:
         print(f"❌ Debug task test failed: {e}")
         return False
+
 
 def test_content_processing_task():
     """Test content processing task"""
@@ -112,13 +122,15 @@ def test_content_processing_task():
         result = process_content.delay(content_id, url, content_type)
 
         # Check result
-        assert result.ready(), "Task should be ready immediately with CELERY_ALWAYS_EAGER"
+        assert (
+            result.ready()
+        ), "Task should be ready immediately with CELERY_ALWAYS_EAGER"
 
         # Task might fail due to database issues, but should complete
         if result.successful():
             task_result = result.result
-            assert 'content_id' in task_result, "Result should contain content_id"
-            assert 'status' in task_result, "Result should contain status"
+            assert "content_id" in task_result, "Result should contain content_id"
+            assert "status" in task_result, "Result should contain status"
             print("✅ Content processing task test passed")
         else:
             # Task failed, which is expected in test environment without database
@@ -137,6 +149,7 @@ def test_content_processing_task():
             print(f"❌ Content processing task test failed: {e}")
             return False
 
+
 def test_task_error_handling():
     """Test that tasks handle errors gracefully"""
     print("\n🧪 Testing task error handling...")
@@ -148,7 +161,9 @@ def test_task_error_handling():
         result = process_content.delay("", "invalid-url", "invalid-type")
 
         # Task should complete but may have errors
-        assert result.ready(), "Task should be ready immediately with CELERY_ALWAYS_EAGER"
+        assert (
+            result.ready()
+        ), "Task should be ready immediately with CELERY_ALWAYS_EAGER"
 
         print("✅ Task error handling test passed")
         return True
@@ -163,6 +178,7 @@ def test_task_error_handling():
             print(f"❌ Task error handling test failed: {e}")
             return False
 
+
 def test_task_serialization():
     """Test that tasks can be serialized properly"""
     print("\n🧪 Testing task serialization...")
@@ -174,9 +190,9 @@ def test_task_serialization():
         task = debug_task.s()
 
         # Check that signature has expected attributes
-        assert hasattr(task, 'name'), "Task signature should have name"
-        assert hasattr(task, 'args'), "Task signature should have args"
-        assert hasattr(task, 'kwargs'), "Task signature should have kwargs"
+        assert hasattr(task, "name"), "Task signature should have name"
+        assert hasattr(task, "args"), "Task signature should have args"
+        assert hasattr(task, "kwargs"), "Task signature should have kwargs"
 
         print("✅ Task serialization test passed")
         return True
@@ -184,6 +200,7 @@ def test_task_serialization():
     except Exception as e:
         print(f"❌ Task serialization test failed: {e}")
         return False
+
 
 def test_celery_beat_schedule():
     """Test that Celery Beat schedule is configured"""
@@ -195,12 +212,14 @@ def test_celery_beat_schedule():
         # Check beat schedule configuration
         beat_schedule = celery_app.conf.beat_schedule
 
-        assert 'cleanup-old-results' in beat_schedule, "Cleanup task should be scheduled"
-        cleanup_task = beat_schedule['cleanup-old-results']
+        assert (
+            "cleanup-old-results" in beat_schedule
+        ), "Cleanup task should be scheduled"
+        cleanup_task = beat_schedule["cleanup-old-results"]
 
-        assert 'task' in cleanup_task, "Scheduled task should have task name"
-        assert 'schedule' in cleanup_task, "Scheduled task should have schedule"
-        assert cleanup_task['schedule'] == 3600.0, "Cleanup should run every hour"
+        assert "task" in cleanup_task, "Scheduled task should have task name"
+        assert "schedule" in cleanup_task, "Scheduled task should have schedule"
+        assert cleanup_task["schedule"] == 3600.0, "Cleanup should run every hour"
 
         print("✅ Celery Beat schedule test passed")
         return True
@@ -208,6 +227,7 @@ def test_celery_beat_schedule():
     except Exception as e:
         print(f"❌ Celery Beat schedule test failed: {e}")
         return False
+
 
 def main():
     """Run all Celery tests"""
@@ -234,9 +254,9 @@ def main():
             results.append((test_name, False))
 
     # Summary
-    print("\n" + "="*50)
+    print("\n" + "=" * 50)
     print("📊 TEST SUMMARY")
-    print("="*50)
+    print("=" * 50)
 
     passed = 0
     total = len(results)
@@ -258,6 +278,7 @@ def main():
         return 1
 
     return 0
+
 
 if __name__ == "__main__":
     exit_code = main()

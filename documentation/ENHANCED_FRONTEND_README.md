@@ -51,7 +51,7 @@ Organized tabs for different artifact types:
 - `GET /api/content/{content_id}/artifacts` - Get all artifacts for a content item
 - `GET /api/content/{content_id}/media/{media_type}/{filename}` - Serve media files
 - `GET /api/content/{content_id}/enhanced-status` - Get enhanced pipeline status
-- `GET /api/enhanced-pipeline/service-locks` - Get service lock status
+- `GET /api/pipeline/status` - Get pipeline status
 - `POST /api/enhanced-pipeline/retry/{content_id}/{step_name}` - Retry failed step
 
 ## 🎯 Usage

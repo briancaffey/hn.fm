@@ -7,13 +7,12 @@ from datetime import datetime
 from typing import Dict, Any
 
 from hnfm.web.enhanced_tasks import (
-    enhanced_content_pipeline,
-    retry_failed_segment,
-    get_enhanced_pipeline_status,
-    cleanup_completed_segments,
-    execute_pipeline_step
+    content_pipeline,
+    full_pipeline,
+    process_content_pipeline,
+    execute_pipeline_step,
 )
-from hnfm.web.locks import ServiceLockManager
+from hnfm.pipeline.enhanced_pipeline_manager import PipelineManager
 from hnfm.web.redis_repo import RedisRepository
 from hnfm.web.models import VersionedSegment, ProcessingManifest, EnhancedPipelineStatus
 
@@ -62,57 +61,61 @@ class TestEnhancedTasks:
         return mock_repo
 
     @pytest.fixture
-    def mock_lock_manager(self):
-        """Mock service lock manager"""
-        mock_manager = Mock(spec=ServiceLockManager)
+    def mock_pipeline_manager(self):
+        """Mock pipeline manager"""
+        mock_pipeline = Mock(spec=PipelineManager)
 
-        # Mock context manager
-        mock_context = Mock()
-        mock_context.__enter__ = Mock(return_value=None)
-        mock_context.__exit__ = Mock(return_value=None)
-        mock_manager.service_lock.return_value = mock_context
+        # Mock step execution
+        mock_pipeline.execute_step.return_value = {
+            "artifacts": {"test": "data"},
+            "metadata": {"status": "completed"},
+        }
+        return mock_pipeline
 
-        return mock_manager
+    def test_pipeline_step_execution(self, mock_pipeline_manager):
+        """Test that pipeline steps are properly executed"""
+        # This test verifies the pipeline manager integration
+        result = mock_pipeline_manager.execute_step("test_step", {})
 
-    def test_service_lock_acquisition(self, mock_lock_manager):
-        """Test that service locks are properly acquired and released"""
-        # This test verifies the lock manager integration
-        with mock_lock_manager.service_lock('test_service'):
-            pass
-
-        mock_lock_manager.service_lock.assert_called_once_with('test_service')
-        mock_context = mock_lock_manager.service_lock.return_value
-        mock_context.__enter__.assert_called_once()
-        mock_context.__exit__.assert_called_once()
+        mock_pipeline_manager.execute_step.assert_called_once_with("test_step", {})
+        assert result["artifacts"]["test"] == "data"
 
     def test_segment_versioning(self, mock_redis_repo):
         """Test that segments are properly versioned"""
         # Test segment creation
-        segment = mock_redis_repo.create_segment('test-content-123', 'firecrawl_content')
+        segment = mock_redis_repo.create_segment(
+            "test-content-123", "firecrawl_content"
+        )
 
         assert segment is not None
-        assert segment.segment_id == 'test-segment-123'
+        assert segment.segment_id == "test-segment-123"
         assert segment.version == 1
-        assert segment.status == 'processing'
+        assert segment.status == "processing"
 
         # Verify segment was stored
-        mock_redis_repo.create_segment.assert_called_once_with('test-content-123', 'firecrawl_content')
+        mock_redis_repo.create_segment.assert_called_once_with(
+            "test-content-123", "firecrawl_content"
+        )
 
     def test_manifest_persistence(self, mock_redis_repo):
         """Test that processing manifests are properly persisted"""
         # Test manifest creation
-        manifest = mock_redis_repo.get_or_create_manifest('test-content-123', {'priority': 'high'})
+        manifest = mock_redis_repo.get_or_create_manifest(
+            "test-content-123", {"priority": "high"}
+        )
 
         assert manifest is not None
-        assert manifest.content_id == 'test-content-123'
-        assert manifest.processing_options == {'priority': 'high'}
+        assert manifest.content_id == "test-content-123"
+        assert manifest.processing_options == {"priority": "high"}
 
         # Test manifest update
         success = mock_redis_repo.update_manifest(manifest)
         assert success is True
 
         # Verify methods were called
-        mock_redis_repo.get_or_create_manifest.assert_called_once_with('test-content-123', {'priority': 'high'})
+        mock_redis_repo.get_or_create_manifest.assert_called_once_with(
+            "test-content-123", {"priority": "high"}
+        )
         mock_redis_repo.update_manifest.assert_called_once_with(manifest)
 
 
@@ -123,7 +126,7 @@ class TestExecutePipelineStep:
     def mock_manifest(self):
         """Mock processing manifest"""
         manifest = Mock(spec=ProcessingManifest)
-        manifest.content_id = 'test-content-123'
+        manifest.content_id = "test-content-123"
         manifest.segments = {}
         return manifest
 
@@ -136,18 +139,20 @@ class TestExecutePipelineStep:
 
     def test_execute_firecrawl_content_step(self, mock_manifest, mock_segment):
         """Test executing firecrawl content step"""
-        with patch('hnfm.web.enhanced_tasks.PipelineManager') as mock_pipeline_class:
+        with patch("hnfm.web.enhanced_tasks.PipelineManager") as mock_pipeline_class:
             mock_pipeline = Mock()
             mock_pipeline._execute_firecrawl_content.return_value = {
-                'raw_content': 'Test raw content',
-                'processed_content': 'Test processed content'
+                "raw_content": "Test raw content",
+                "processed_content": "Test processed content",
             }
             mock_pipeline_class.return_value = mock_pipeline
 
-            result = execute_pipeline_step('firecrawl_content', mock_manifest, mock_segment)
+            result = execute_pipeline_step(
+                "firecrawl_content", mock_manifest, mock_segment
+            )
 
             assert result is not None
-            assert 'artifacts' in result
-            assert 'metadata' in result
-            assert result['artifacts'].get('raw_content') == 'Test raw content'
-            assert result['metadata'].get('extraction_method') == 'firecrawl'
+            assert "artifacts" in result
+            assert "metadata" in result
+            assert result["artifacts"].get("raw_content") == "Test raw content"
+            assert result["metadata"].get("extraction_method") == "firecrawl"

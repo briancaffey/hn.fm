@@ -24,8 +24,14 @@ def test_text_only_pipeline():
         print(f"   ✅ {step_name}: {step.description}")
 
     # Check that media steps are not included
-    media_steps = ["image_generation", "tts_generation", "audio_cleaning",
-                   "audio_assembly", "asr_processing", "video_generation"]
+    media_steps = [
+        "image_generation",
+        "tts_generation",
+        "audio_cleaning",
+        "audio_assembly",
+        "asr_processing",
+        "video_generation",
+    ]
 
     missing_steps = [step for step in media_steps if step in pipeline.pipeline_steps]
     if missing_steps:
@@ -35,10 +41,17 @@ def test_text_only_pipeline():
     print(f"✅ All media steps correctly excluded: {media_steps}")
 
     # Check that text steps are included
-    text_steps = ["system_check", "hn_scraping", "firecrawl_content",
-                  "content_processing", "script_generation"]
+    text_steps = [
+        "system_check",
+        "hn_scraping",
+        "firecrawl_content",
+        "content_processing",
+        "script_generation",
+    ]
 
-    missing_text_steps = [step for step in text_steps if step not in pipeline.pipeline_steps]
+    missing_text_steps = [
+        step for step in text_steps if step not in pipeline.pipeline_steps
+    ]
     if missing_text_steps:
         print(f"❌ Missing text steps: {missing_text_steps}")
         return False

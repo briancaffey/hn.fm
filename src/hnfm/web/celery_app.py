@@ -47,7 +47,7 @@ celery_app.conf.update(
     # Task routing - Fix the routing to ensure tasks go to the right queue
     task_routes={
         "process_content_pipeline": {"queue": "hnfm_tasks"},
-        "enhanced_content_pipeline": {"queue": "hnfm_tasks"},
+        "content_pipeline": {"queue": "hnfm_tasks"},
         "retry_failed_segment": {"queue": "hnfm_tasks"},
         "get_enhanced_pipeline_status": {"queue": "hnfm_tasks"},
         "cleanup_completed_segments": {"queue": "hnfm_tasks"},

@@ -18,30 +18,25 @@ class TestEnhancedPipelineIntegration:
         self.base_url = "http://localhost:8000"
         self.api_base = f"{self.base_url}/api"
 
-    def test_service_locks_endpoint(self):
-        """Test that service locks endpoint returns valid JSON"""
-        response = requests.get(f"{self.api_base}/enhanced-pipeline/service-locks")
+    def test_pipeline_status_endpoint(self):
+        """Test that pipeline status endpoint returns valid JSON"""
+        response = requests.get(f"{self.api_base}/pipeline/status")
 
         assert response.status_code == 200
         data = response.json()
 
         # Validate structure
+        assert "status" in data
         assert "timestamp" in data
-        assert "services" in data
+        assert "message" in data
 
         # Validate timestamp is ISO string
         assert isinstance(data["timestamp"], str)
         datetime.fromisoformat(data["timestamp"])  # Should parse without error
 
-        # Validate services structure
-        services = data["services"]
-        expected_services = ["firecrawl", "llm", "tts", "vision", "video", "studio_voice", "audio_processor"]
-
-        for service in expected_services:
-            assert service in services
-            assert "is_locked" in services[service]
-            assert isinstance(services[service]["is_locked"], bool)
-            assert "lock_info" in services[service]
+        # Validate status
+        assert data["status"] == "healthy"
+        assert isinstance(data["message"], str)
 
     def test_content_artifacts_endpoint(self):
         """Test content artifacts endpoint"""
@@ -50,20 +45,19 @@ class TestEnhancedPipelineIntegration:
             "title": "Test Article",
             "url": "https://example.com/test",
             "score": 100,
-            "id": "test_123"
+            "id": "test_123",
         }
 
         # Create content via API
-        create_response = requests.post(
-            f"{self.api_base}/content",
-            json=test_content
-        )
+        create_response = requests.post(f"{self.api_base}/content", json=test_content)
 
         if create_response.status_code == 200:
             content_id = create_response.json().get("id", "test_123")
 
             # Test artifacts endpoint
-            artifacts_response = requests.get(f"{self.api_base}/content/{content_id}/artifacts")
+            artifacts_response = requests.get(
+                f"{self.api_base}/content/{content_id}/artifacts"
+            )
 
             # Should return 200 or 404 (if no artifacts exist yet)
             assert artifacts_response.status_code in [200, 404]
@@ -88,21 +82,22 @@ class TestEnhancedPipelineIntegration:
     def test_media_file_serving(self):
         """Test media file serving endpoints"""
         # Test with non-existent content
-        response = requests.get(f"{self.api_base}/content/nonexistent/media/audio/test.wav")
+        response = requests.get(
+            f"{self.api_base}/content/nonexistent/media/audio/test.wav"
+        )
         assert response.status_code == 404
 
-    def test_force_release_lock_endpoint(self):
-        """Test force release lock endpoint"""
-        # Test with a service that's not locked
-        response = requests.post(f"{self.api_base}/enhanced-pipeline/force-release-lock/firecrawl")
+    def test_pipeline_health_endpoint(self):
+        """Test pipeline health endpoint"""
+        # Test pipeline status
+        response = requests.get(f"{self.api_base}/pipeline/status")
 
-        # Should return 200 (success) or 500 (if service doesn't exist)
-        assert response.status_code in [200, 500]
+        # Should return 200
+        assert response.status_code == 200
 
-        if response.status_code == 200:
-            data = response.json()
-            assert "force_released" in data or "message" in data
-            assert "service_name" in data
+        data = response.json()
+        assert "status" in data
+        assert data["status"] == "healthy"
 
     def test_health_endpoints(self):
         """Test health check endpoints"""
@@ -170,7 +165,7 @@ class TestEnhancedPipelineWorkflow:
         #
         # For now, we'll just test that the endpoints exist
         endpoints_to_test = [
-            f"{self.api_base}/enhanced-pipeline/service-locks",
+            f"{self.api_base}/pipeline/status",
             f"{self.api_base}/health",
             f"{self.api_base}/services/status",
         ]

@@ -23,7 +23,7 @@ def test_hn_scraper():
             print(f"     URL: {story['url']}")
 
     # Get URLs from stories
-    urls = [story.get('url') for story in stories if story.get('url')]
+    urls = [story.get("url") for story in stories if story.get("url")]
     print(f"\n🔗 Found {len(urls)} URLs:")
     for url in urls:
         print(f"  - {url}")
@@ -65,7 +65,7 @@ def test_content_scraper(urls):
             # Save to file if content is available
             if content.success and content.content:
                 filename = f"scraped_content_{i}.md"
-                with open(filename, 'w') as f:
+                with open(filename, "w") as f:
                     f.write(f"# {content.title}\n\n")
                     f.write(f"URL: {content.url}\n\n")
                     f.write(content.content)

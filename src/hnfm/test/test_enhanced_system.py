@@ -10,39 +10,37 @@ from pathlib import Path
 src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
 
+
 def test_imports():
     """Test that all enhanced components can be imported"""
     print("Testing imports...")
 
     try:
-        from hnfm.web.locks import ServiceLockManager
-        print("✓ ServiceLockManager imported successfully")
+        from hnfm.pipeline.enhanced_pipeline_manager import PipelineManager
+
+        print("✓ PipelineManager imported successfully")
     except ImportError as e:
-        print(f"✗ Failed to import ServiceLockManager: {e}")
+        print(f"✗ Failed to import PipelineManager: {e}")
         return False
 
     try:
         from hnfm.web.redis_repo import RedisRepository
+
         print("✓ RedisRepository imported successfully")
     except ImportError as e:
         print(f"✗ Failed to import RedisRepository: {e}")
         return False
 
     try:
-        from hnfm.web.enhanced_tasks import enhanced_content_pipeline
-        print("✓ Enhanced tasks imported successfully")
-    except ImportError as e:
-        print(f"✗ Failed to import enhanced tasks: {e}")
-        return False
+        from hnfm.web.enhanced_tasks import content_pipeline
 
-    try:
-        from hnfm.web.enhanced_pipeline_manager import EnhancedPipelineManager
-        print("✓ EnhancedPipelineManager imported successfully")
+        print("✓ Content pipeline tasks imported successfully")
     except ImportError as e:
-        print(f"✗ Failed to import EnhancedPipelineManager: {e}")
+        print(f"✗ Failed to import content pipeline tasks: {e}")
         return False
 
     return True
+
 
 def test_redis_connection():
     """Test Redis connection"""
@@ -50,6 +48,7 @@ def test_redis_connection():
 
     try:
         from hnfm.web.database import ContentDatabase
+
         db = ContentDatabase()
 
         if db.health_check():
@@ -62,28 +61,27 @@ def test_redis_connection():
         print(f"✗ Redis connection error: {e}")
         return False
 
-def test_service_lock_manager():
-    """Test service lock manager"""
-    print("\nTesting ServiceLockManager...")
+
+def test_pipeline_manager():
+    """Test pipeline manager"""
+    print("\nTesting PipelineManager...")
 
     try:
-        from hnfm.web.database import ContentDatabase
-        from hnfm.web.locks import ServiceLockManager
+        from hnfm.pipeline.enhanced_pipeline_manager import PipelineManager
 
-        db = ContentDatabase()
-        lock_manager = ServiceLockManager(db.redis_client)
+        pipeline = PipelineManager(text_only=True)
 
         # Test basic functionality
-        print("✓ ServiceLockManager created successfully")
+        print("✓ PipelineManager created successfully")
 
-        # Test lock status
-        is_locked = lock_manager.is_service_locked('test_service')
-        print(f"✓ Lock status check works: test_service locked = {is_locked}")
+        # Test step execution
+        print("✓ PipelineManager ready for step execution")
 
         return True
     except Exception as e:
-        print(f"✗ ServiceLockManager test failed: {e}")
+        print(f"✗ PipelineManager test failed: {e}")
         return False
+
 
 def test_redis_repository():
     """Test Redis repository"""
@@ -97,7 +95,7 @@ def test_redis_repository():
 
         # Test manifest creation
         test_content_id = "test-content-123"
-        manifest = repo.get_or_create_manifest(test_content_id, {'priority': 'high'})
+        manifest = repo.get_or_create_manifest(test_content_id, {"priority": "high"})
 
         if manifest and manifest.content_id == test_content_id:
             print("✓ Manifest creation works")
@@ -110,16 +108,17 @@ def test_redis_repository():
         print(f"✗ RedisRepository test failed: {e}")
         return False
 
+
 def test_enhanced_pipeline_manager():
     """Test enhanced pipeline manager"""
-    print("\nTesting EnhancedPipelineManager...")
+    print("\nTesting PipelineManager...")
 
     try:
-        from hnfm.web.enhanced_pipeline_manager import EnhancedPipelineManager
+        from hnfm.pipeline.enhanced_pipeline_manager import PipelineManager
 
-        # Test creation without Redis integration
-        pipeline = EnhancedPipelineManager(redis_integration=False)
-        print("✓ EnhancedPipelineManager created without Redis integration")
+        # Test creation
+        pipeline = PipelineManager(text_only=True)
+        print("✓ PipelineManager created successfully")
 
         # Test pipeline steps
         steps = pipeline.pipeline_steps
@@ -131,8 +130,9 @@ def test_enhanced_pipeline_manager():
 
         return True
     except Exception as e:
-        print(f"✗ EnhancedPipelineManager test failed: {e}")
+        print(f"✗ PipelineManager test failed: {e}")
         return False
+
 
 def test_celery_integration():
     """Test Celery integration"""
@@ -141,19 +141,18 @@ def test_celery_integration():
     try:
         from hnfm.web.celery_app import celery_app
 
-        # Check if enhanced tasks are registered
+        # Check if content pipeline tasks are registered
         registered_tasks = list(celery_app.tasks.keys())
-        enhanced_tasks = [
-            'enhanced_content_pipeline',
-            'retry_failed_segment',
-            'get_enhanced_pipeline_status',
-            'cleanup_completed_segments'
+        content_tasks = [
+            "content_pipeline",
+            "full_pipeline",
+            "process_content_pipeline",
         ]
 
-        missing_tasks = [task for task in enhanced_tasks if task not in registered_tasks]
+        missing_tasks = [task for task in content_tasks if task not in registered_tasks]
 
         if not missing_tasks:
-            print("✓ All enhanced tasks registered with Celery")
+            print("✓ All content pipeline tasks registered with Celery")
         else:
             print(f"✗ Missing tasks: {missing_tasks}")
             return False
@@ -163,6 +162,7 @@ def test_celery_integration():
         print(f"✗ Celery integration test failed: {e}")
         return False
 
+
 def main():
     """Run all tests"""
     print("Enhanced Celery Task System - Test Suite")
@@ -171,10 +171,10 @@ def main():
     tests = [
         test_imports,
         test_redis_connection,
-        test_service_lock_manager,
+        test_pipeline_manager,
         test_redis_repository,
         test_enhanced_pipeline_manager,
-        test_celery_integration
+        test_celery_integration,
     ]
 
     passed = 0
@@ -197,6 +197,7 @@ def main():
     else:
         print("❌ Some tests failed. Please check the errors above.")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

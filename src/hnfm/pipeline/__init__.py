@@ -1,5 +1,5 @@
 """Pipeline module for hn.fm."""
 
-from .enhanced_pipeline_manager import EnhancedPipelineManager
+from .enhanced_pipeline_manager import PipelineManager
 
-__all__ = ["EnhancedPipelineManager"]
+__all__ = ["PipelineManager"]

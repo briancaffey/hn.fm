@@ -49,7 +49,7 @@ def restart_celery_worker():
         "--queues=hnfm_tasks",
         "--concurrency=2",
         "--hostname=hnfm-worker@%h",
-        "--autoscale=2,4"
+        "--autoscale=2,4",
     ]
 
     print(f"🚀 Starting worker with command: {' '.join(cmd)}")
@@ -59,7 +59,7 @@ def restart_celery_worker():
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
-            bufsize=1
+            bufsize=1,
         )
 
         # Give it a moment to start

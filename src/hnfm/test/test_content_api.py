@@ -8,7 +8,7 @@ from datetime import datetime
 from unittest.mock import Mock, patch
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from hnfm.web.database import ContentDatabase
 from hnfm.web.models import ContentItem, ContentListResponse
@@ -23,24 +23,24 @@ class TestContentAPI:
 
         # Sample test data with all required fields
         self.sample_content = {
-            'id': 'test-123',
-            'title': 'Test Article',
-            'url': 'https://example.com/test',
-            'content_type': 'article',
-            'status': 'completed',
-            'created_at': datetime.now(),
-            'updated_at': datetime.now(),
-            'metadata': {'test': True, 'hn_score': 100},
-            'hn_story_data': {
-                'id': 12345,
-                'type': 'story',  # Required field
-                'time': 1756484396,  # Required field (Unix timestamp)
-                'score': 100,
-                'descendants': 25,
-                'by': 'testuser'
+            "id": "test-123",
+            "title": "Test Article",
+            "url": "https://example.com/test",
+            "content_type": "article",
+            "status": "completed",
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+            "metadata": {"test": True, "hn_score": 100},
+            "hn_story_data": {
+                "id": 12345,
+                "type": "story",  # Required field
+                "time": 1756484396,  # Required field (Unix timestamp)
+                "score": 100,
+                "descendants": 25,
+                "by": "testuser",
             },
-            'processing_steps': ['scraped', 'processed'],
-            'errors': []
+            "processing_steps": ["scraped", "processed"],
+            "errors": [],
         }
 
     def test_content_item_model_validation(self):
@@ -48,7 +48,7 @@ class TestContentAPI:
         try:
             content_item = ContentItem(**self.sample_content)
             # This should work without validation errors
-            assert content_item.title == 'Test Article'
+            assert content_item.title == "Test Article"
             assert content_item.hn_story_data.score == 100
             assert isinstance(content_item.created_at, datetime)
             assert isinstance(content_item.updated_at, datetime)
@@ -65,8 +65,8 @@ class TestContentAPI:
             content_items = []
             for i in range(3):
                 item_data = self.sample_content.copy()
-                item_data['id'] = f'test-{i}'
-                item_data['title'] = f'Test Article {i}'
+                item_data["id"] = f"test-{i}"
+                item_data["title"] = f"Test Article {i}"
                 content_items.append(ContentItem(**item_data))
 
             # Create the response model
@@ -76,7 +76,7 @@ class TestContentAPI:
                 page=1,
                 per_page=10,
                 has_next=False,
-                has_prev=False
+                has_prev=False,
             )
 
             # This should work without validation errors
@@ -98,26 +98,28 @@ class TestContentAPI:
 
             # Test the datetime conversion method
             test_data = {
-                'created_at': datetime.now(),
-                'updated_at': datetime.now(),
-                'nested': {
-                    'timestamp': datetime.now(),
-                    'list': [datetime.now(), datetime.now()]
-                }
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+                "nested": {
+                    "timestamp": datetime.now(),
+                    "list": [datetime.now(), datetime.now()],
+                },
             }
 
             converted = db._convert_all_datetimes(test_data)
 
             # Verify all datetime objects were converted to strings
-            assert isinstance(converted['created_at'], str)
-            assert isinstance(converted['updated_at'], str)
-            assert isinstance(converted['nested']['timestamp'], str)
-            assert all(isinstance(item, str) for item in converted['nested']['list'])
+            assert isinstance(converted["created_at"], str)
+            assert isinstance(converted["updated_at"], str)
+            assert isinstance(converted["nested"]["timestamp"], str)
+            assert all(isinstance(item, str) for item in converted["nested"]["list"])
 
             print("✅ Database datetime conversion test passed")
 
         except Exception as e:
-            print(f"⚠️ Database datetime conversion test failed (Redis may not be available): {e}")
+            print(
+                f"⚠️ Database datetime conversion test failed (Redis may not be available): {e}"
+            )
             # This test is optional if Redis is not available
 
     def test_content_with_nested_datetime_structures(self):
@@ -125,37 +127,35 @@ class TestContentAPI:
         try:
             # Create content with complex nested datetime structures
             complex_content = {
-                'id': 'complex-test',
-                'title': 'Complex Test',
-                'url': 'https://example.com/complex',  # Required field
-                'content_type': 'article',  # Required field
-                'status': 'completed',  # Required field
-                'created_at': datetime.now(),
-                'updated_at': datetime.now(),
-                'metadata': {
-                    'processing_times': {
-                        'scraping': datetime.now(),
-                        'processing': datetime.now(),
-                        'generation': datetime.now()
+                "id": "complex-test",
+                "title": "Complex Test",
+                "url": "https://example.com/complex",  # Required field
+                "content_type": "article",  # Required field
+                "status": "completed",  # Required field
+                "created_at": datetime.now(),
+                "updated_at": datetime.now(),
+                "metadata": {
+                    "processing_times": {
+                        "scraping": datetime.now(),
+                        "processing": datetime.now(),
+                        "generation": datetime.now(),
                     },
-                    'timestamps': [datetime.now(), datetime.now(), datetime.now()],
-                    'nested': {
-                        'deep_timestamp': datetime.now()
-                    }
+                    "timestamps": [datetime.now(), datetime.now(), datetime.now()],
+                    "nested": {"deep_timestamp": datetime.now()},
                 },
-                'hn_story_data': {
-                    'id': 12345,  # Required field
-                    'type': 'story',  # Required field
-                    'time': 1756484396,  # Required field (Unix timestamp)
-                    'score': 100
-                }
+                "hn_story_data": {
+                    "id": 12345,  # Required field
+                    "type": "story",  # Required field
+                    "time": 1756484396,  # Required field (Unix timestamp)
+                    "score": 100,
+                },
             }
 
             # Test that ContentItem can handle this
             content_item = ContentItem(**complex_content)
 
             # Verify the model was created successfully
-            assert content_item.title == 'Complex Test'
+            assert content_item.title == "Complex Test"
             assert content_item.hn_story_data.score == 100
             assert isinstance(content_item.created_at, datetime)
             assert isinstance(content_item.updated_at, datetime)

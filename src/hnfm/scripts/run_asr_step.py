@@ -7,7 +7,7 @@ from pathlib import Path
 # Add src to path (scripts are now in src/hnfm/scripts/)
 sys.path.insert(0, str(Path(__file__).parent / ".." / ".."))
 
-from hnfm.pipeline.enhanced_pipeline_manager import EnhancedPipelineManager
+from hnfm.pipeline.enhanced_pipeline_manager import PipelineManager
 from hnfm.utils.config import config_manager
 
 
@@ -19,7 +19,7 @@ def run_asr_step(story_dir_name: str):
     """
     try:
         # Initialize pipeline manager
-        pipeline = EnhancedPipelineManager(redis_integration=False)
+        pipeline = PipelineManager()
 
         # Construct the story directory path
         story_dir = Path("outputs") / story_dir_name
@@ -78,7 +78,7 @@ def run_asr_step(story_dir_name: str):
         print("\n🔵 STEP ASR PROCESSING")
         print("   ====================")
 
-        result = pipeline.execute_step_with_locking("asr_processing", inputs)
+        result = pipeline.execute_step("asr_processing", inputs)
 
         print(f"\n✅ ASR step completed successfully!")
         print(f"📄 Results saved to: {result['asr_results_path']}")

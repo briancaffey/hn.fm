@@ -16,7 +16,9 @@ def test_video_generation():
     print("=" * 50)
 
     # Paths to the existing story
-    story_dir = Path("outputs/comet_ai_browser_can_get_prompt_injected_from_any_site_drain_your_bank_account_68ab69")
+    story_dir = Path(
+        "outputs/comet_ai_browser_can_get_prompt_injected_from_any_site_drain_your_bank_account_68ab69"
+    )
 
     if not story_dir.exists():
         print(f"❌ Story directory not found: {story_dir}")
@@ -24,7 +26,11 @@ def test_video_generation():
 
     # Required files
     asr_file = story_dir / "content" / "asr.json"
-    audio_file = story_dir / "audio" / "Comet_AI_browser_can_get_prompt_injected_from_any_site,_drain_your_bank_account_final.wav"
+    audio_file = (
+        story_dir
+        / "audio"
+        / "Comet_AI_browser_can_get_prompt_injected_from_any_site,_drain_your_bank_account_final.wav"
+    )
     main_yaml = story_dir / "content" / "main.yaml"
     output_video = story_dir / "content" / "video_with_images.mp4"
 
@@ -46,18 +52,19 @@ def test_video_generation():
         # Debug: Load and check the content data manually
         print("\n🔍 Debug: Loading main.yaml content...")
         import yaml
-        with open(main_yaml, 'r', encoding='utf-8') as f:
+
+        with open(main_yaml, "r", encoding="utf-8") as f:
             content_data = yaml.safe_load(f)
 
         print(f"   Content keys: {list(content_data.keys())}")
         print(f"   Narration type: {type(content_data.get('narration'))}")
 
         # Check the correct structure
-        narration = content_data.get('narration', {})
+        narration = content_data.get("narration", {})
         if isinstance(narration, dict):
             print(f"   Narration keys: {list(narration.keys())}")
-            if 'generated' in narration:
-                generated_groups = narration['generated']
+            if "generated" in narration:
+                generated_groups = narration["generated"]
                 print(f"   Generated groups count: {len(generated_groups)}")
 
                 # Check each generated group
@@ -66,9 +73,13 @@ def test_video_generation():
                     print(f"     - status: {group.get('status')}")
                     print(f"     - image_file: {group.get('image_file')}")
                     print(f"     - has image_file: {bool(group.get('image_file'))}")
-                    print(f"     - status == 'generated': {group.get('status') == 'generated'}")
-                    if group.get('image_file'):
-                        print(f"     - image exists: {Path(group.get('image_file')).exists()}")
+                    print(
+                        f"     - status == 'generated': {group.get('status') == 'generated'}"
+                    )
+                    if group.get("image_file"):
+                        print(
+                            f"     - image exists: {Path(group.get('image_file')).exists()}"
+                        )
                     print()
         else:
             print(f"   Narration is not a dict: {narration}")
@@ -79,7 +90,7 @@ def test_video_generation():
             asr_file_path=str(asr_file),
             audio_file_path=str(audio_file),
             main_yaml_path=str(main_yaml),
-            output_path=str(output_video)
+            output_path=str(output_video),
         )
 
         if result and result.get("success"):
@@ -104,6 +115,7 @@ def test_video_generation():
     except Exception as e:
         print(f"💥 Error during video generation: {e}")
         import traceback
+
         traceback.print_exc()
         return False
 

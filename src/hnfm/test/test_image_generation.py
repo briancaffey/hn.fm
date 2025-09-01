@@ -19,14 +19,14 @@ def test_single_image_generation():
     service = ImageGenerationService()
 
     # Test prompt
-    prompt = "a cozy coffee shop interior with warm lighting and people working on laptops"
+    prompt = (
+        "a cozy coffee shop interior with warm lighting and people working on laptops"
+    )
 
     try:
         # Generate and save image
         output_path = service.generate_and_save_image(
-            prompt=prompt,
-            output_dir="test/images",
-            filename="coffee_shop_test.png"
+            prompt=prompt, output_dir="test/images", filename="coffee_shop_test.png"
         )
         print(f"✅ Successfully generated image: {output_path}")
 
@@ -46,7 +46,7 @@ def test_multiple_images():
     prompts = [
         "a modern tech office with developers working",
         "a beautiful sunset over a city skyline",
-        "a peaceful forest path with sunlight filtering through trees"
+        "a peaceful forest path with sunlight filtering through trees",
     ]
 
     generated_images = []
@@ -55,9 +55,7 @@ def test_multiple_images():
         try:
             filename = f"test_image_{i+1}.png"
             output_path = service.generate_and_save_image(
-                prompt=prompt,
-                output_dir="test/images",
-                filename=filename
+                prompt=prompt, output_dir="test/images", filename=filename
             )
             generated_images.append(output_path)
             print(f"✅ Generated image {i+1}: {output_path}")

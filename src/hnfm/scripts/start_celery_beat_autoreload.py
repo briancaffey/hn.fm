@@ -56,7 +56,7 @@ def restart_celery_beat():
         "beat",
         "--loglevel=info",
         f"--pidfile={PIDFILE}",
-        "--scheduler=celery.beat.PersistentScheduler"
+        "--scheduler=celery.beat.PersistentScheduler",
     ]
 
     print(f"🚀 Starting Beat with command: {' '.join(cmd)}")
@@ -66,7 +66,7 @@ def restart_celery_beat():
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             universal_newlines=True,
-            bufsize=1
+            bufsize=1,
         )
 
         # Give it a moment to start

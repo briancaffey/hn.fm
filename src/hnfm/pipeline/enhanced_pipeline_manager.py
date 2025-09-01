@@ -1,4 +1,4 @@
-"""Enhanced pipeline manager with Redis-first design and service locking"""
+"""Simple pipeline manager for hn.fm"""
 
 import os
 import json
@@ -31,55 +31,48 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class EnhancedPipelineStep:
-    """Enhanced pipeline step with locking and versioning support"""
+class PipelineStep:
+    """Simple pipeline step"""
 
     name: str
     description: str
     dependencies: List[str]
     cache_key: str
     output_files: List[str]
-    service_name: str  # Service that needs to be locked
-    lock_timeout: int = 300  # Lock timeout in seconds
     completed: bool = False
     start_time: Optional[datetime] = None
     end_time: Optional[datetime] = None
     error: Optional[str] = None
-    version: int = 1
     artifacts: Dict[str, str] = None
     metadata: Dict[str, Any] = None
 
 
 @dataclass
-class EnhancedPipelineState:
-    """Enhanced pipeline state with Redis integration"""
+class PipelineState:
+    """Simple pipeline state"""
 
     story_id: str
     story_title: str
     current_step: str
-    steps: Dict[str, EnhancedPipelineStep]
+    steps: Dict[str, PipelineStep]
     metadata: Dict[str, Any]
     created_at: datetime
     updated_at: datetime
-    manifest_id: Optional[str] = None
-    redis_synced: bool = False
 
 
-class EnhancedPipelineManager:
-    """Enhanced pipeline manager with Redis-first design and service locking"""
+class PipelineManager:
+    """Simple pipeline manager for hn.fm"""
 
     def __init__(
         self,
         cache_dir: Optional[str] = None,
         text_only: bool = False,
-        redis_integration: bool = True,
     ):
-        """Initialize enhanced pipeline manager.
+        """Initialize pipeline manager.
 
         Args:
             cache_dir: Cache directory path
             text_only: If True, only generate text content (no TTS, images, or video)
-            redis_integration: Whether to use Redis integration
         """
         self.cache_dir = Path(
             cache_dir or config_manager.get("pipeline.cache.directory", "cache")
@@ -87,131 +80,90 @@ class EnhancedPipelineManager:
         self.cache_dir.mkdir(exist_ok=True)
 
         self.text_only = text_only
-        self.redis_integration = redis_integration
 
         # Initialize services lazily to avoid dependency issues
         self._services = {}
 
-        # Enhanced pipeline steps definition
-        self.pipeline_steps = self._define_enhanced_pipeline_steps()
+        # Pipeline steps definition
+        self.pipeline_steps = self._define_pipeline_steps()
 
         if text_only:
             logger.info(
                 "Running in text-only mode - TTS, image, and video generation will be skipped"
             )
 
-        if redis_integration:
-            logger.info(
-                "Redis integration enabled - using enhanced locking and versioning"
-            )
-
-        # Initialize Redis components if integration is enabled
-        self.redis_repo = None
-        self.lock_manager = None
-        if redis_integration:
-            try:
-                from hnfm.web.redis_repo import RedisRepository
-                from hnfm.web.locks import ServiceLockManager
-
-                self.redis_repo = RedisRepository()
-                self.lock_manager = ServiceLockManager(self.redis_repo.redis_client)
-                logger.info("Redis components initialized successfully")
-            except ImportError as e:
-                logger.warning(f"Redis integration not available: {e}")
-                self.redis_integration = False
-
-    def _define_enhanced_pipeline_steps(self) -> Dict[str, EnhancedPipelineStep]:
-        """Define the enhanced pipeline steps with service locking information."""
+    def _define_pipeline_steps(self) -> Dict[str, PipelineStep]:
+        """Define the pipeline steps."""
         base_steps = {
-            "system_check": EnhancedPipelineStep(
+            "system_check": PipelineStep(
                 name="system_check",
                 description="Check all required services are running",
                 dependencies=[],
                 cache_key="system_status",
                 output_files=["system_status.json"],
-                service_name="system",
-                lock_timeout=60,
             ),
-            "hn_scraping": EnhancedPipelineStep(
+            "hn_scraping": PipelineStep(
                 name="hn_scraping",
                 description="Scrape Hacker News articles",
                 dependencies=["system_check"],
                 cache_key="hn_articles",
                 output_files=["hn_articles.json"],
-                service_name="hn_api",
-                lock_timeout=120,
             ),
-            "firecrawl_content": EnhancedPipelineStep(
+            "firecrawl_content": PipelineStep(
                 name="firecrawl_content",
                 description="Extract content using Firecrawl",
                 dependencies=["hn_scraping"],
                 cache_key="firecrawl_content",
                 output_files=["raw_content.md", "processed_content.json"],
-                service_name="firecrawl",
-                lock_timeout=300,
             ),
-            "content_processing": EnhancedPipelineStep(
+            "content_processing": PipelineStep(
                 name="content_processing",
                 description="Process and clean content",
                 dependencies=["firecrawl_content"],
                 cache_key="processed_content",
                 output_files=["cleaned_content.md", "meaningful_paragraphs.json"],
-                service_name="llm",
-                lock_timeout=600,
             ),
-            "script_generation": EnhancedPipelineStep(
+            "script_generation": PipelineStep(
                 name="script_generation",
                 description="Generate podcast script with [S1]/[S2] tags",
                 dependencies=["content_processing"],
                 cache_key="script",
                 output_files=["script.md", "script_metadata.json"],
-                service_name="llm",
-                lock_timeout=600,
             ),
-            "tts_generation": EnhancedPipelineStep(
+            "tts_generation": PipelineStep(
                 name="tts_generation",
                 description="Generate TTS audio in batches",
                 dependencies=["script_generation"],
                 cache_key="tts_audio",
                 output_files=["tts_lines_*.txt", "audio_*.wav"],
-                service_name="tts",
-                lock_timeout=1800,
             ),
-            "audio_cleaning": EnhancedPipelineStep(
+            "audio_cleaning": PipelineStep(
                 name="audio_cleaning",
                 description="Clean audio using Studio Voice",
                 dependencies=["tts_generation"],
                 cache_key="cleaned_audio",
                 output_files=["cleaned_audio_*.wav"],
-                service_name="studio_voice",
-                lock_timeout=900,
             ),
-            "audio_assembly": EnhancedPipelineStep(
+            "audio_assembly": PipelineStep(
                 name="audio_assembly",
                 description="Combine all audio into final file",
                 dependencies=["audio_cleaning"],
                 cache_key="final_audio",
                 output_files=["final_audio.wav", "final_audio.mp3"],
-                service_name="audio_processor",
-                lock_timeout=300,
             ),
-            "image_generation": EnhancedPipelineStep(
+            "image_generation": PipelineStep(
                 name="image_generation",
                 description="Generate images for video",
                 dependencies=["script_generation"],
                 cache_key="images",
                 output_files=["image_*.png", "image_*.jpg"],
-                service_name="vision",
-                lock_timeout=1200,
             ),
-            "video_generation": EnhancedPipelineStep(
+            "video_generation": PipelineStep(
                 name="video_generation",
                 description="Create final video with audio and images",
                 dependencies=["audio_assembly", "image_generation"],
                 cache_key="video",
                 output_files=["final_video.mp4"],
-                service_name="video",
-                lock_timeout=1800,
             ),
         }
 
@@ -261,44 +213,24 @@ class EnhancedPipelineManager:
 
         return self._services[service_name]
 
-    def execute_step_with_locking(
+    def execute_step(
         self,
         step_name: str,
         manifest_data: Dict[str, Any],
         segment_data: Dict[str, Any] = None,
     ) -> Dict[str, Any]:
-        """Execute a pipeline step with proper service locking."""
-
-        if not self.redis_integration or not self.lock_manager:
-            logger.warning("Redis integration not available, executing without locking")
-            return self._execute_step_directly(step_name, manifest_data)
-
-        step = self.pipeline_steps.get(step_name)
-        if not step:
-            raise ValueError(f"Unknown pipeline step: {step_name}")
-
-        service_name = step.service_name
-        lock_timeout = step.lock_timeout
-
-        logger.info(f"Executing step {step_name} with service lock on {service_name}")
-
-        with self.lock_manager.service_lock(service_name, lock_timeout):
-            return self._execute_step_directly(step_name, manifest_data, segment_data)
-
-    def _execute_step_directly(
-        self,
-        step_name: str,
-        manifest_data: Dict[str, Any],
-        segment_data: Dict[str, Any] = None,
-    ) -> Dict[str, Any]:
-        """Execute a pipeline step directly without locking."""
-        logger.info(f"Executing pipeline step directly: {step_name}")
+        """Execute a pipeline step."""
+        logger.info(f"Executing pipeline step: {step_name}")
         logger.debug(f"Manifest data: {manifest_data}")
         if segment_data:
             logger.debug(f"Segment data: {segment_data}")
 
-        # Execute the step using enhanced pipeline logic
-        if step_name == "firecrawl_content":
+        # Execute the step using pipeline logic
+        if step_name == "system_check":
+            return self._execute_system_check(manifest_data)
+        elif step_name == "hn_scraping":
+            return self._execute_hn_scraping(manifest_data)
+        elif step_name == "firecrawl_content":
             return self._execute_firecrawl_content(manifest_data)
         elif step_name == "content_processing":
             return self._execute_content_processing(manifest_data)
@@ -306,490 +238,440 @@ class EnhancedPipelineManager:
             return self._execute_script_generation(manifest_data)
         elif step_name == "tts_generation":
             return self._execute_tts_generation(manifest_data)
+        elif step_name == "audio_cleaning":
+            return self._execute_audio_cleaning(manifest_data)
+        elif step_name == "audio_assembly":
+            return self._execute_audio_assembly(manifest_data)
         elif step_name == "image_generation":
             return self._execute_image_generation(manifest_data)
         elif step_name == "video_generation":
             return self._execute_video_generation(manifest_data)
+        elif step_name == "asr_processing":
+            return self._execute_asr_processing(manifest_data)
         else:
-            raise ValueError(
-                f"Step {step_name} not implemented in enhanced pipeline manager"
-            )
+            raise ValueError(f"Unknown pipeline step: {step_name}")
 
-    def get_enhanced_pipeline_status(self, content_id: str) -> Optional[Dict[str, Any]]:
-        """Get enhanced pipeline status for a content item."""
-        if not self.redis_integration or not self.redis_repo:
-            logger.warning(
-                "Redis integration not available, cannot get enhanced status"
-            )
-            return None
+    def _execute_system_check(self, manifest_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute system check step."""
+        logger.info("Executing system check")
+
+        # Check if required services are available
+        services_status = {}
 
         try:
-            status = self.redis_repo.get_enhanced_pipeline_status(content_id)
-            if status:
-                return status.dict()
-            return None
+            # Check TTS service
+            tts_service = self._get_service("tts_service")
+            services_status["tts"] = "available"
         except Exception as e:
-            logger.error(f"Error getting enhanced pipeline status: {e}")
-            return None
-
-    def retry_failed_step(
-        self, content_id: str, step_name: str
-    ) -> Optional[Dict[str, Any]]:
-        """Retry a failed pipeline step."""
-        if not self.redis_integration or not self.redis_repo:
-            logger.warning("Redis integration not available, cannot retry step")
-            return None
+            services_status["tts"] = f"error: {e}"
 
         try:
-            # Find the failed segment
-            manifest = self.redis_repo.get_or_create_manifest(content_id)
-            segment = manifest.segments.get(step_name)
-
-            if not segment or segment.status != "failed":
-                logger.warning(f"No failed segment found for {step_name}")
-                return None
-
-            # Retry the segment
-            new_segment = self.redis_repo.retry_segment(segment.segment_id)
-
-            if new_segment:
-                logger.info(
-                    f"Successfully retried step {step_name} as {new_segment.segment_id}"
-                )
-                return {
-                    "step_name": step_name,
-                    "new_segment_id": new_segment.segment_id,
-                    "status": "retry_initiated",
-                }
-
-            return None
-
+            # Check image generation service
+            image_service = self._get_service("image_generator")
+            services_status["image_generation"] = "available"
         except Exception as e:
-            logger.error(f"Error retrying failed step {step_name}: {e}")
-            return None
+            services_status["image_generation"] = f"error: {e}"
 
-    def cleanup_old_versions(
-        self, content_id: str, keep_versions: int = 2
+        try:
+            # Check video generation service
+            video_service = self._get_service("video_generator")
+            services_status["video_generation"] = "available"
+        except Exception as e:
+            services_status["video_generation"] = f"error: {e}"
+
+        # Save system status
+        system_status_file = self.cache_dir / "system_status.json"
+        with open(system_status_file, "w") as f:
+            json.dump(services_status, f, indent=2)
+
+        return {
+            "artifacts": {"system_status.json": str(system_status_file)},
+            "metadata": {"services_status": services_status},
+        }
+
+    def _execute_hn_scraping(self, manifest_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute HN scraping step."""
+        logger.info("Executing HN scraping")
+
+        hn_scraper = self._get_service("hn_scraper")
+        articles = hn_scraper.scrape_articles()
+
+        # Save articles
+        articles_file = self.cache_dir / "hn_articles.json"
+        with open(articles_file, "w") as f:
+            json.dump(articles, f, indent=2)
+
+        return {
+            "artifacts": {"hn_articles.json": str(articles_file)},
+            "metadata": {"articles_count": len(articles)},
+        }
+
+    def _execute_firecrawl_content(
+        self, manifest_data: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Clean up old versions of pipeline steps."""
-        if not self.redis_integration or not self.redis_repo:
-            logger.warning("Redis integration not available, cannot cleanup versions")
-            return {"cleaned_count": 0, "error": "Redis integration not available"}
+        """Execute Firecrawl content extraction step."""
+        logger.info("Executing Firecrawl content extraction")
 
-        try:
-            manifest = self.redis_repo.get_or_create_manifest(content_id)
-            cleaned_count = 0
+        # Get the selected article from manifest data
+        selected_article = manifest_data.get("selected_article", {})
+        url = selected_article.get("url")
+        title = selected_article.get("title", "Unknown Title")
 
-            for step_name, segment in manifest.segments.items():
-                if segment.status == "completed" and segment.version > keep_versions:
-                    # Remove old segment
-                    segment_key = f"hnfm:segments:{content_id}:{step_name}"
-                    self.redis_repo.redis_client.delete(segment_key)
-                    cleaned_count += 1
-                    logger.info(f"Cleaned up old segment {segment.segment_id}")
+        if not url:
+            raise ValueError("No URL provided for content extraction")
 
-            return {
-                "cleaned_count": cleaned_count,
-                "content_id": content_id,
-                "keep_versions": keep_versions,
-            }
+        content_scraper = self._get_service("content_scraper")
+        raw_content = content_scraper.extract_content(url)
 
-        except Exception as e:
-            logger.error(f"Error cleaning up old versions: {e}")
-            return {"cleaned_count": 0, "error": str(e)}
+        # Save raw content
+        raw_content_file = self.cache_dir / "raw_content.md"
+        with open(raw_content_file, "w", encoding="utf-8") as f:
+            f.write(raw_content)
 
-    def get_service_lock_status(self) -> Dict[str, Any]:
-        """Get status of all service locks."""
-        if not self.redis_integration or not self.lock_manager:
-            return {"error": "Redis integration not available"}
+        # Save processed content
+        processed_content = {
+            "url": url,
+            "title": title,
+            "raw_content": raw_content,
+            "extracted_at": datetime.now().isoformat(),
+        }
+        processed_content_file = self.cache_dir / "processed_content.json"
+        with open(processed_content_file, "w") as f:
+            json.dump(processed_content, f, indent=2)
 
-        try:
-            service_names = [
-                "firecrawl",
-                "llm",
-                "tts",
-                "vision",
-                "video",
-                "studio_voice",
-                "audio_processor",
-            ]
-            lock_statuses = {}
+        return {
+            "artifacts": {
+                "raw_content.md": str(raw_content_file),
+                "processed_content.json": str(processed_content_file),
+            },
+            "metadata": {
+                "url": url,
+                "title": title,
+                "content_length": len(raw_content),
+            },
+        }
 
-            for service_name in service_names:
-                is_locked = self.lock_manager.is_service_locked(service_name)
-                lock_info = (
-                    self.lock_manager.get_lock_info(service_name) if is_locked else None
+    def _execute_content_processing(
+        self, manifest_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute content processing step."""
+        logger.info("Executing content processing")
+
+        # Get raw content from previous step
+        raw_content_file = self.cache_dir / "raw_content.md"
+        if not raw_content_file.exists():
+            raise FileNotFoundError("Raw content file not found")
+
+        with open(raw_content_file, "r", encoding="utf-8") as f:
+            raw_content = f.read()
+
+        content_processor = self._get_service("content_processor")
+        cleaned_content = content_processor.process_content(raw_content)
+
+        # Save cleaned content
+        cleaned_content_file = self.cache_dir / "cleaned_content.md"
+        with open(cleaned_content_file, "w", encoding="utf-8") as f:
+            f.write(cleaned_content)
+
+        # Extract meaningful paragraphs
+        meaningful_paragraphs = content_processor.extract_meaningful_paragraphs(
+            cleaned_content
+        )
+        paragraphs_file = self.cache_dir / "meaningful_paragraphs.json"
+        with open(paragraphs_file, "w") as f:
+            json.dump(meaningful_paragraphs, f, indent=2)
+
+        return {
+            "artifacts": {
+                "cleaned_content.md": str(cleaned_content_file),
+                "meaningful_paragraphs.json": str(paragraphs_file),
+            },
+            "metadata": {
+                "cleaned_content_length": len(cleaned_content),
+                "paragraphs_count": len(meaningful_paragraphs),
+            },
+        }
+
+    def _execute_script_generation(
+        self, manifest_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute script generation step."""
+        logger.info("Executing script generation")
+
+        # Get cleaned content from previous step
+        cleaned_content_file = self.cache_dir / "cleaned_content.md"
+        if not cleaned_content_file.exists():
+            raise FileNotFoundError("Cleaned content file not found")
+
+        with open(cleaned_content_file, "r", encoding="utf-8") as f:
+            cleaned_content = f.read()
+
+        script_generator = self._get_service("script_generator")
+        script_content = script_generator.generate_script(cleaned_content)
+
+        # Save script
+        script_file = self.cache_dir / "script.md"
+        with open(script_file, "w", encoding="utf-8") as f:
+            f.write(script_content)
+
+        # Save script metadata
+        script_metadata = {
+            "generated_at": datetime.now().isoformat(),
+            "script_length": len(script_content),
+            "lines_count": len(script_content.split("\n")),
+        }
+        script_metadata_file = self.cache_dir / "script_metadata.json"
+        with open(script_metadata_file, "w") as f:
+            json.dump(script_metadata, f, indent=2)
+
+        return {
+            "artifacts": {
+                "script.md": str(script_file),
+                "script_metadata.json": str(script_metadata_file),
+            },
+            "metadata": {
+                "script_length": len(script_content),
+                "lines_count": len(script_content.split("\n")),
+            },
+        }
+
+    def _execute_tts_generation(self, manifest_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute TTS generation step."""
+        if self.text_only:
+            logger.info("Skipping TTS generation in text-only mode")
+            return {"artifacts": {}, "metadata": {"skipped": True}}
+
+        logger.info("Executing TTS generation")
+
+        # Get script from previous step
+        script_file = self.cache_dir / "script.md"
+        if not script_file.exists():
+            raise FileNotFoundError("Script file not found")
+
+        with open(script_file, "r", encoding="utf-8") as f:
+            script_content = f.read()
+
+        tts_service = self._get_service("tts_service")
+
+        # Split script into lines and generate TTS for each
+        lines = script_content.split("\n")
+        audio_files = []
+        tts_lines = []
+
+        for i, line in enumerate(lines):
+            if line.strip():
+                audio_file = self.cache_dir / f"audio_{i:03d}.wav"
+                tts_service.generate_audio(line, str(audio_file))
+                audio_files.append(str(audio_file))
+                tts_lines.append(
+                    {"line_number": i, "text": line, "audio_file": str(audio_file)}
                 )
 
-                lock_statuses[service_name] = {
-                    "is_locked": is_locked,
-                    "lock_info": lock_info,
-                }
+        # Save TTS lines info
+        tts_lines_file = self.cache_dir / "tts_lines.json"
+        with open(tts_lines_file, "w") as f:
+            json.dump(tts_lines, f, indent=2)
 
-            return {"timestamp": datetime.now().isoformat(), "services": lock_statuses}
+        return {
+            "artifacts": {
+                "tts_lines.json": str(tts_lines_file),
+                **{
+                    f"audio_{i:03d}.wav": audio_files[i]
+                    for i in range(len(audio_files))
+                },
+            },
+            "metadata": {
+                "audio_files_count": len(audio_files),
+                "lines_processed": len(tts_lines),
+            },
+        }
 
-        except Exception as e:
-            logger.error(f"Error getting service lock status: {e}")
-            return {"error": str(e)}
+    def _execute_audio_cleaning(self, manifest_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute audio cleaning step."""
+        if self.text_only:
+            logger.info("Skipping audio cleaning in text-only mode")
+            return {"artifacts": {}, "metadata": {"skipped": True}}
 
-    def force_release_service_lock(self, service_name: str) -> Dict[str, Any]:
-        """Force release a service lock (use with caution)."""
-        if not self.redis_integration or not self.lock_manager:
-            return {"error": "Redis integration not available"}
+        logger.info("Executing audio cleaning")
 
-        try:
-            success = self.lock_manager.force_release_lock(service_name)
-            return {
-                "service_name": service_name,
-                "force_released": success,
-                "timestamp": datetime.now().isoformat(),
-            }
+        # Get TTS lines info
+        tts_lines_file = self.cache_dir / "tts_lines.json"
+        if not tts_lines_file.exists():
+            raise FileNotFoundError("TTS lines file not found")
 
-        except Exception as e:
-            logger.error(f"Error force releasing lock for {service_name}: {e}")
-            return {"error": str(e)}
+        with open(tts_lines_file, "r") as f:
+            tts_lines = json.load(f)
+
+        studio_voice_service = self._get_service("studio_voice_service")
+
+        cleaned_audio_files = []
+        for line_info in tts_lines:
+            input_audio = line_info["audio_file"]
+            output_audio = (
+                self.cache_dir / f"cleaned_audio_{line_info['line_number']:03d}.wav"
+            )
+            studio_voice_service.clean_audio(input_audio, str(output_audio))
+            cleaned_audio_files.append(str(output_audio))
+
+        return {
+            "artifacts": {
+                **{
+                    f"cleaned_audio_{i:03d}.wav": cleaned_audio_files[i]
+                    for i in range(len(cleaned_audio_files))
+                },
+            },
+            "metadata": {
+                "cleaned_audio_files_count": len(cleaned_audio_files),
+            },
+        }
+
+    def _execute_audio_assembly(self, manifest_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute audio assembly step."""
+        if self.text_only:
+            logger.info("Skipping audio assembly in text-only mode")
+            return {"artifacts": {}, "metadata": {"skipped": True}}
+
+        logger.info("Executing audio assembly")
+
+        # Get cleaned audio files
+        cleaned_audio_files = list(self.cache_dir.glob("cleaned_audio_*.wav"))
+        cleaned_audio_files.sort()
+
+        if not cleaned_audio_files:
+            raise FileNotFoundError("No cleaned audio files found")
+
+        audio_processor = self._get_service("audio_processor")
+
+        # Combine all audio files
+        final_audio_wav = self.cache_dir / "final_audio.wav"
+        final_audio_mp3 = self.cache_dir / "final_audio.mp3"
+
+        audio_processor.combine_audio_files(
+            [str(f) for f in cleaned_audio_files], str(final_audio_wav)
+        )
+
+        # Convert to MP3
+        audio_processor.convert_to_mp3(str(final_audio_wav), str(final_audio_mp3))
+
+        return {
+            "artifacts": {
+                "final_audio.wav": str(final_audio_wav),
+                "final_audio.mp3": str(final_audio_mp3),
+            },
+            "metadata": {
+                "input_files_count": len(cleaned_audio_files),
+                "final_audio_duration": "calculated",  # Would need to calculate actual duration
+            },
+        }
+
+    def _execute_image_generation(
+        self, manifest_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute image generation step."""
+        if self.text_only:
+            logger.info("Skipping image generation in text-only mode")
+            return {"artifacts": {}, "metadata": {"skipped": True}}
+
+        logger.info("Executing image generation")
+
+        # Get script from previous step
+        script_file = self.cache_dir / "script.md"
+        if not script_file.exists():
+            raise FileNotFoundError("Script file not found")
+
+        with open(script_file, "r", encoding="utf-8") as f:
+            script_content = f.read()
+
+        image_service = self._get_service("image_generator")
+
+        # Generate images for key moments in the script
+        lines = script_content.split("\n")
+        image_files = []
+
+        for i, line in enumerate(lines):
+            if line.strip() and "[S1]" in line:  # Generate image for speaker 1 lines
+                image_file = self.cache_dir / f"image_{i:03d}.png"
+                image_service.generate_image(line, str(image_file))
+                image_files.append(str(image_file))
+
+        return {
+            "artifacts": {
+                **{
+                    f"image_{i:03d}.png": image_files[i]
+                    for i in range(len(image_files))
+                },
+            },
+            "metadata": {
+                "images_generated": len(image_files),
+            },
+        }
+
+    def _execute_video_generation(
+        self, manifest_data: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Execute video generation step."""
+        if self.text_only:
+            logger.info("Skipping video generation in text-only mode")
+            return {"artifacts": {}, "metadata": {"skipped": True}}
+
+        logger.info("Executing video generation")
+
+        # Get final audio and images
+        final_audio = self.cache_dir / "final_audio.mp3"
+        image_files = list(self.cache_dir.glob("image_*.png"))
+        image_files.sort()
+
+        if not final_audio.exists():
+            raise FileNotFoundError("Final audio file not found")
+
+        video_service = self._get_service("video_generator")
+
+        # Create final video
+        final_video = self.cache_dir / "final_video.mp4"
+        video_service.create_video(
+            str(final_audio), [str(f) for f in image_files], str(final_video)
+        )
+
+        return {
+            "artifacts": {
+                "final_video.mp4": str(final_video),
+            },
+            "metadata": {
+                "input_audio": str(final_audio),
+                "input_images_count": len(image_files),
+            },
+        }
+
+    def _execute_asr_processing(self, manifest_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Execute ASR processing step."""
+        logger.info("Executing ASR processing")
+
+        # Get audio file from manifest
+        audio_file = manifest_data.get("audio_file")
+        if not audio_file:
+            raise ValueError("No audio file provided for ASR processing")
+
+        asr_service = self._get_service("asr_service")
+        transcript = asr_service.transcribe_audio(audio_file)
+
+        # Save transcript
+        transcript_file = self.cache_dir / "transcript.txt"
+        with open(transcript_file, "w", encoding="utf-8") as f:
+            f.write(transcript)
+
+        return {
+            "artifacts": {
+                "transcript.txt": str(transcript_file),
+            },
+            "metadata": {
+                "transcript_length": len(transcript),
+                "audio_file": audio_file,
+            },
+        }
 
     def _create_story_directory(self, title: str) -> Path:
         """Create a story-specific output directory."""
-        # Sanitize the title for use as a directory name
-        safe_title = sanitize_filename(title)
-        story_dir = self.cache_dir / safe_title
+        sanitized_title = sanitize_filename(title)
+        story_dir = self.cache_dir / sanitized_title
         story_dir.mkdir(exist_ok=True)
         return story_dir
-
-    def _execute_firecrawl_content(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute Firecrawl content extraction step."""
-        try:
-            # Get the selected article from previous step
-            selected_article = inputs.get("selected_article")
-            if not selected_article:
-                raise RuntimeError("No selected article found in inputs")
-
-            url = selected_article.get("url")
-            title = selected_article.get("title", "Unknown Title")
-
-            # Debug logging
-            logger.debug(f"Selected article: {selected_article}")
-            logger.debug(f"Title extracted: {title}")
-            logger.debug(f"URL extracted: {url}")
-
-            if not url:
-                raise RuntimeError("No URL found in selected article")
-
-            print(f"   🌐 Extracting content from: {url}")
-            print(f"   📖 Article title: {title}")
-            logger.info(f"🌐 Extracting content from: {url}")
-            logger.info(f"📖 Article title: {title}")
-
-            # Create story-specific output directory
-            story_dir = self._create_story_directory(title)
-            content_dir = story_dir / "content"
-            content_dir.mkdir(exist_ok=True)
-
-            # Save HN metadata to hn.yaml file
-            hn_scraper = self._get_service("hn_scraper")
-            selected_article_id = selected_article.get("id")
-            if selected_article_id:
-                hn_metadata_path = hn_scraper.save_story_metadata(
-                    selected_article_id, content_dir
-                )
-                if hn_metadata_path:
-                    print(f"   📊 Saved HN metadata to: {hn_metadata_path.name}")
-                    logger.info(f"📊 Saved HN metadata to: {hn_metadata_path}")
-                else:
-                    print(f"   ⚠️ Failed to save HN metadata")
-                    logger.warning(
-                        f"Failed to save HN metadata for article {selected_article_id}"
-                    )
-
-            # Extract content using Firecrawl
-            content_scraper = self._get_service("content_scraper")
-            extracted_content = content_scraper.extract_content(url)
-
-            if not extracted_content:
-                raise RuntimeError("No content extracted from URL")
-
-            # Save raw content to markdown file
-            raw_content_path = content_dir / "raw_content.md"
-            with open(raw_content_path, "w", encoding="utf-8") as f:
-                f.write(extracted_content.get("content", ""))
-
-            # Save processed content data
-            processed_content_path = content_dir / "processed_content.json"
-            with open(processed_content_path, "w", encoding="utf-8") as f:
-                json.dump(extracted_content, f, indent=2, ensure_ascii=False)
-
-            # Clear, high-level content extraction logging
-            content_length = len(extracted_content.get("content", ""))
-            print(f"   ✅ Content extracted: {content_length:,} characters")
-            print(f"   📁 Saved to: {Path(content_dir).name}")
-
-            logger.info(f"✅ Content extracted successfully")
-            logger.info(f"📝 Content length: {content_length} characters")
-            logger.info(f"📁 Saved to: {content_dir}")
-
-            # Log what we're returning
-            logger.debug(f"🔍 Firecrawl content outputs:")
-            logger.debug(f"🔍 Title: {title}")
-            logger.debug(f"🔍 Story dir: {story_dir}")
-            logger.debug(f"🔍 Content dir: {content_dir}")
-
-            return {
-                "raw_content": extracted_content.get("content", ""),
-                "title": title,
-                "url": url,
-                "story_dir": str(story_dir),
-                "content_dir": str(content_dir),
-                "raw_content_path": str(raw_content_path),
-                "processed_content_path": str(processed_content_path),
-                "hn_metadata_path": (
-                    str(hn_metadata_path) if "hn_metadata_path" in locals() else None
-                ),
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to extract content: {e}")
-            raise RuntimeError(f"Content extraction failed: {e}")
-
-    def _execute_content_processing(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute content processing step."""
-        try:
-            raw_content = inputs.get("raw_content")
-            content_dir = inputs.get("content_dir")
-
-            if not raw_content:
-                raise RuntimeError("No raw content found in inputs")
-            if not content_dir:
-                raise RuntimeError("No content directory found in inputs")
-
-            logger.debug("🧹 Processing and cleaning content...")
-
-            # Use the existing content processor
-            content_processor = self._get_service("content_processor")
-
-            # Clean the markdown content
-            cleaned_content = content_processor._clean_markdown(raw_content)
-
-            # Extract meaningful paragraphs
-            meaningful_paragraphs = content_processor.extract_meaningful_paragraphs(
-                cleaned_content
-            )
-
-            # Save cleaned content to markdown file
-            cleaned_content_path = Path(content_dir) / "cleaned_content.md"
-            with open(cleaned_content_path, "w", encoding="utf-8") as f:
-                f.write(cleaned_content)
-
-            # Save meaningful paragraphs to JSON file
-            meaningful_paragraphs_path = (
-                Path(content_dir) / "meaningful_paragraphs.json"
-            )
-            with open(meaningful_paragraphs_path, "w", encoding="utf-8") as f:
-                json.dump(
-                    {
-                        "paragraphs": meaningful_paragraphs,
-                        "count": len(meaningful_paragraphs),
-                        "processed_at": datetime.now().isoformat(),
-                    },
-                    f,
-                    indent=2,
-                    ensure_ascii=False,
-                )
-
-            # Clear, high-level content processing logging
-            print(
-                f"   ✅ Content processed: {len(cleaned_content):,} chars → {len(meaningful_paragraphs)} paragraphs"
-            )
-            print(f"   📁 Saved to: {Path(content_dir).name}")
-
-            logger.info(f"✅ Content processed successfully")
-            logger.info(f"📝 Cleaned content length: {len(cleaned_content)} characters")
-            logger.info(f"📄 Meaningful paragraphs: {len(meaningful_paragraphs)}")
-            logger.info(f"📁 Saved to: {content_dir}")
-
-            # Log what we're passing through
-            logger.debug(f"🔍 Content processing outputs:")
-            logger.debug(f"🔍 Title: {inputs.get('title')}")
-            logger.debug(f"🔍 Story dir: {inputs.get('story_dir')}")
-            logger.debug(f"🔍 Content dir: {inputs.get('content_dir')}")
-
-            return {
-                "cleaned_content": cleaned_content,
-                "meaningful_paragraphs": meaningful_paragraphs,
-                "cleaned_content_path": str(cleaned_content_path),
-                "meaningful_paragraphs_path": str(meaningful_paragraphs_path),
-                "title": inputs.get("title"),  # Pass through the title
-                "story_dir": inputs.get(
-                    "story_dir"
-                ),  # Pass through the story directory
-                "content_dir": inputs.get(
-                    "content_dir"
-                ),  # Pass through the content directory
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to process content: {e}")
-            raise RuntimeError(f"Content processing failed: {e}")
-
-    def _execute_script_generation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute script generation step."""
-        try:
-            meaningful_paragraphs = inputs.get("meaningful_paragraphs")
-            title = inputs.get("title", "Unknown Title")
-            content_dir = inputs.get("content_dir")
-
-            # Debug logging to see what inputs we have
-            logger.debug(f"Script generation inputs keys: {list(inputs.keys())}")
-            logger.debug(f"Title from inputs: {title}")
-            logger.debug(f"Content dir from inputs: {content_dir}")
-            logger.debug(
-                f"Meaningful paragraphs count: {len(meaningful_paragraphs) if meaningful_paragraphs else 'None'}"
-            )
-
-            if not meaningful_paragraphs:
-                raise RuntimeError("No meaningful paragraphs found in inputs")
-            if not content_dir:
-                raise RuntimeError("No content directory found in inputs")
-
-            logger.info("📝 Generating podcast script...")
-
-            # Use the existing script generator
-            script_generator = self._get_service("script_generator")
-
-            # Generate script from content
-            script_data = script_generator.generate_script_from_content(
-                title, meaningful_paragraphs
-            )
-
-            # Save script to markdown file
-            script_path = Path(content_dir) / "script.md"
-            with open(script_path, "w", encoding="utf-8") as f:
-                f.write(script_data.get("script", ""))
-
-            # Save script metadata to JSON file
-            script_metadata_path = Path(content_dir) / "script_metadata.json"
-            with open(script_metadata_path, "w", encoding="utf-8") as f:
-                json.dump(script_data, f, indent=2, ensure_ascii=False)
-
-            # Clear, high-level script generation logging
-            script_length = len(script_data.get("script", ""))
-            print(f"   ✅ Script generated: {script_length:,} characters")
-            print(f"   📁 Saved to: {Path(content_dir).name}")
-
-            logger.info(f"✅ Script generated successfully")
-            logger.info(f"📝 Script length: {script_length} characters")
-            logger.info(f"📁 Saved to: {content_dir}")
-
-            # Log what we're passing through
-            logger.debug(f"🔍 Script generation outputs:")
-            logger.debug(f"🔍 Title: {title}")
-            logger.debug(f"🔍 Story dir: {inputs.get('story_dir')}")
-            logger.debug(f"🔍 Content dir: {content_dir}")
-
-            return {
-                "script_path": str(script_path),
-                "script_metadata_path": str(script_metadata_path),
-                "script": script_data.get("script", ""),
-                "title": title,  # Pass through the title
-                "story_dir": inputs.get(
-                    "story_dir"
-                ),  # Pass through the story directory
-                "content_dir": content_dir,  # Pass through the content directory
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to generate script: {e}")
-            raise RuntimeError(f"Script generation failed: {e}")
-
-    def _execute_tts_generation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute TTS generation step."""
-        try:
-            script_content = inputs.get("script_content")
-            content_id = inputs.get("content_id")
-
-            if not script_content:
-                raise RuntimeError("No script content found in inputs")
-
-            logger.info("🎤 Generating TTS audio...")
-
-            # Use the existing TTS service
-            tts_service = self._get_service("tts_service")
-
-            # Generate TTS audio
-            tts_result = tts_service.generate_audio(script_content, content_id)
-
-            logger.info(f"✅ TTS audio generated successfully")
-            logger.info(f"🎵 Audio path: {tts_result.get('audio_path', 'N/A')}")
-
-            return {
-                "audio_path": tts_result.get("audio_path"),
-                "tts_lines": tts_result.get("tts_lines", []),
-                "content_id": content_id,
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to generate TTS audio: {e}")
-            raise RuntimeError(f"TTS generation failed: {e}")
-
-    def _execute_image_generation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute image generation step."""
-        try:
-            script_content = inputs.get("script_content")
-            content_id = inputs.get("content_id")
-
-            if not script_content:
-                raise RuntimeError("No script content found in inputs")
-
-            logger.info("🖼️ Generating images...")
-
-            # Use the existing image generation service
-            image_generator = self._get_service("image_generator")
-
-            # Generate images
-            image_result = image_generator.generate_images(script_content, content_id)
-
-            logger.info(f"✅ Images generated successfully")
-            logger.info(f"🖼️ Image paths: {image_result.get('image_paths', [])}")
-
-            return {
-                "image_paths": image_result.get("image_paths", []),
-                "content_id": content_id,
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to generate images: {e}")
-            raise RuntimeError(f"Image generation failed: {e}")
-
-    def _execute_video_generation(self, inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """Execute video generation step."""
-        try:
-            audio_path = inputs.get("audio_path")
-            image_paths = inputs.get("image_paths", [])
-            content_id = inputs.get("content_id")
-
-            if not audio_path:
-                raise RuntimeError("No audio path found in inputs")
-            if not image_paths:
-                raise RuntimeError("No image paths found in inputs")
-
-            logger.info("🎬 Generating video...")
-
-            # Use the existing video generator
-            video_generator = self._get_service("video_generator")
-
-            # Generate video
-            video_result = video_generator.generate_video(
-                audio_path, image_paths, content_id
-            )
-
-            logger.info(f"✅ Video generated successfully")
-            logger.info(f"🎬 Video path: {video_result.get('video_path', 'N/A')}")
-
-            return {
-                "video_path": video_result.get("video_path"),
-                "content_id": content_id,
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to generate video: {e}")
-            raise RuntimeError(f"Video generation failed: {e}")

@@ -379,14 +379,12 @@ class ProcessingManifest(CustomBaseModel):
     priority: int = Field(default=1, description="Processing priority (1-10)")
 
 
-class ServiceLockStatus(BaseModel):
-    """Status information for a service lock"""
+class PipelineStatus(BaseModel):
+    """Status information for the pipeline system"""
 
-    service_name: str = Field(..., description="Service name")
-    is_locked: bool = Field(..., description="Whether service is currently locked")
-    locked_at: Optional[datetime] = Field(None, description="When lock was acquired")
-    ttl: Optional[int] = Field(None, description="Time to live in seconds")
-    lock_owner: Optional[str] = Field(None, description="Lock owner identifier")
+    status: str = Field(..., description="Overall pipeline status")
+    timestamp: datetime = Field(..., description="Status timestamp")
+    message: str = Field(..., description="Status message")
 
 
 class PipelineStepStatus(BaseModel):

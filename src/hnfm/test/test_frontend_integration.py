@@ -45,7 +45,9 @@ class TestFrontendIntegration:
         """Test enhanced view page loads"""
         try:
             # Test with a non-existent ID
-            response = requests.get(f"{self.base_url}/items/nonexistent/enhanced", timeout=5)
+            response = requests.get(
+                f"{self.base_url}/items/nonexistent/enhanced", timeout=5
+            )
             # Should return 200 (page loads) or 404 (not found)
             assert response.status_code in [200, 404]
         except requests.exceptions.RequestException:
@@ -68,12 +70,16 @@ class TestFrontendFileStructure:
     def test_enhanced_view_component_exists(self):
         """Test that enhanced view component exists"""
         enhanced_view_path = Path("frontend/app/pages/items/[id]/enhanced.vue")
-        assert enhanced_view_path.exists(), f"Enhanced view component not found at {enhanced_view_path}"
+        assert (
+            enhanced_view_path.exists()
+        ), f"Enhanced view component not found at {enhanced_view_path}"
 
     def test_pipeline_dashboard_component_exists(self):
         """Test that pipeline dashboard component exists"""
         dashboard_path = Path("frontend/app/components/PipelineDashboard.vue")
-        assert dashboard_path.exists(), f"Pipeline dashboard component not found at {dashboard_path}"
+        assert (
+            dashboard_path.exists()
+        ), f"Pipeline dashboard component not found at {dashboard_path}"
 
     def test_ui_components_exist(self):
         """Test that required UI components exist"""
@@ -87,7 +93,9 @@ class TestFrontendFileStructure:
 
         for component in ui_components:
             component_path = Path(component)
-            assert component_path.exists(), f"UI component not found at {component_path}"
+            assert (
+                component_path.exists()
+            ), f"UI component not found at {component_path}"
 
     def test_content_list_enhanced_button(self):
         """Test that ContentList component has enhanced view button"""
@@ -96,7 +104,9 @@ class TestFrontendFileStructure:
 
         # Read the file to check for enhanced view button
         content = content_list_path.read_text()
-        assert "enhanced" in content.lower(), "Enhanced view button not found in ContentList"
+        assert (
+            "enhanced" in content.lower()
+        ), "Enhanced view button not found in ContentList"
 
     def test_item_detail_enhanced_button(self):
         """Test that item detail page has enhanced view button"""
@@ -105,7 +115,9 @@ class TestFrontendFileStructure:
 
         # Read the file to check for enhanced view button
         content = item_detail_path.read_text()
-        assert "enhanced" in content.lower(), "Enhanced view button not found in item detail page"
+        assert (
+            "enhanced" in content.lower()
+        ), "Enhanced view button not found in item detail page"
 
 
 class TestFrontendAPIIntegration:
@@ -120,14 +132,18 @@ class TestFrontendAPIIntegration:
     def test_api_endpoints_accessible(self):
         """Test that all required API endpoints are accessible"""
         endpoints = [
-            f"{self.api_base}/enhanced-pipeline/service-locks",
+            f"{self.api_base}/pipeline/status",
             f"{self.api_base}/health",
             f"{self.api_base}/services/status",
         ]
 
         for endpoint in endpoints:
             response = requests.get(endpoint)
-            assert response.status_code in [200, 404, 500], f"Endpoint {endpoint} not accessible"
+            assert response.status_code in [
+                200,
+                404,
+                500,
+            ], f"Endpoint {endpoint} not accessible"
 
     def test_content_artifacts_endpoint(self):
         """Test content artifacts endpoint"""
@@ -146,7 +162,9 @@ class TestFrontendAPIIntegration:
         media_types = ["audio", "images", "video", "content"]
 
         for media_type in media_types:
-            response = requests.get(f"{self.api_base}/content/nonexistent/media/{media_type}/test.file")
+            response = requests.get(
+                f"{self.api_base}/content/nonexistent/media/{media_type}/test.file"
+            )
             assert response.status_code == 404
 
 

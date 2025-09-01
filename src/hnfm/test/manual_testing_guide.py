@@ -32,19 +32,17 @@ class ManualTestingGuide:
         else:
             print("   ❌ Health check failed")
 
-        # Test 2: Service locks
-        print("\n2️⃣ Testing Service Locks...")
-        response = requests.get(f"{self.api_base}/enhanced-pipeline/service-locks")
+        # Test 2: Pipeline status
+        print("\n2️⃣ Testing Pipeline Status...")
+        response = requests.get(f"{self.api_base}/pipeline/status")
         print(f"   Status: {response.status_code}")
         if response.status_code == 200:
             data = response.json()
+            print(f"   Status: {data.get('status')}")
             print(f"   Timestamp: {data.get('timestamp')}")
-            services = data.get('services', {})
-            print(f"   Services: {list(services.keys())}")
-            for service, status in services.items():
-                print(f"     {service}: {'🔒' if status['is_locked'] else '🔓'}")
+            print(f"   Message: {data.get('message')}")
         else:
-            print("   ❌ Service locks failed")
+            print("   ❌ Pipeline status failed")
 
         # Test 3: Services status
         print("\n3️⃣ Testing Services Status...")
@@ -53,7 +51,7 @@ class ManualTestingGuide:
         if response.status_code == 200:
             data = response.json()
             print(f"   All Healthy: {data.get('all_healthy')}")
-            services = data.get('services', [])
+            services = data.get("services", [])
             print(f"   Service Count: {len(services)}")
         else:
             print("   ❌ Services status failed")
@@ -90,7 +88,9 @@ class ManualTestingGuide:
         # Test 3: Enhanced view page
         print("\n3️⃣ Testing Enhanced View Page...")
         try:
-            response = requests.get(f"{self.frontend_url}/items/test/enhanced", timeout=5)
+            response = requests.get(
+                f"{self.frontend_url}/items/test/enhanced", timeout=5
+            )
             print(f"   Status: {response.status_code}")
             if response.status_code == 200:
                 print("   ✅ Enhanced view page accessible")
@@ -116,7 +116,7 @@ class ManualTestingGuide:
                 print(f"   Timestamp: {error_data.get('timestamp')}")
 
                 # Verify timestamp is ISO string
-                if isinstance(error_data.get('timestamp'), str):
+                if isinstance(error_data.get("timestamp"), str):
                     print("   ✅ Timestamp is properly serialized")
                 else:
                     print("   ❌ Timestamp serialization failed")
@@ -142,34 +142,25 @@ class ManualTestingGuide:
         print("\n🔄 Workflow Testing")
         print("=" * 50)
 
-        # Test 1: Service lock workflow
-        print("\n1️⃣ Testing Service Lock Workflow...")
+        # Test 1: Pipeline status workflow
+        print("\n1️⃣ Testing Pipeline Status Workflow...")
 
-        # Get initial status
-        response = requests.get(f"{self.api_base}/enhanced-pipeline/service-locks")
-        if response.status_code == 200:
-            initial_data = response.json()
-            print("   ✅ Initial lock status retrieved")
-
-        # Test force release
-        response = requests.post(f"{self.api_base}/enhanced-pipeline/force-release-lock/firecrawl")
-        print(f"   Force Release Status: {response.status_code}")
+        # Get pipeline status
+        response = requests.get(f"{self.api_base}/pipeline/status")
         if response.status_code == 200:
             data = response.json()
+            print("   ✅ Pipeline status retrieved")
+            print(f"   Status: {data.get('status')}")
             print(f"   Message: {data.get('message')}")
-
-        # Get updated status
-        response = requests.get(f"{self.api_base}/enhanced-pipeline/service-locks")
-        if response.status_code == 200:
-            updated_data = response.json()
-            print("   ✅ Updated lock status retrieved")
 
         # Test 2: Media file serving
         print("\n2️⃣ Testing Media File Serving...")
         media_types = ["audio", "images", "video", "content"]
 
         for media_type in media_types:
-            response = requests.get(f"{self.api_base}/content/nonexistent/media/{media_type}/test.file")
+            response = requests.get(
+                f"{self.api_base}/content/nonexistent/media/{media_type}/test.file"
+            )
             print(f"   {media_type.capitalize()}: {response.status_code}")
             if response.status_code == 404:
                 print(f"     ✅ Properly handles non-existent {media_type}")
@@ -188,7 +179,7 @@ class ManualTestingGuide:
             "frontend/app/components/ui/tabs-trigger.vue",
             "frontend/app/components/ui/tabs-content.vue",
             "src/hnfm/pipeline/enhanced_pipeline_manager.py",
-            "src/hnfm/web/locks.py",
+            "src/hnfm/pipeline/enhanced_pipeline_manager.py",
             "src/hnfm/web/redis_repo.py",
             "src/hnfm/web/custom_types.py",
         ]

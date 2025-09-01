@@ -3,14 +3,18 @@
 
 import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "src"))
 
 from hnfm.audio.tts_service import TTSService
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
+
 
 def test_tts_timeout():
     """Test TTS service with timeout."""
@@ -20,7 +24,7 @@ def test_tts_timeout():
 
         # Show configuration
         logger.info("TTS Service Configuration:")
-        if hasattr(tts_service, 'get_timeout_info'):
+        if hasattr(tts_service, "get_timeout_info"):
             timeout_info = tts_service.get_timeout_info()
             for key, value in timeout_info.items():
                 logger.info(f"  {key}: {value}")
@@ -45,6 +49,7 @@ def test_tts_timeout():
         return False
 
     return True
+
 
 if __name__ == "__main__":
     logger.info("🧪 Starting TTS timeout test...")

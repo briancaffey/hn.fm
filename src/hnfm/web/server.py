@@ -31,10 +31,8 @@ from .enhanced_tasks import (
     debug_task,
     process_content,
     full_pipeline,
-    enhanced_content_pipeline,
-    get_enhanced_pipeline_status,
-    retry_failed_segment,
-    cleanup_completed_segments,
+    content_pipeline,
+    process_content_pipeline,
 )
 from ..scraper.hn_service import HackerNewsService
 
@@ -959,7 +957,7 @@ async def content_pipeline_endpoint(request: ContentCreateRequest):
     Trigger enhanced content processing pipeline with Redis-first design.
 
     Creates a new content item and queues it for processing through the
-    enhanced pipeline with service locking, versioned segments, and
+            simplified pipeline with direct execution and
     comprehensive state tracking.
 
     Args:
@@ -993,7 +991,7 @@ async def content_pipeline_endpoint(request: ContentCreateRequest):
             raise HTTPException(status_code=500, detail="Failed to store content")
 
         # Queue the processing task
-        task = enhanced_content_pipeline.apply_async(args=[content_id, request.options])
+        task = content_pipeline.apply_async(args=[content_id, request.options])
 
         logger.info(f"Content processing queued for {content_id} with task {task.id}")
 
@@ -1058,7 +1056,7 @@ async def retry_failed_pipeline_step(content_id: str, step_name: str):
     Retry a failed pipeline step for a content item.
 
     Creates a new versioned segment and re-executes the failed step
-    with proper service locking and dependency checking.
+            with proper dependency checking.
 
     Args:
         content_id: Content item identifier
@@ -1144,125 +1142,26 @@ async def cleanup_old_pipeline_versions(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
-@app.get("/api/pipeline/service-locks", tags=["pipeline"])
-async def get_service_lock_status():
+@app.get("/api/pipeline/status", tags=["pipeline"])
+async def get_pipeline_status():
     """
-    Get status of all service locks.
-
-    Returns information about which external services are currently
-    locked and their lock details.
+    Get status of the pipeline system.
 
     Returns:
-        Dictionary with service lock status information
+        Dictionary with pipeline status information
 
     Raises:
-        HTTPException: If lock status retrieval fails
+        HTTPException: If status retrieval fails
     """
     try:
-        from ..pipeline.enhanced_pipeline_manager import EnhancedPipelineManager
-
-        # Create enhanced pipeline manager
-        pipeline = EnhancedPipelineManager(redis_integration=True)
-
-        # Get service lock status
-        lock_status = pipeline.get_service_lock_status()
-
-        # Debug: Log the structure of lock_status
-        logger.info(f"Lock status type: {type(lock_status)}")
-        logger.info(
-            f"Lock status keys: {list(lock_status.keys()) if isinstance(lock_status, dict) else 'Not a dict'}"
-        )
-
-        # Ensure all datetime objects are converted to strings
-        def convert_datetime_to_string(obj, path=""):
-            if isinstance(obj, dict):
-                result = {}
-                for k, v in obj.items():
-                    new_path = f"{path}.{k}" if path else k
-                    result[k] = convert_datetime_to_string(v, new_path)
-                return result
-            elif isinstance(obj, list):
-                result = []
-                for i, v in enumerate(obj):
-                    new_path = f"{path}[{i}]" if path else f"[{i}]"
-                    result.append(convert_datetime_to_string(v, new_path))
-                return result
-            elif hasattr(obj, "isoformat"):  # datetime objects
-                logger.info(
-                    f"Found datetime object at {path}: {obj} (type: {type(obj)})"
-                )
-                return obj.isoformat()
-            else:
-                return obj
-
-        # Convert any datetime objects to strings
-        serializable_status = convert_datetime_to_string(lock_status)
-
-        # Test JSON serialization before returning
-        try:
-            json.dumps(serializable_status)
-            logger.info("JSON serialization successful")
-        except Exception as e:
-            logger.error(f"JSON serialization failed: {e}")
-
-            # Find the problematic object
-            def find_datetime_objects(obj, path=""):
-                if isinstance(obj, dict):
-                    for k, v in obj.items():
-                        find_datetime_objects(v, f"{path}.{k}")
-                elif isinstance(obj, list):
-                    for i, v in enumerate(obj):
-                        find_datetime_objects(v, f"{path}[{i}]")
-                elif hasattr(obj, "__class__") and "datetime" in str(obj.__class__):
-                    logger.error(
-                        f"Found datetime object at {path}: {obj} (type: {type(obj)})"
-                    )
-
-            find_datetime_objects(serializable_status)
-            raise
-
-        return serializable_status
+        return {
+            "status": "healthy",
+            "timestamp": datetime.now().isoformat(),
+            "message": "Pipeline system is running without locking",
+        }
 
     except Exception as e:
-        logger.error(f"Failed to get service lock status: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.post("/api/pipeline/force-release-lock/{service_name}", tags=["pipeline"])
-async def force_release_service_lock(service_name: str):
-    """
-    Force release a service lock (use with caution).
-
-    Releases a service lock that may be stuck or orphaned.
-    This should only be used in emergency situations.
-
-    Args:
-        service_name: Name of the service whose lock should be released
-
-    Returns:
-        Dictionary with lock release status
-
-    Raises:
-        HTTPException: If lock release fails
-    """
-    try:
-        from ..pipeline.enhanced_pipeline_manager import EnhancedPipelineManager
-
-        # Create enhanced pipeline manager
-        pipeline = EnhancedPipelineManager(redis_integration=True)
-
-        # Force release the lock
-        result = pipeline.force_release_service_lock(service_name)
-
-        if "error" in result:
-            raise HTTPException(status_code=500, detail=result["error"])
-
-        return result
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to force release lock for {service_name}: {e}")
+        logger.error(f"Failed to get pipeline status: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

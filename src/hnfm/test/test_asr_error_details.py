@@ -7,8 +7,11 @@ import requests
 import logging
 
 # Set up logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
+)
 logger = logging.getLogger(__name__)
+
 
 def test_asr_error_details():
     """Test ASR service and capture error details."""
@@ -35,7 +38,7 @@ def test_asr_error_details():
         samples = np.zeros(sample_rate * duration, dtype=np.int16)
 
         test_audio_path = "test_silence.wav"
-        with wave.open(test_audio_path, 'w') as wav_file:
+        with wave.open(test_audio_path, "w") as wav_file:
             wav_file.setnchannels(1)  # Mono
             wav_file.setsampwidth(2)  # 16-bit
             wav_file.setframerate(sample_rate)
@@ -44,20 +47,13 @@ def test_asr_error_details():
         logger.info(f"Created test audio file: {test_audio_path}")
 
         # Test with the small file
-        with open(test_audio_path, 'rb') as audio_file:
-            files = {'audio_file': audio_file}
-            data = {
-                'model_size': 'large-v2',
-                'min_speakers': 1,
-                'max_speakers': 2
-            }
+        with open(test_audio_path, "rb") as audio_file:
+            files = {"audio_file": audio_file}
+            data = {"model_size": "large-v2", "min_speakers": 1, "max_speakers": 2}
 
             logger.info("📤 Sending small audio file to ASR service...")
             response = requests.post(
-                f"{base_url}/process-audio",
-                files=files,
-                data=data,
-                timeout=60
+                f"{base_url}/process-audio", files=files, data=data, timeout=60
             )
 
             logger.info(f"Response status: {response.status_code}")
@@ -74,12 +70,14 @@ def test_asr_error_details():
     except Exception as e:
         logger.error(f"❌ Test failed: {e}")
         import traceback
+
         traceback.print_exc()
         return False
     finally:
         # Clean up test file
         if os.path.exists("test_silence.wav"):
             os.remove("test_silence.wav")
+
 
 if __name__ == "__main__":
     logger.info("🧪 Starting ASR error details test...")

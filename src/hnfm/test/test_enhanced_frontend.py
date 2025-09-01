@@ -11,21 +11,22 @@ from pathlib import Path
 src_path = Path(__file__).parent / "src"
 sys.path.insert(0, str(src_path))
 
+
 def test_backend_endpoints():
     """Test the new backend API endpoints"""
     print("Testing backend API endpoints...")
 
     base_url = "http://localhost:8000"
 
-    # Test enhanced pipeline service locks endpoint
+    # Test pipeline status endpoint
     try:
-        response = requests.get(f"{base_url}/api/enhanced-pipeline/service-locks")
+        response = requests.get(f"{base_url}/api/pipeline/status")
         if response.status_code == 200:
-            print("✓ Service locks endpoint working")
+            print("✓ Pipeline status endpoint working")
         else:
-            print(f"✗ Service locks endpoint failed: {response.status_code}")
+            print(f"✗ Pipeline status endpoint failed: {response.status_code}")
     except Exception as e:
-        print(f"✗ Service locks endpoint error: {e}")
+        print(f"✗ Pipeline status endpoint error: {e}")
 
     # Test content artifacts endpoint (if we have content)
     try:
@@ -33,28 +34,40 @@ def test_backend_endpoints():
         response = requests.get(f"{base_url}/api/content?per_page=1")
         if response.status_code == 200:
             data = response.json()
-            if data.get('items') and len(data['items']) > 0:
-                content_id = data['items'][0]['id']
+            if data.get("items") and len(data["items"]) > 0:
+                content_id = data["items"][0]["id"]
 
                 # Test artifacts endpoint
-                artifacts_response = requests.get(f"{base_url}/api/content/{content_id}/artifacts")
+                artifacts_response = requests.get(
+                    f"{base_url}/api/content/{content_id}/artifacts"
+                )
                 if artifacts_response.status_code == 200:
                     print("✓ Content artifacts endpoint working")
                 else:
-                    print(f"✗ Content artifacts endpoint failed: {artifacts_response.status_code}")
+                    print(
+                        f"✗ Content artifacts endpoint failed: {artifacts_response.status_code}"
+                    )
 
                 # Test enhanced status endpoint
-                status_response = requests.get(f"{base_url}/api/content/{content_id}/enhanced-status")
-                if status_response.status_code in [200, 404]:  # 404 is OK if no enhanced status yet
+                status_response = requests.get(
+                    f"{base_url}/api/content/{content_id}/enhanced-status"
+                )
+                if status_response.status_code in [
+                    200,
+                    404,
+                ]:  # 404 is OK if no enhanced status yet
                     print("✓ Enhanced status endpoint working")
                 else:
-                    print(f"✗ Enhanced status endpoint failed: {status_response.status_code}")
+                    print(
+                        f"✗ Enhanced status endpoint failed: {status_response.status_code}"
+                    )
             else:
                 print("⚠ No content items found to test artifacts endpoint")
         else:
             print(f"✗ Content list endpoint failed: {response.status_code}")
     except Exception as e:
         print(f"✗ Content endpoints error: {e}")
+
 
 def test_frontend_build():
     """Test that the frontend can be built without errors"""
@@ -70,7 +83,7 @@ def test_frontend_build():
         "frontend/app/pages/items/[id]/enhanced.vue",
         "frontend/app/components/ui/progress.vue",
         "frontend/app/components/ui/tabs.vue",
-        "frontend/app/components/PipelineDashboard.vue"
+        "frontend/app/components/PipelineDashboard.vue",
     ]
 
     for file_path in required_files:
@@ -83,30 +96,28 @@ def test_frontend_build():
     print("✓ All required frontend files exist")
     return True
 
+
 def test_enhanced_system_integration():
     """Test the enhanced system integration"""
     print("\nTesting enhanced system integration...")
 
     try:
         # Test imports
-        from hnfm.web.enhanced_tasks import enhanced_content_pipeline
-        from hnfm.web.redis_repo import RedisRepository
-        from hnfm.web.locks import ServiceLockManager
+        from hnfm.web.enhanced_tasks import content_pipeline
+        from hnfm.pipeline.enhanced_pipeline_manager import PipelineManager
+
         print("✓ Enhanced system imports working")
 
-        # Test Redis repository
-        repo = RedisRepository()
-        print("✓ Redis repository created")
-
-        # Test service lock manager
-        lock_manager = ServiceLockManager(repo.redis_client)
-        print("✓ Service lock manager created")
+        # Test pipeline manager
+        pipeline = PipelineManager(text_only=True)
+        print("✓ Pipeline manager created")
 
         return True
 
     except Exception as e:
         print(f"✗ Enhanced system integration error: {e}")
         return False
+
 
 def main():
     """Run all tests"""
@@ -116,7 +127,7 @@ def main():
     tests = [
         test_enhanced_system_integration,
         test_frontend_build,
-        test_backend_endpoints
+        test_backend_endpoints,
     ]
 
     passed = 0
@@ -144,6 +155,7 @@ def main():
     else:
         print("❌ Some tests failed. Please check the errors above.")
         return 1
+
 
 if __name__ == "__main__":
     sys.exit(main())

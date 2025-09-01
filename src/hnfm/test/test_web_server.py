@@ -6,11 +6,12 @@ import sys
 import os
 
 # Add src to path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..', '..'))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from hnfm.web.database import ContentDatabase
 from hnfm.web.models import ContentItem
 from datetime import datetime
+
 
 async def test_database():
     """Test the Redis database connection and operations"""
@@ -28,27 +29,27 @@ async def test_database():
 
         # Test storing content
         test_content = {
-            'id': 'test-123',
-            'title': 'Test Article',
-            'url': 'https://example.com/test',
-            'content_type': 'article',
-            'status': 'pending',
-            'created_at': datetime.now(),
-            'updated_at': datetime.now(),
-            'metadata': {'test': True},
-            'processing_steps': [],
-            'errors': []
+            "id": "test-123",
+            "title": "Test Article",
+            "url": "https://example.com/test",
+            "content_type": "article",
+            "status": "pending",
+            "created_at": datetime.now(),
+            "updated_at": datetime.now(),
+            "metadata": {"test": True},
+            "processing_steps": [],
+            "errors": [],
         }
 
-        if db.store_content('test-123', test_content):
+        if db.store_content("test-123", test_content):
             print("✅ Content storage successful")
         else:
             print("❌ Content storage failed")
             return False
 
         # Test retrieving content
-        retrieved = db.get_content('test-123')
-        if retrieved and retrieved['title'] == 'Test Article':
+        retrieved = db.get_content("test-123")
+        if retrieved and retrieved["title"] == "Test Article":
             print("✅ Content retrieval successful")
         else:
             print("❌ Content retrieval failed")
@@ -56,21 +57,21 @@ async def test_database():
 
         # Test listing content
         content_list = db.list_content(per_page=10)
-        if content_list['total'] > 0:
+        if content_list["total"] > 0:
             print("✅ Content listing successful")
         else:
             print("❌ Content listing failed")
             return False
 
         # Test updating content
-        if db.update_content('test-123', {'status': 'completed'}):
+        if db.update_content("test-123", {"status": "completed"}):
             print("✅ Content update successful")
         else:
             print("❌ Content update failed")
             return False
 
         # Test deleting content
-        if db.delete_content('test-123'):
+        if db.delete_content("test-123"):
             print("✅ Content deletion successful")
         else:
             print("❌ Content deletion failed")
@@ -87,6 +88,7 @@ async def test_database():
         print(f"❌ Database test failed: {e}")
         return False
 
+
 async def test_models():
     """Test the Pydantic models"""
     print("\nTesting Pydantic models...")
@@ -100,7 +102,7 @@ async def test_models():
             content_type="article",
             status="pending",
             created_at=datetime.now(),
-            updated_at=datetime.now()
+            updated_at=datetime.now(),
         )
 
         print("✅ ContentItem model creation successful")
@@ -119,6 +121,7 @@ async def test_models():
     except Exception as e:
         print(f"❌ Model test failed: {e}")
         return False
+
 
 async def main():
     """Run all tests"""
@@ -139,6 +142,7 @@ async def main():
     else:
         print("\n❌ Some tests failed. Please check the setup.")
         sys.exit(1)
+
 
 if __name__ == "__main__":
     asyncio.run(main())

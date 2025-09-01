@@ -15,7 +15,7 @@ class TestErrorResponseSerialization:
         error_response = ErrorResponse(
             detail="Test error message",
             error_code="TEST_ERROR",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         assert error_response.detail == "Test error message"
@@ -26,9 +26,7 @@ class TestErrorResponseSerialization:
         """Test that ErrorResponse.model_dump() properly serializes datetime"""
         now = datetime.now()
         error_response = ErrorResponse(
-            detail="Test error message",
-            error_code="TEST_ERROR",
-            timestamp=now
+            detail="Test error message", error_code="TEST_ERROR", timestamp=now
         )
 
         # Test model_dump (Pydantic v2)
@@ -46,9 +44,7 @@ class TestErrorResponseSerialization:
         """Test that ErrorResponse.model_dump_json() works correctly"""
         now = datetime.now()
         error_response = ErrorResponse(
-            detail="Test error message",
-            error_code="TEST_ERROR",
-            timestamp=now
+            detail="Test error message", error_code="TEST_ERROR", timestamp=now
         )
 
         # Test model_dump_json (Pydantic v2)
@@ -66,9 +62,7 @@ class TestErrorResponseSerialization:
         """Test that .dict() method still works but is deprecated"""
         now = datetime.now()
         error_response = ErrorResponse(
-            detail="Test error message",
-            error_code="TEST_ERROR",
-            timestamp=now
+            detail="Test error message", error_code="TEST_ERROR", timestamp=now
         )
 
         # Test .dict() method (deprecated in Pydantic v2)
@@ -87,9 +81,7 @@ class TestErrorResponseSerialization:
         """Test that .json() method still works but is deprecated"""
         now = datetime.now()
         error_response = ErrorResponse(
-            detail="Test error message",
-            error_code="TEST_ERROR",
-            timestamp=now
+            detail="Test error message", error_code="TEST_ERROR", timestamp=now
         )
 
         # Test .json() method (deprecated in Pydantic v2)
@@ -107,10 +99,7 @@ class TestErrorResponseSerialization:
     def test_error_response_without_error_code(self):
         """Test ErrorResponse without error_code (optional field)"""
         now = datetime.now()
-        error_response = ErrorResponse(
-            detail="Test error message",
-            timestamp=now
-        )
+        error_response = ErrorResponse(detail="Test error message", timestamp=now)
 
         result_dict = error_response.model_dump()
 
@@ -123,12 +112,12 @@ class TestErrorResponseSerialization:
         error_response = ErrorResponse(
             detail="Test error message",
             error_code="TEST_ERROR",
-            timestamp=datetime.now()
+            timestamp=datetime.now(),
         )
 
         assert isinstance(error_response, CustomBaseModel)
-        assert hasattr(error_response, 'model_dump')
-        assert hasattr(error_response, 'model_dump_json')
+        assert hasattr(error_response, "model_dump")
+        assert hasattr(error_response, "model_dump_json")
 
     def test_error_response_validation(self):
         """Test ErrorResponse field validation"""
@@ -137,16 +126,14 @@ class TestErrorResponseSerialization:
             ErrorResponse(
                 detail="Test error message",
                 error_code="TEST_ERROR",
-                timestamp="invalid_datetime"  # Should be datetime object
+                timestamp="invalid_datetime",  # Should be datetime object
             )
 
     def test_error_response_serialization_consistency(self):
         """Test that serialization is consistent across methods"""
         now = datetime.now()
         error_response = ErrorResponse(
-            detail="Test error message",
-            error_code="TEST_ERROR",
-            timestamp=now
+            detail="Test error message", error_code="TEST_ERROR", timestamp=now
         )
 
         # Test all serialization methods produce consistent results
@@ -163,16 +150,14 @@ class TestCustomBaseModelSerialization:
 
     def test_custom_base_model_datetime_serialization(self):
         """Test that CustomBaseModel properly handles datetime serialization"""
+
         # Create a simple model inheriting from CustomBaseModel
         class TestModel(CustomBaseModel):
             name: str
             created_at: datetime
 
         now = datetime.now()
-        test_model = TestModel(
-            name="Test Model",
-            created_at=now
-        )
+        test_model = TestModel(name="Test Model", created_at=now)
 
         result_dict = test_model.model_dump()
 

@@ -50,9 +50,9 @@ class TestE2EWorkflow:
         response = requests.get(f"{self.api_base}/services/status")
         assert response.status_code == 200, "Services status endpoint not accessible"
 
-        # Check service locks endpoint
-        response = requests.get(f"{self.api_base}/enhanced-pipeline/service-locks")
-        assert response.status_code == 200, "Service locks endpoint not accessible"
+        # Check pipeline status endpoint
+        response = requests.get(f"{self.api_base}/pipeline/status")
+        assert response.status_code == 200, "Pipeline status endpoint not accessible"
 
         # Check frontend (optional)
         try:
@@ -67,7 +67,7 @@ class TestE2EWorkflow:
             "title": "E2E Test Article",
             "url": "https://example.com/e2e-test",
             "score": 150,
-            "id": f"e2e_test_{int(time.time())}"
+            "id": f"e2e_test_{int(time.time())}",
         }
 
         # Create content via API
@@ -121,7 +121,9 @@ class TestE2EWorkflow:
         """Test frontend integration with the content"""
         try:
             # Test enhanced view page
-            response = requests.get(f"{self.frontend_url}/items/{content_id}/enhanced", timeout=5)
+            response = requests.get(
+                f"{self.frontend_url}/items/{content_id}/enhanced", timeout=5
+            )
             if response.status_code == 200:
                 print(f"Enhanced view page accessible for {content_id}")
             else:
@@ -129,25 +131,15 @@ class TestE2EWorkflow:
         except requests.exceptions.RequestException:
             print("Frontend not running, skipping frontend integration test")
 
-    def test_service_lock_workflow(self):
-        """Test service lock workflow"""
-        # Get initial lock status
-        response = requests.get(f"{self.api_base}/enhanced-pipeline/service-locks")
+    def test_pipeline_status_workflow(self):
+        """Test pipeline status workflow"""
+        # Get pipeline status
+        response = requests.get(f"{self.api_base}/pipeline/status")
         assert response.status_code == 200
 
-        initial_status = response.json()
-        assert "services" in initial_status
-
-        # Test force release lock
-        response = requests.post(f"{self.api_base}/enhanced-pipeline/force-release-lock/firecrawl")
-        assert response.status_code in [200, 500]  # Success or service doesn't exist
-
-        # Get updated lock status
-        response = requests.get(f"{self.api_base}/enhanced-pipeline/service-locks")
-        assert response.status_code == 200
-
-        updated_status = response.json()
-        assert "services" in updated_status
+        status = response.json()
+        assert "status" in status
+        assert "timestamp" in status
 
     def test_error_handling_workflow(self):
         """Test error handling workflow"""
@@ -170,7 +162,9 @@ class TestE2EWorkflow:
 
         for media_type in media_types:
             # Test with non-existent file
-            response = requests.get(f"{self.api_base}/content/nonexistent/media/{media_type}/test.file")
+            response = requests.get(
+                f"{self.api_base}/content/nonexistent/media/{media_type}/test.file"
+            )
             assert response.status_code == 404
 
             # Verify proper error response
@@ -202,12 +196,16 @@ class TestE2EWorkflow:
         endpoints = [
             f"{self.api_base}/health",
             f"{self.api_base}/services/status",
-            f"{self.api_base}/enhanced-pipeline/service-locks",
+            f"{self.api_base}/pipeline/status",
         ]
 
         for endpoint in endpoints:
             response = requests.get(endpoint)
-            assert response.status_code in [200, 404, 500], f"Endpoint {endpoint} not accessible"
+            assert response.status_code in [
+                200,
+                404,
+                500,
+            ], f"Endpoint {endpoint} not accessible"
 
 
 class TestDockerEnvironment:
@@ -224,13 +222,17 @@ class TestDockerEnvironment:
         """Test that Docker services are running"""
         try:
             # Check if docker-compose is available
-            result = subprocess.run(["docker-compose", "ps"], capture_output=True, text=True)
+            result = subprocess.run(
+                ["docker-compose", "ps"], capture_output=True, text=True
+            )
             assert result.returncode == 0, "docker-compose not available"
 
             # Check for required services
             services = ["web", "redis", "celery-worker"]
             for service in services:
-                result = subprocess.run(["docker-compose", "ps", service], capture_output=True, text=True)
+                result = subprocess.run(
+                    ["docker-compose", "ps", service], capture_output=True, text=True
+                )
                 assert "Up" in result.stdout, f"Service {service} not running"
 
         except FileNotFoundError:
