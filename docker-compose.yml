@@ -41,6 +41,7 @@ x-common-env: &common-env
   # Studio Voice Configuration
   STUDIO_VOICE_TARGET: ${STUDIO_VOICE_TARGET:-localhost:8001}
   STUDIO_VOICE_MODEL_TYPE: ${STUDIO_VOICE_MODEL_TYPE:-48k-hq}
+  STUDIO_VOICE_HTTP_HEALTH_URL: ${STUDIO_VOICE_HTTP_HEALTH_URL:-http://localhost:8001/health}
   # ASR Service Configuration
   ASR_BASE_URL: ${ASR_BASE_URL:-http://localhost:8042}
   ASR_MODEL_SIZE: ${ASR_MODEL_SIZE:-large-v2}
@@ -57,6 +58,8 @@ x-common-env: &common-env
   MAX_EPISODE_LENGTH: ${MAX_EPISODE_LENGTH:-15}
   INCLUDE_COMMENTS: ${INCLUDE_COMMENTS:-true}
   QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-0.8}
+  # Image Generation Configuration
+  IMAGE_GENERATION_BASE_URL: ${IMAGE_GENERATION_BASE_URL:-http://localhost:8000}
 
 services:
   # Redis service for Celery broker and result backend

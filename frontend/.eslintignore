@@ -1,0 +1,13 @@
+# Ignore shadcn-ui components (third-party)
+app/components/ui/
+
+# Ignore node_modules
+node_modules/
+
+# Ignore build outputs
+.nuxt/
+dist/
+.output/
+
+# Ignore other generated files
+*.log

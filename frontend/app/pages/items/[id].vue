@@ -1,28 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, onUnmounted, computed } from 'vue'
+import { ref, onMounted, watch, onUnmounted } from 'vue'
 import { Button } from '~/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
 import { Badge } from '~/components/ui/badge'
-import { Separator } from '~/components/ui/separator'
+
 import { Icon } from '#components'
 
-interface HNStoryData {
-  id: number
-  deleted?: boolean
-  type: string
-  by?: string
-  time: number
-  text?: string
-  dead?: boolean
-  parent?: number
-  poll?: number
-  kids?: number[]
-  url?: string
-  score?: number
-  title?: string
-  parts?: number[]
-  descendants?: number
-}
+
 
 interface ContentItem {
   id: string
@@ -37,7 +21,7 @@ interface ContentItem {
   processed_content?: string
   script?: string
   audio_file_path?: string
-  asr_data?: Record<string, any>
+  asr_data?: Record<string, unknown>
 }
 
 interface PipelineStatus {
@@ -83,9 +67,7 @@ const deleteError = ref<string | null>(null)
 const config = useRuntimeConfig()
 const apiBase = config.public.apiBase
 
-const hasPipelineData = computed(() => {
-  return pipelineStatus.value !== null
-})
+
 
 const getStatusVariant = (status: string) => {
   switch (status) {
@@ -111,7 +93,7 @@ const fetchContentItem = async () => {
     loading.value = true
     error.value = null
 
-    const data: ContentItem = await $fetch(`${apiBase}/api/content/${itemId}`)
+    const data = await $fetch<ContentItem>(`${apiBase}/api/content/${itemId}`)
     contentItem.value = data
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch content item'
@@ -125,7 +107,7 @@ const fetchPipelineStatus = async () => {
   try {
     const data: PipelineStatus = await $fetch(`${apiBase}/api/content/${itemId}/pipeline-status`)
     pipelineStatus.value = data
-  } catch (err) {
+  } catch {
     console.log('Pipeline status not available for this content item')
   }
 }
@@ -134,7 +116,7 @@ const fetchArtifacts = async () => {
   try {
     const data: ContentArtifacts = await $fetch(`${apiBase}/api/content/${itemId}/artifacts`)
     artifacts.value = data
-  } catch (err) {
+  } catch {
     console.log('Artifacts not available for this content item')
   }
 }
@@ -144,15 +126,20 @@ const triggerProcessing = async () => {
     processing.value = true
     processError.value = null
 
+    // Debug: Check what we're sending
+    console.log('Content item:', contentItem.value)
+    console.log('HN item ID:', contentItem.value?.hn_item_id)
+    console.log('HN item ID type:', typeof contentItem.value?.hn_item_id)
+
+    if (!contentItem.value?.hn_item_id) {
+      throw new Error('No HN item ID found for this content item')
+    }
+
     // Trigger the pipeline
     const response = await $fetch(`${apiBase}/api/pipeline/process`, {
       method: 'POST',
       body: {
-        hn_item_id: contentItem.value?.hn_item_id,
-        options: {
-          priority: 'high',
-          voice: 'en-US-Standard-A'
-        }
+        hn_item_id: contentItem.value.hn_item_id
       }
     })
 
@@ -172,10 +159,6 @@ const triggerProcessing = async () => {
 }
 
 const deleteContent = async () => {
-  if (!confirm('Are you sure you want to delete this content item? This action cannot be undone.')) {
-    return
-  }
-
   try {
     deleting.value = true
     deleteError.value = null
@@ -233,44 +216,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="min-h-screen bg-background">
-    <!-- Navigation Bar -->
-    <nav class="border-b bg-card">
-      <div class="container mx-auto px-4 py-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center space-x-4">
-            <h1 class="text-xl font-bold text-foreground">HN.fm</h1>
-            <div class="hidden md:flex space-x-6">
-              <NuxtLink to="/" class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                Home
-              </NuxtLink>
-              <NuxtLink to="/items" class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                Items
-              </NuxtLink>
-              <NuxtLink to="/services" class="text-sm font-medium text-muted-foreground hover:text-foreground transition-colors">
-                Services
-              </NuxtLink>
-            </div>
-          </div>
-        </div>
-      </div>
-    </nav>
-
-    <!-- Main Content -->
-    <main class="container mx-auto px-4 py-8">
-      <div class="space-y-6">
+  <div class="space-y-6">
         <!-- Page Header -->
         <div class="flex items-center gap-4">
-          <Button variant="outline" @click="navigateTo('/items')">
+          <Button variant="outline" class="cursor-pointer" @click="navigateTo('/items')">
             <Icon name="lucide:arrow-left" class="h-4 w-4 mr-2" />
             Back to Items
           </Button>
-          <Button variant="outline" @click="refreshData" :disabled="loading">
+          <Button variant="outline" :disabled="loading" class="cursor-pointer" @click="refreshData">
             <Icon name="lucide:refresh-cw" class="h-4 w-4 mr-2" :class="{ 'animate-spin': loading }" />
             Refresh
           </Button>
-          <div class="flex-1"></div>
-          <Button variant="destructive" @click="deleteContent" :disabled="deleting">
+          <div class="flex-1"/>
+          <Button variant="destructive" :disabled="deleting" class="cursor-pointer" @click="deleteContent">
             <Icon name="lucide:trash-2" class="h-4 w-4 mr-2" :class="{ 'animate-spin': deleting }" />
             {{ deleting ? 'Deleting...' : 'Delete Content' }}
           </Button>
@@ -282,20 +240,22 @@ onUnmounted(() => {
             <Icon name="lucide:alert-circle" class="h-5 w-5 mx-auto" />
           </div>
           <p class="text-destructive text-sm">{{ deleteError }}</p>
-          <Button @click="deleteContent" variant="outline" size="sm" class="mt-2">
+          <Button variant="outline" size="sm" class="mt-2 cursor-pointer" @click="deleteContent">
             <Icon name="lucide:refresh-cw" class="h-3 w-3 mr-1" />
             Try Again
           </Button>
         </div>
 
         <div class="space-y-1">
-          <h1 class="text-3xl font-bold text-foreground">Content Details</h1>
+          <h1 class="text-3xl font-bold text-foreground">
+            <span class="text-orange-600">Content</span> Details
+          </h1>
           <p class="text-muted-foreground">Pipeline status and generated artifacts</p>
         </div>
 
         <!-- Loading State -->
         <div v-if="loading" class="flex justify-center items-center py-8">
-          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+          <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"/>
           <span class="ml-2 text-muted-foreground">Loading item details...</span>
         </div>
 
@@ -305,7 +265,7 @@ onUnmounted(() => {
             <Icon name="lucide:alert-circle" class="h-8 w-8 mx-auto" />
           </div>
           <p class="text-muted-foreground">{{ error }}</p>
-          <Button @click="refreshData" variant="outline" class="mt-4">
+          <Button variant="outline" class="mt-4 cursor-pointer" @click="refreshData">
             <Icon name="lucide:refresh-cw" class="h-4 w-4 mr-2" />
             Try Again
           </Button>
@@ -317,7 +277,7 @@ onUnmounted(() => {
           <Card>
             <CardHeader>
               <CardTitle class="flex items-center gap-2">
-                <Icon name="lucide:file-text" class="h-5 w-5" />
+                <Icon name="lucide:file-text" class="h-5 w-5 text-orange-600" />
                 Content Information
               </CardTitle>
             </CardHeader>
@@ -341,7 +301,7 @@ onUnmounted(() => {
           <Card v-if="pipelineStatus">
             <CardHeader>
               <CardTitle class="flex items-center gap-2">
-                <Icon name="lucide:workflow" class="h-5 w-5" />
+                <Icon name="lucide:workflow" class="h-5 w-5 text-orange-600" />
                 Pipeline Status
               </CardTitle>
             </CardHeader>
@@ -356,7 +316,7 @@ onUnmounted(() => {
                   <div
                     class="bg-blue-600 h-2 rounded-full transition-all duration-300"
                     :style="{ width: pipelineStatus.status === 'completed' ? '100%' : pipelineStatus.status === 'processing' ? '50%' : '0%' }"
-                  ></div>
+                  />
                 </div>
               </div>
 
@@ -427,7 +387,7 @@ onUnmounted(() => {
           <Card v-if="artifacts && (artifacts.audio_files.length > 0 || artifacts.image_files.length > 0 || artifacts.video_files.length > 0)">
             <CardHeader>
               <CardTitle class="flex items-center gap-2">
-                <Icon name="lucide:package" class="h-5 w-5" />
+                <Icon name="lucide:package" class="h-5 w-5 text-orange-600" />
                 Generated Artifacts
               </CardTitle>
             </CardHeader>
@@ -435,46 +395,46 @@ onUnmounted(() => {
               <!-- Simple Tab Navigation -->
               <div class="flex border-b border-gray-200 mb-4">
                 <button
-                  @click="activeTab = 'audio'"
                   :class="[
                     'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
                     activeTab === 'audio'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   ]"
+                  @click="activeTab = 'audio'"
                 >
                   Audio ({{ artifacts.audio_files.length }})
                 </button>
                 <button
-                  @click="activeTab = 'images'"
                   :class="[
                     'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
                     activeTab === 'images'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   ]"
+                  @click="activeTab = 'images'"
                 >
                   Images ({{ artifacts.image_files.length }})
                 </button>
                 <button
-                  @click="activeTab = 'video'"
                   :class="[
                     'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
                     activeTab === 'video'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   ]"
+                  @click="activeTab = 'video'"
                 >
                   Video ({{ artifacts.video_files.length }})
                 </button>
                 <button
-                  @click="activeTab = 'scripts'"
                   :class="[
                     'px-4 py-2 text-sm font-medium border-b-2 transition-colors',
                     activeTab === 'scripts'
                       ? 'border-blue-500 text-blue-600'
                       : 'border-transparent text-gray-500 hover:text-gray-700'
                   ]"
+                  @click="activeTab = 'scripts'"
                 >
                   Scripts ({{ artifacts.script_files.length }})
                 </button>
@@ -531,7 +491,7 @@ onUnmounted(() => {
                         :src="getMediaUrl(image.path, 'images')"
                         :alt="image.path.split('/').pop()"
                         class="w-full h-full object-cover"
-                      />
+                      >
                     </div>
                     <div class="absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all rounded-md flex items-center justify-center opacity-0 group-hover:opacity-100">
                       <div class="flex gap-2">
@@ -623,28 +583,28 @@ onUnmounted(() => {
           <Card>
             <CardHeader>
               <CardTitle class="flex items-center gap-2">
-                <Icon name="lucide:play" class="h-5 w-5" />
+                <Icon name="lucide:play" class="h-5 w-5 text-orange-600" />
                 Processing Controls
               </CardTitle>
             </CardHeader>
             <CardContent class="space-y-4">
               <div v-if="!pipelineStatus" class="text-center py-4">
                 <p class="text-muted-foreground mb-4">No pipeline data available for this content item.</p>
-                <Button @click="triggerProcessing" :disabled="processing">
+                <Button :disabled="processing" class="cursor-pointer" @click="triggerProcessing">
                   <Icon name="lucide:play" class="h-4 w-4 mr-2" />
                   Start Processing
                 </Button>
               </div>
               <div v-else-if="pipelineStatus.status === 'processing'" class="text-center py-4">
                 <div class="flex items-center justify-center gap-2 mb-4">
-                  <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"></div>
+                  <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary"/>
                   <span>Processing in progress...</span>
                 </div>
                 <p class="text-sm text-muted-foreground">The pipeline is currently running. This page will auto-refresh.</p>
               </div>
               <div v-else class="text-center py-4">
                 <p class="text-muted-foreground mb-4">Pipeline status: {{ pipelineStatus.status }}</p>
-                <Button @click="triggerProcessing" :disabled="processing">
+                <Button :disabled="processing" class="cursor-pointer" @click="triggerProcessing">
                   <Icon name="lucide:refresh-cw" class="h-4 w-4 mr-2" />
                   Restart Processing
                 </Button>
@@ -652,7 +612,7 @@ onUnmounted(() => {
 
               <div v-if="processError" class="text-center py-4">
                 <p class="text-destructive mb-2">{{ processError }}</p>
-                <Button @click="triggerProcessing" variant="outline">
+                <Button variant="outline" class="cursor-pointer" @click="triggerProcessing">
                   <Icon name="lucide:refresh-cw" class="h-4 w-4 mr-2" />
                   Try Again
                 </Button>
@@ -660,7 +620,5 @@ onUnmounted(() => {
             </CardContent>
           </Card>
         </div>
-      </div>
-    </main>
   </div>
 </template>

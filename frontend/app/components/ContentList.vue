@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { Button } from '~/components/ui/button'
-import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
+import { Card, CardContent } from '~/components/ui/card'
 import { Badge } from '~/components/ui/badge'
 import { Icon } from '#components'
 
@@ -13,7 +13,7 @@ interface ContentItem {
   status: string
   created_at: string
   updated_at: string
-  metadata: Record<string, any>
+  metadata: Record<string, unknown>
   hn_story_data?: {
     score?: number
     descendants?: number
@@ -44,7 +44,7 @@ const fetchContent = async () => {
     loading.value = true
     error.value = null
 
-    const data: ContentListResponse = await $fetch(`${apiBase}/api/content?limit=20`)
+    const data: ContentListResponse = await $fetch(`${apiBase}/api/content?per_page=20`)
     contentItems.value = data.items
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch content'
@@ -55,10 +55,6 @@ const fetchContent = async () => {
 }
 
 const deleteContent = async (itemId: string) => {
-  if (!confirm('Are you sure you want to delete this content item? This action cannot be undone.')) {
-    return
-  }
-
   try {
     deleting.value = itemId
 
@@ -69,9 +65,8 @@ const deleteContent = async (itemId: string) => {
     // Remove the item from the list
     contentItems.value = contentItems.value.filter(item => item.id !== itemId)
   } catch (err) {
-    const errorMessage = err instanceof Error ? err.message : 'Failed to delete content'
     console.error('Error deleting content:', err)
-    alert(errorMessage)
+    // Silently handle errors - item will remain in the list if deletion fails
   } finally {
     deleting.value = null
   }
@@ -107,21 +102,6 @@ const formatDate = (dateString: string) => {
   }
 }
 
-const getContentTypeIcon = (contentType: string) => {
-  switch (contentType) {
-    case 'article':
-      return 'lucide:file-text'
-    case 'video':
-      return 'lucide:video'
-    case 'podcast':
-      return 'lucide:headphones'
-    case 'news':
-      return 'lucide:newspaper'
-    default:
-      return 'lucide:file'
-  }
-}
-
 const navigateToItem = (itemId: string) => {
   navigateTo(`/items/${itemId}`)
 }
@@ -135,7 +115,7 @@ onMounted(() => {
   <div class="space-y-4">
     <!-- Loading State -->
     <div v-if="loading" class="flex justify-center items-center py-8">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"/>
       <span class="ml-2 text-muted-foreground">Loading content...</span>
     </div>
 
@@ -145,106 +125,101 @@ onMounted(() => {
         <Icon name="lucide:alert-circle" class="h-8 w-8 mx-auto" />
       </div>
       <p class="text-muted-foreground">{{ error }}</p>
-      <Button @click="fetchContent" variant="outline" class="mt-4">
+      <Button variant="outline" class="mt-4 cursor-pointer" @click="fetchContent">
         <Icon name="lucide:refresh-cw" class="h-4 w-4 mr-2" />
         Try Again
       </Button>
     </div>
 
     <!-- Content List -->
-    <div v-else-if="contentItems.length > 0" class="space-y-4">
-              <div v-for="item in contentItems" :key="item.id" class="group">
-        <Card class="transition-all duration-200 hover:shadow-md hover:border-primary/50 cursor-pointer" @click="navigateToItem(item.id)">
-          <CardHeader class="pb-3">
-            <div class="flex items-start justify-between">
-              <div class="flex-1 min-w-0">
-                <div class="flex items-center gap-2 mb-2">
-                  <Icon
-                    :name="getContentTypeIcon(item.content_type)"
-                    class="h-4 w-4 text-muted-foreground"
-                  />
-                  <Badge variant="outline" class="text-xs">
-                    {{ item.content_type }}
-                  </Badge>
-                  <Badge :variant="getStatusVariant(item.status)">
-                    {{ item.status }}
-                  </Badge>
+    <div v-else-if="contentItems.length > 0" class="space-y-3">
+      <div v-for="item in contentItems" :key="item.id" class="group">
+        <Card class="transition-all duration-200 hover:shadow-md hover:border-orange-500/50 cursor-pointer border-l-4 border-l-orange-500/20" @click="navigateToItem(item.id)">
+          <CardContent class="p-4">
+            <div class="flex items-start justify-between gap-4">
+              <!-- Main Content -->
+              <div class="flex-1 min-w-0 space-y-2">
+                <!-- Title and Status Row -->
+                <div class="flex items-start justify-between gap-2">
+                  <div class="flex-1 min-w-0">
+                    <h3 class="text-base font-semibold leading-tight group-hover:text-orange-600 transition-colors line-clamp-2">
+                      {{ item.title }}
+                    </h3>
+                  </div>
+                  <div class="flex items-center gap-1 flex-shrink-0">
+                    <Badge :variant="getStatusVariant(item.status)" class="text-xs">
+                      {{ item.status }}
+                    </Badge>
+                  </div>
                 </div>
-                <CardTitle class="text-lg leading-tight group-hover:text-primary transition-colors">
-                  {{ item.title }}
-                </CardTitle>
+
+                <!-- URL and Metadata Row -->
+                <div class="space-y-1">
+                  <div class="text-sm">
+                    <a
+                      :href="item.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="text-orange-600 hover:text-orange-700 hover:underline break-all cursor-pointer text-xs"
+                      @click.stop
+                    >
+                      <Icon name="lucide:external-link" class="h-3 w-3 inline mr-1" />
+                      {{ item.url }}
+                    </a>
+                  </div>
+
+                  <!-- Compact Metadata -->
+                  <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                    <span>
+                      <Icon name="lucide:clock" class="h-3 w-3 inline mr-1" />
+                      {{ formatDate(item.updated_at) }}
+                    </span>
+                    <span v-if="item.hn_story_data?.score !== undefined">
+                      <Icon name="lucide:arrow-up" class="h-3 w-3 inline mr-1" />
+                      {{ item.hn_story_data.score }}
+                    </span>
+                    <span v-if="item.hn_story_data?.descendants !== undefined">
+                      <Icon name="lucide:message-circle" class="h-3 w-3 inline mr-1" />
+                      {{ item.hn_story_data.descendants }}
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div class="flex flex-col gap-2 ml-4">
+
+              <!-- Action Buttons -->
+              <div class="flex items-center gap-1 flex-shrink-0">
                 <Button
                   size="sm"
-                  variant="outline"
-                  class="h-8 w-8 p-0"
-                  @click.stop="() => navigateTo(`/items/${item.id}`)"
+                  variant="ghost"
+                  class="h-7 w-7 p-0 cursor-pointer"
                   title="View Details"
+                  @click.stop="() => navigateTo(`/items/${item.id}`)"
                 >
-                  <Icon name="lucide:eye" class="h-4 w-4" />
-                </Button>
-                <Button size="sm" variant="outline" class="h-8 w-8 p-0" @click.stop>
-                  <Icon name="lucide:play" class="h-4 w-4" />
+                  <Icon name="lucide:eye" class="h-3 w-3" />
                 </Button>
                 <Button
                   size="sm"
-                  variant="destructive"
-                  class="h-8 w-8 p-0"
-                  @click.stop="deleteContent(item.id)"
+                  variant="ghost"
+                  class="h-7 w-7 p-0 cursor-pointer"
+                  title="Play"
+                  @click.stop
+                >
+                  <Icon name="lucide:play" class="h-3 w-3" />
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  class="h-7 w-7 p-0 cursor-pointer text-destructive hover:text-destructive hover:bg-destructive/10"
                   :disabled="deleting === item.id"
                   :title="deleting === item.id ? 'Deleting...' : 'Delete Content'"
+                  @click.stop="deleteContent(item.id)"
                 >
                   <Icon
                     name="lucide:trash-2"
-                    class="h-4 w-4"
+                    class="h-3 w-3"
                     :class="{ 'animate-spin': deleting === item.id }"
                   />
                 </Button>
-              </div>
-            </div>
-          </CardHeader>
-
-          <CardContent class="pt-0">
-            <div class="space-y-3">
-              <!-- HN Story Data -->
-              <div v-if="item.hn_story_data" class="flex items-center gap-4 text-sm text-muted-foreground">
-                <span v-if="item.hn_story_data.score !== undefined">
-                  <Icon name="lucide:arrow-up" class="h-3 w-3 inline mr-1" />
-                  Score: {{ item.hn_story_data.score }}
-                </span>
-                <span v-if="item.hn_story_data.descendants !== undefined">
-                  <Icon name="lucide:message-circle" class="h-3 w-3 inline mr-1" />
-                  {{ item.hn_story_data.descendants }} comments
-                </span>
-                <span v-if="item.hn_story_data.by">
-                  by {{ item.hn_story_data.by }}
-                </span>
-              </div>
-
-              <!-- Timestamps -->
-              <div class="flex items-center gap-4 text-sm text-muted-foreground">
-                <span>
-                  <Icon name="lucide:clock" class="h-3 w-3 inline mr-1" />
-                  Updated {{ formatDate(item.updated_at) }}
-                </span>
-                <span>
-                  <Icon name="lucide:calendar" class="h-3 w-3 inline mr-1" />
-                  Created {{ formatDate(item.created_at) }}
-                </span>
-              </div>
-
-              <!-- URL -->
-              <div class="text-sm">
-                <a
-                  :href="item.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-primary hover:underline break-all"
-                >
-                  <Icon name="lucide:external-link" class="h-3 w-3 inline mr-1" />
-                  {{ item.url }}
-                </a>
               </div>
             </div>
           </CardContent>

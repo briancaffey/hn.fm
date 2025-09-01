@@ -10,7 +10,7 @@ interface Service {
   url: string
   status: 'online' | 'offline' | 'error'
   response_time: number
-  details?: any
+  details?: unknown
   error_message?: string
 }
 
@@ -30,7 +30,6 @@ const { data: servicesData, pending, refresh } = await useAsyncData<ServicesResp
 )
 
 // Auto-refresh every 30 seconds
-const { $interval } = useNuxtApp()
 onMounted(() => {
   const interval = setInterval(() => {
     refresh()
@@ -60,12 +59,12 @@ const getStatusBadgeVariant = (status: string): 'default' | 'destructive' | 'sec
   return variants[status] || 'outline'
 }
 
-const formatDetails = (details: any) => {
+const formatDetails = (details: unknown) => {
   if (typeof details === 'object') {
     try {
       return JSON.stringify(details, null, 2)
-    } catch (e) {
-      return Object.entries(details)
+    } catch {
+      return Object.entries(details as Record<string, unknown>)
         .map(([key, value]) => `${key}: ${value}`)
         .join('\n')
     }
@@ -104,7 +103,7 @@ const formatTimestamp = (timestamp: string) => {
                 'w-4 h-4 rounded-full',
                 servicesData?.all_healthy ? 'bg-green-500' : 'bg-red-500'
               ]"
-            ></div>
+            />
             <span
               :class="[
                 'text-lg font-medium',
@@ -137,7 +136,7 @@ const formatTimestamp = (timestamp: string) => {
                   'w-3 h-3 rounded-full',
                   getStatusColor(service.status)
                 ]"
-              ></div>
+              />
               <CardTitle class="text-lg">{{ service.name }}</CardTitle>
             </div>
             <Badge :variant="getStatusBadgeVariant(service.status)">
@@ -189,10 +188,10 @@ const formatTimestamp = (timestamp: string) => {
     <!-- Refresh Button -->
     <div class="flex justify-center">
       <Button
-        @click="refresh"
         :disabled="pending"
         variant="outline"
         class="inline-flex items-center space-x-2"
+        @click="refresh"
       >
         <Icon
           :name="pending ? 'lucide:loader-2' : 'lucide:refresh-cw'"

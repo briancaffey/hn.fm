@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted } from 'vue'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
-import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
 import { Icon } from '#components'
 
@@ -11,7 +10,10 @@ interface PipelineStats {
   completed_items: number
   failed_items: number
   pending_items: number
-  service_locks: Record<string, boolean>
+}
+
+interface ContentItem {
+  status: string
 }
 
 const stats = ref<PipelineStats | null>(null)
@@ -28,35 +30,21 @@ const fetchStats = async () => {
     error.value = null
 
     // Fetch content list to get basic stats
-    const contentData = await $fetch(`${apiBase}/api/content?per_page=100`)
+    const contentData = await $fetch(`${apiBase}/api/content?per_page=100`) as { items: ContentItem[] }
 
     // Calculate stats from content data
     const total = contentData.items.length
-    const processing = contentData.items.filter(item => item.status === 'processing').length
-    const completed = contentData.items.filter(item => item.status === 'completed').length
-    const failed = contentData.items.filter(item => item.status === 'failed').length
-    const pending = contentData.items.filter(item => item.status === 'pending').length
-
-    // Try to get service lock status
-    let serviceLocks = {}
-    try {
-      const lockData = await $fetch(`${apiBase}/api/enhanced-pipeline/service-locks`)
-      if (lockData.services) {
-        serviceLocks = Object.fromEntries(
-          Object.entries(lockData.services).map(([key, value]: [string, any]) => [key, value.is_locked])
-        )
-      }
-    } catch (err) {
-      console.log('Service locks not available:', err)
-    }
+    const processing = contentData.items.filter((item: ContentItem) => item.status === 'processing').length
+    const completed = contentData.items.filter((item: ContentItem) => item.status === 'completed').length
+    const failed = contentData.items.filter((item: ContentItem) => item.status === 'failed').length
+    const pending = contentData.items.filter((item: ContentItem) => item.status === 'pending').length
 
     stats.value = {
       total_items: total,
       processing_items: processing,
       completed_items: completed,
       failed_items: failed,
-      pending_items: pending,
-      service_locks: serviceLocks
+      pending_items: pending
     }
   } catch (err) {
     error.value = err instanceof Error ? err.message : 'Failed to fetch pipeline stats'
@@ -64,29 +52,6 @@ const fetchStats = async () => {
   } finally {
     loading.value = false
   }
-}
-
-const getStatusColor = (status: string) => {
-  switch (status) {
-    case 'processing':
-      return 'text-blue-600'
-    case 'completed':
-      return 'text-green-600'
-    case 'failed':
-      return 'text-red-600'
-    case 'pending':
-      return 'text-yellow-600'
-    default:
-      return 'text-gray-600'
-  }
-}
-
-const getServiceStatusColor = (isLocked: boolean) => {
-  return isLocked ? 'text-red-600' : 'text-green-600'
-}
-
-const getServiceStatusIcon = (isLocked: boolean) => {
-  return isLocked ? 'lucide:lock' : 'lucide:unlock'
 }
 
 const refreshStats = () => {
@@ -109,7 +74,7 @@ onMounted(() => {
         <h2 class="text-2xl font-bold text-foreground">Pipeline Dashboard</h2>
         <p class="text-muted-foreground">Overview of content processing pipeline</p>
       </div>
-      <Button @click="refreshStats" variant="outline" size="sm" :disabled="loading">
+      <Button variant="outline" size="sm" :disabled="loading" class="cursor-pointer" @click="refreshStats">
         <Icon name="lucide:refresh-cw" class="h-4 w-4 mr-2" :class="{ 'animate-spin': loading }" />
         Refresh
       </Button>
@@ -117,7 +82,7 @@ onMounted(() => {
 
     <!-- Loading State -->
     <div v-if="loading" class="flex justify-center items-center py-8">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"/>
       <span class="ml-2 text-muted-foreground">Loading pipeline stats...</span>
     </div>
 
@@ -127,7 +92,7 @@ onMounted(() => {
         <Icon name="lucide:alert-circle" class="h-8 w-8 mx-auto" />
       </div>
       <p class="text-muted-foreground">{{ error }}</p>
-      <Button @click="refreshStats" variant="outline" class="mt-4">
+      <Button variant="outline" class="mt-4 cursor-pointer" @click="refreshStats">
         <Icon name="lucide:refresh-cw" class="h-4 w-4 mr-2" />
         Try Again
       </Button>
@@ -151,7 +116,7 @@ onMounted(() => {
       <Card>
         <CardHeader class="flex flex-row items-center justify-between space-y-0 pb-2">
           <CardTitle class="text-sm font-medium">Processing</CardTitle>
-          <Icon name="lucide:loader-2" class="h-4 w-4 text-blue-600 animate-spin" />
+          <Icon name="lucide:loader" class="h-4 w-4 text-blue-600 animate-spin" />
         </CardHeader>
         <CardContent>
           <div class="text-2xl font-bold text-blue-600">{{ stats.processing_items }}</div>
@@ -184,56 +149,25 @@ onMounted(() => {
       </Card>
     </div>
 
-    <!-- Service Status -->
-    <Card v-if="stats && Object.keys(stats.service_locks).length > 0">
-      <CardHeader>
-        <CardTitle class="flex items-center gap-2">
-          <Icon name="lucide:server" class="h-5 w-5" />
-          Service Status
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <div class="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          <div
-            v-for="(isLocked, serviceName) in stats.service_locks"
-            :key="serviceName"
-            class="flex items-center gap-2 p-3 border rounded-lg"
-          >
-            <Icon
-              :name="getServiceStatusIcon(isLocked)"
-              class="h-4 w-4"
-              :class="getServiceStatusColor(isLocked)"
-            />
-            <div>
-              <p class="text-sm font-medium">{{ serviceName }}</p>
-              <p class="text-xs text-muted-foreground">
-                {{ isLocked ? 'Locked' : 'Available' }}
-              </p>
-            </div>
-          </div>
-        </div>
-      </CardContent>
-    </Card>
-
     <!-- Quick Actions -->
     <Card>
       <CardHeader>
         <CardTitle class="flex items-center gap-2">
-          <Icon name="lucide:zap" class="h-5 w-5" />
+          <Icon name="lucide:zap" class="h-5 w-5 text-orange-600" />
           Quick Actions
         </CardTitle>
       </CardHeader>
       <CardContent>
         <div class="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" @click="navigateTo('/items')">
+          <Button variant="outline" size="sm" class="cursor-pointer" @click="navigateTo('/items')">
             <Icon name="lucide:list" class="h-4 w-4 mr-2" />
             View All Items
           </Button>
-          <Button variant="outline" size="sm" @click="navigateTo('/services')">
+          <Button variant="outline" size="sm" class="cursor-pointer" @click="navigateTo('/services')">
             <Icon name="lucide:settings" class="h-4 w-4 mr-2" />
             Service Status
           </Button>
-          <Button variant="outline" size="sm" @click="refreshStats">
+          <Button variant="outline" size="sm" class="cursor-pointer" @click="refreshStats">
             <Icon name="lucide:refresh-cw" class="h-4 w-4 mr-2" />
             Refresh Stats
           </Button>

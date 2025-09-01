@@ -133,7 +133,6 @@ class ConfigManager:
             "llm": {
                 "enabled": True,
                 "base_url": "${LLM_BASE_URL}",
-                "fallback_url": "${LLM_FALLBACK_URL}",
                 "model": "${LLM_MODEL}",
                 "provider": "${LLM_PROVIDER}",
             },

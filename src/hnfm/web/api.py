@@ -6,12 +6,15 @@ from datetime import datetime
 from typing import List, Optional
 from fastapi import FastAPI, HTTPException, Query, Depends, Request
 from fastapi.responses import JSONResponse
+from fastapi.middleware.cors import CORSMiddleware
+import json
 
 from .models import (
     ContentItem,
     ContentListResponse,
     ContentCreateRequest,
     ContentUpdateRequest,
+    PipelineProcessRequest,
     PipelineStatus,
     HealthCheck,
     ServiceStatus,
@@ -29,6 +32,17 @@ app = FastAPI(
     description="API for managing Hacker News content pipeline",
     version="0.1.0",
 )
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
 
 # Initialize database and services
 db = ContentDatabase()
@@ -215,9 +229,28 @@ async def get_pipeline_status():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@app.post("/api/pipeline/process", tags=["pipeline"])
+async def process_content_pipeline(request: PipelineProcessRequest):
+    """Process existing HN content through the pipeline"""
+    try:
+        logger.info(f"Pipeline processing requested for HN item {request.hn_item_id}")
+
+        # For now, just return a success message
+        # TODO: Implement actual pipeline processing
+        return {
+            "message": "Pipeline processing started",
+            "hn_item_id": request.hn_item_id,
+            "status": "processing"
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to start processing: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.post("/api/process", tags=["pipeline"])
 async def process_content(request: ContentCreateRequest):
-    """Process content through the pipeline"""
+    """Process content through the pipeline (legacy endpoint)"""
     try:
         # Create content item
         content_id = str(uuid.uuid4())
@@ -396,12 +429,43 @@ async def get_active_tasks():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# Admin Endpoints
+@app.delete("/api/admin/delete-all-data", tags=["admin"])
+async def delete_all_data():
+    """Delete all data from Redis - DANGER ZONE"""
+    try:
+        if not db.redis_client:
+            raise HTTPException(status_code=500, detail="Redis not connected")
+
+        # Get all keys with hnfm prefix
+        pattern = "hnfm:*"
+        keys = db.redis_client.keys(pattern)
+
+        if keys:
+            # Delete all keys
+            deleted_count = db.redis_client.delete(*keys)
+            logger.warning(f"Deleted {deleted_count} keys from Redis - all data cleared")
+        else:
+            deleted_count = 0
+            logger.info("No keys found to delete")
+
+        return {
+            "message": "All data deleted successfully",
+            "deleted_keys": deleted_count,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to delete all data: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 # Error handlers
 @app.exception_handler(404)
 async def not_found_handler(request, exc):
-    return {"detail": "Not found"}
+    return JSONResponse(status_code=404, content={"detail": "Not found"})
 
 
 @app.exception_handler(500)
 async def internal_error_handler(request, exc):
-    return {"detail": "Internal server error"}
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})

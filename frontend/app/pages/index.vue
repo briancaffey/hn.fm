@@ -10,7 +10,8 @@ const apiBase = config.public.apiBase
 // State for processing
 const isProcessing = ref(false)
 const processingStatus = ref('')
-const processingResults = ref<any>(null)
+const processingResults = ref<unknown>(null)
+const stats = ref<unknown>(null)
 
 // Function to process top stories
 async function processTopStories() {
@@ -32,9 +33,10 @@ async function processTopStories() {
     // Refresh stats after processing
     await refreshStats()
 
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Failed to process top stories:', error)
-    processingStatus.value = `Error: ${error.data?.detail || error.message || 'Unknown error'}`
+    const errorData = error as { data?: { detail?: string }; message?: string }
+    processingStatus.value = `Error: ${errorData.data?.detail || errorData.message || 'Unknown error'}`
   } finally {
     isProcessing.value = false
   }
@@ -43,9 +45,7 @@ async function processTopStories() {
 // Function to refresh stats
 async function refreshStats() {
   try {
-    const stats = await $fetch(`${apiBase}/api/hn/stats`)
-    // Update the stats display if needed
-    console.log('Updated HN stats:', stats)
+    stats.value = await $fetch(`${apiBase}/api/hn/stats`)
   } catch (error) {
     console.error('Failed to refresh stats:', error)
   }
@@ -60,43 +60,43 @@ onMounted(() => {
 <template>
   <div class="space-y-8">
     <!-- Hero Section -->
-    <section class="text-center space-y-4">
-      <h1 class="text-4xl font-bold text-foreground">
-        Welcome to HN.fm
-      </h1>
-      <p class="text-xl text-muted-foreground max-w-2xl mx-auto">
-        Your gateway to curated Hacker News content, transformed into engaging audio and visual experiences.
-      </p>
-      <div class="flex justify-center space-x-4">
+    <section class="text-center space-y-6">
+      <div class="space-y-4">
+        <h1 class="text-4xl font-bold text-foreground">
+          <span class="text-orange-600">HN</span>.fm
+        </h1>
+        <p class="text-lg text-muted-foreground max-w-2xl mx-auto">
+          Transform Hacker News stories into engaging audio and visual content.
+        </p>
+      </div>
+
+      <!-- Main Action -->
+      <div class="flex justify-center">
         <Button
           size="lg"
-          @click="processTopStories"
           :disabled="isProcessing"
-          class="min-w-[200px]"
+          class="min-w-[200px] cursor-pointer"
+          @click="processTopStories"
         >
           <Icon
-            :name="isProcessing ? 'lucide:loader-2' : 'lucide:zap'"
+            :name="isProcessing ? 'lucide:loader' : 'lucide:zap'"
             class="h-4 w-4 mr-2"
             :class="{ 'animate-spin': isProcessing }"
           />
           {{ isProcessing ? 'Processing...' : 'Process Top Stories' }}
         </Button>
-        <Button variant="outline" size="lg">
-          <Icon name="lucide:info" class="h-4 w-4 mr-2" />
-          Learn More
-        </Button>
       </div>
 
       <!-- Processing Status -->
-      <div v-if="processingStatus" class="mt-4">
-        <div class="text-sm text-muted-foreground">
+      <div v-if="processingStatus" class="max-w-2xl mx-auto">
+        <div class="text-sm text-muted-foreground bg-muted/50 rounded-lg p-4">
           {{ processingStatus }}
         </div>
       </div>
 
       <!-- Processing Results -->
-      <div v-if="processingResults" class="mt-6 max-w-2xl mx-auto">
-        <Card class="p-4">
+      <div v-if="processingResults" class="max-w-2xl mx-auto">
+        <Card>
           <CardHeader>
             <CardTitle class="text-lg">Processing Results</CardTitle>
           </CardHeader>
@@ -124,76 +124,67 @@ onMounted(() => {
       </div>
     </section>
 
+    <!-- Quick Actions -->
+    <section class="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto">
+      <Card class="p-6">
+        <CardHeader>
+          <CardTitle class="flex items-center space-x-2">
+            <Icon name="lucide:list" class="h-5 w-5 text-orange-600" />
+            <span>Browse Content</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <p class="text-muted-foreground">
+            View and manage all processed Hacker News stories.
+          </p>
+          <Button variant="outline" class="w-full cursor-pointer" @click="navigateTo('/items')">
+            <Icon name="lucide:arrow-right" class="h-4 w-4 mr-2" />
+            View All Items
+          </Button>
+        </CardContent>
+      </Card>
+
+      <Card class="p-6">
+        <CardHeader>
+          <CardTitle class="flex items-center space-x-2">
+            <Icon name="lucide:settings" class="h-5 w-5 text-orange-600" />
+            <span>System Status</span>
+          </CardTitle>
+        </CardHeader>
+        <CardContent class="space-y-4">
+          <p class="text-muted-foreground">
+            Monitor services and processing pipeline status.
+          </p>
+          <Button variant="outline" class="w-full cursor-pointer" @click="navigateTo('/services')">
+            <Icon name="lucide:arrow-right" class="h-4 w-4 mr-2" />
+            Check Services
+          </Button>
+        </CardContent>
+      </Card>
+    </section>
+
+    <!-- Real Stats Section -->
+    <section v-if="stats" class="bg-muted/50 rounded-lg p-8 max-w-4xl mx-auto">
+      <h2 class="text-2xl font-bold text-center mb-6">System Overview</h2>
+      <div class="grid md:grid-cols-3 gap-6 text-center">
+        <div>
+          <div class="text-3xl font-bold text-foreground">{{ stats.total_items || 0 }}</div>
+          <div class="text-sm text-muted-foreground">Total Items</div>
+        </div>
+        <div>
+          <div class="text-3xl font-bold text-foreground">{{ stats.processed_items || 0 }}</div>
+          <div class="text-sm text-muted-foreground">Processed Items</div>
+        </div>
+        <div>
+          <div class="text-3xl font-bold text-foreground">{{ stats.pending_items || 0 }}</div>
+          <div class="text-sm text-muted-foreground">Pending Items</div>
+        </div>
+      </div>
+    </section>
+
     <!-- Pipeline Dashboard -->
     <section>
       <PipelineDashboard />
-    </section>
-
-    <!-- Features Grid -->
-    <section class="grid md:grid-cols-3 gap-6">
-      <Card class="p-6">
-        <CardHeader>
-          <CardTitle class="flex items-center space-x-2">
-            <Icon name="lucide:headphones" class="h-5 w-5 text-primary" />
-            <span>Audio Generation</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p class="text-muted-foreground">
-            Transform articles into high-quality audio content with natural-sounding voices.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card class="p-6">
-        <CardHeader>
-          <CardTitle class="flex items-center space-x-2">
-            <Icon name="lucide:image" class="h-5 w-5 text-primary" />
-            <span>Visual Content</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p class="text-muted-foreground">
-            Generate compelling images and videos to accompany your content.
-          </p>
-        </CardContent>
-      </Card>
-
-      <Card class="p-6">
-        <CardHeader>
-          <CardTitle class="flex items-center space-x-2">
-            <Icon name="lucide:zap" class="h-5 w-5 text-primary" />
-            <span>Smart Curation</span>
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p class="text-muted-foreground">
-            AI-powered content selection and processing for the best Hacker News stories.
-          </p>
-        </CardContent>
-      </Card>
-    </section>
-
-    <!-- Stats Section -->
-    <section class="bg-muted/50 rounded-lg p-8">
-      <div class="grid md:grid-cols-4 gap-6 text-center">
-        <div>
-          <div class="text-3xl font-bold text-foreground">1,234</div>
-          <div class="text-sm text-muted-foreground">Items Processed</div>
-        </div>
-        <div>
-          <div class="text-3xl font-bold text-foreground">567</div>
-          <div class="text-sm text-muted-foreground">Audio Files</div>
-        </div>
-        <div>
-          <div class="text-3xl font-bold text-foreground">89</div>
-          <div class="text-sm text-muted-foreground">Videos Created</div>
-        </div>
-        <div>
-          <div class="text-3xl font-bold text-foreground">42</div>
-          <div class="text-sm text-muted-foreground">Active Users</div>
-        </div>
-      </div>
     </section>
   </div>
 </template>

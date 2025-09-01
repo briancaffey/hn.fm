@@ -30,7 +30,6 @@ studio_voice:
 llm:
   enabled: true
   base_url: "${LLM_BASE_URL}"  # Primary endpoint
-  fallback_url: "${LLM_FALLBACK_URL}"  # Fallback endpoint
   model: "${LLM_MODEL}"
   provider: "local"
 

@@ -1,4 +1,4 @@
-.PHONY: help black black-check clean clean-cache clean-pycache test install-dev celery-worker celery-beat celery-worker-simple celery-beat-simple flower dev-start dev-start-background docker-up docker-down
+.PHONY: help black black-check lint-frontend lint-frontend-fix clean clean-cache clean-pycache test install-dev celery-worker celery-beat celery-worker-simple celery-beat-simple flower dev-start dev-start-background docker-up docker-down
 
 # Default target
 help:
@@ -8,6 +8,8 @@ help:
 	@echo "Code Formatting:"
 	@echo "  black        - Format all Python code with Black"
 	@echo "  black-check  - Check code formatting without making changes"
+	@echo "  lint-frontend - Lint frontend code with ESLint"
+	@echo "  lint-frontend-fix - Fix frontend linting issues automatically"
 	@echo ""
 	@echo "Cleaning:"
 	@echo "  clean        - Remove all generated files and caches"
@@ -50,6 +52,18 @@ black-check:
 	@echo "🔍 Checking code formatting with Black..."
 	uv run black . --line-length 88 --exclude .venv --check
 	@echo "✅ Code formatting check complete!"
+
+# Lint frontend code
+lint-frontend:
+	@echo "🔍 Linting frontend code with ESLint..."
+	cd frontend && yarn lint
+	@echo "✅ Frontend linting complete!"
+
+# Fix frontend linting issues
+lint-frontend-fix:
+	@echo "🔧 Fixing frontend linting issues..."
+	cd frontend && yarn lint:fix
+	@echo "✅ Frontend linting fixes complete!"
 
 # Clean all generated files and caches
 clean: clean-cache clean-pycache

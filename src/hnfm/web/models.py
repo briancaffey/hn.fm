@@ -123,6 +123,16 @@ class ContentCreateRequest(BaseModel):
     )
 
 
+class PipelineProcessRequest(BaseModel):
+    """Request model for processing existing content through pipeline"""
+
+    hn_item_id: int = Field(
+        ...,
+        description="Hacker News item ID to process",
+        example=123456789,
+    )
+
+
 class ContentUpdateRequest(BaseModel):
     """Request model for updating content"""
 

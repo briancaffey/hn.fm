@@ -27,7 +27,10 @@
 
 <script setup>
 defineProps({
-  error: Object
+  error: {
+    type: Object,
+    default: () => ({})
+  }
 })
 
 const handleError = () => {
