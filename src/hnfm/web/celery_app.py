@@ -44,15 +44,10 @@ except ImportError as e:
 
 # Celery configuration
 celery_app.conf.update(
-    # Task routing - Fix the routing to ensure tasks go to the right queue
+    # Task routing - Simplified routing for the new task system
     task_routes={
-        "process_content_pipeline": {"queue": "hnfm_tasks"},
-        "content_pipeline": {"queue": "hnfm_tasks"},
-        "debug_task": {"queue": "hnfm_tasks"},
         "process_content": {"queue": "hnfm_tasks"},
-        "full_pipeline": {"queue": "hnfm_tasks"},
-        "cleanup_old_results": {"queue": "hnfm_tasks"},
-        "process_hn_story": {"queue": "hnfm_tasks"},
+        "process_content_text_only": {"queue": "hnfm_tasks"},
         "hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
     },
     # Task serialization
@@ -91,12 +86,8 @@ celery_app.conf.update(
 logger.info(f"Registered tasks: {list(celery_app.tasks.keys())}")
 
 # Optional: Configure Celery Beat for periodic tasks
-celery_app.conf.beat_schedule = {
-    "cleanup-old-results": {
-        "task": "hnfm.web.tasks.cleanup_old_results",
-        "schedule": 3600.0,  # Every hour
-    },
-}
+# Removed cleanup task - simplified task system
+celery_app.conf.beat_schedule = {}
 
 
 # Database helper for tasks

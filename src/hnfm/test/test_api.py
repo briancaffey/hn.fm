@@ -14,7 +14,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 from hnfm.web.database import ContentDatabase
 from hnfm.web.models import ContentItem
 from hnfm.web.celery_app import celery_app
-from hnfm.web.tasks import content_pipeline
+from hnfm.web.tasks import process_content_text_only
 
 
 class TestAPI:
@@ -167,12 +167,8 @@ class TestAPI:
         try:
             # Check that expected tasks are registered
             expected_tasks = [
-                "debug_task",
                 "process_content",
-                "scrape_content",
-                "generate_script",
-                "generate_audio",
-                "full_pipeline",
+                "process_content_text_only",
             ]
 
             registered_tasks = list(celery_app.tasks.keys())
@@ -183,7 +179,7 @@ class TestAPI:
             ]
 
             # Check if our main tasks are registered
-            task_found = any("debug_task" in task for task in custom_tasks)
+            task_found = any("process_content" in task for task in custom_tasks)
             assert task_found, "Custom tasks should be registered"
 
             print(f"✅ Found {len(custom_tasks)} custom tasks")
@@ -218,7 +214,7 @@ class TestAPI:
             self.db.store_content("test-pipeline-task-123", test_content)
 
             # Execute task
-            result = content_pipeline.delay("test-pipeline-task-123")
+            result = process_content_text_only.delay("test-pipeline-task-123")
 
             # Check result
             assert result.ready(), "Task should be ready immediately"
@@ -243,11 +239,13 @@ class TestAPI:
 
             # Test that we can access the task
             assert (
-                content_pipeline is not None
+                process_content_text_only is not None
             ), "Content pipeline task should be available"
 
             # Test task configuration
-            assert hasattr(content_pipeline, "delay"), "Task should have delay method"
+            assert hasattr(
+                process_content_text_only, "delay"
+            ), "Task should have delay method"
 
             print("✅ Task execution test passed")
             return True

@@ -232,9 +232,9 @@ async def process_content(content_id: str):
         db.update_content(content_id, {"status": "processing"})
 
         # Start the processing task
-        from .tasks import process_content_pipeline
+        from .tasks import process_content_text_only
 
-        task = process_content_pipeline.delay(content_id)
+        task = process_content_text_only.delay(content_id)
 
         logger.info(f"Started processing task {task.id} for content {content_id}")
 

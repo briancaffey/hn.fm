@@ -294,7 +294,7 @@ class PipelineManager:
         logger.info("Executing HN scraping")
 
         hn_scraper = self._get_service("hn_scraper")
-        articles = hn_scraper.scrape_articles()
+        articles = hn_scraper.get_top_stories(limit=30)
 
         # Save articles
         articles_file = self.cache_dir / "hn_articles.json"
@@ -321,7 +321,9 @@ class PipelineManager:
             raise ValueError("No URL provided for content extraction")
 
         content_scraper = self._get_service("content_scraper")
-        raw_content = content_scraper.extract_content(url)
+        raw_content_data = content_scraper.extract_content(url)
+        raw_content = raw_content_data.get("content", "")
+        title = raw_content_data.get("title", "Unknown Title")
 
         # Save raw content
         raw_content_file = self.cache_dir / "raw_content.md"
@@ -365,8 +367,18 @@ class PipelineManager:
         with open(raw_content_file, "r", encoding="utf-8") as f:
             raw_content = f.read()
 
+        # Get title from processed content file
+        processed_content_file = self.cache_dir / "processed_content.json"
+        if processed_content_file.exists():
+            with open(processed_content_file, "r") as f:
+                processed_data = json.load(f)
+                title = processed_data.get("title", "Unknown Title")
+        else:
+            title = "Unknown Title"
+
         content_processor = self._get_service("content_processor")
-        cleaned_content = content_processor.process_content(raw_content)
+        processed_content_obj = content_processor.process_content(title, raw_content)
+        cleaned_content = processed_content_obj.cleaned_content
 
         # Save cleaned content
         cleaned_content_file = self.cache_dir / "cleaned_content.md"
@@ -374,9 +386,7 @@ class PipelineManager:
             f.write(cleaned_content)
 
         # Extract meaningful paragraphs
-        meaningful_paragraphs = content_processor.extract_meaningful_paragraphs(
-            cleaned_content
-        )
+        meaningful_paragraphs = processed_content_obj.meaningful_paragraphs
         paragraphs_file = self.cache_dir / "meaningful_paragraphs.json"
         with open(paragraphs_file, "w") as f:
             json.dump(meaningful_paragraphs, f, indent=2)
@@ -407,7 +417,28 @@ class PipelineManager:
             cleaned_content = f.read()
 
         script_generator = self._get_service("script_generator")
-        script_content = script_generator.generate_script(cleaned_content)
+
+        # Get meaningful paragraphs from previous step
+        meaningful_paragraphs_file = self.cache_dir / "meaningful_paragraphs.json"
+        if meaningful_paragraphs_file.exists():
+            with open(meaningful_paragraphs_file, "r") as f:
+                meaningful_paragraphs = json.load(f)
+        else:
+            meaningful_paragraphs = [cleaned_content]
+
+        # Get title from processed content
+        processed_content_file = self.cache_dir / "processed_content.json"
+        if processed_content_file.exists():
+            with open(processed_content_file, "r") as f:
+                processed_data = json.load(f)
+                title = processed_data.get("title", "Unknown Title")
+        else:
+            title = "Unknown Title"
+
+        script_result = script_generator.generate_script_from_content(
+            title, meaningful_paragraphs
+        )
+        script_content = script_result.get("script", "")
 
         # Save script
         script_file = self.cache_dir / "script.md"

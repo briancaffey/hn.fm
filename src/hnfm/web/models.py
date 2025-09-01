@@ -178,6 +178,31 @@ class ContentCreateRequest(BaseModel):
     )
 
 
+class URLProcessRequest(BaseModel):
+    """Request model for processing arbitrary URLs"""
+
+    url: str = Field(
+        ...,
+        description="URL to process",
+        example="https://example.com/article",
+    )
+    content_type: str = Field(
+        default="article",
+        description="Type of content",
+        example="article",
+    )
+    options: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Processing options and configuration",
+        example={
+            "voice": "en-US-Standard-A",
+            "speed": 1.0,
+            "quality": "high",
+            "max_length": 5000,
+        },
+    )
+
+
 class ContentUpdateRequest(BaseModel):
     """Request model for updating content"""
 

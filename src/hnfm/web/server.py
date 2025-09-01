@@ -16,6 +16,7 @@ from .models import (
     ContentListResponse,
     ContentCreateRequest,
     ContentUpdateRequest,
+    URLProcessRequest,
     PipelineStatus,
     HealthCheck,
     ServiceStatus,
@@ -27,9 +28,8 @@ from .models import (
 )
 from .celery_app import celery_app
 from .tasks import (
-    full_pipeline,
-    content_pipeline,
-    process_content_pipeline,
+    process_content,
+    process_content_text_only,
 )
 from ..scraper.hn_service import HackerNewsService
 
@@ -504,9 +504,9 @@ async def process_content(content_id: str):
         db.update_content(content_id, {"status": "processing"})
 
         # Start the processing task
-        from .tasks import process_content_pipeline
+        from .tasks import process_content_text_only
 
-        task = process_content_pipeline.delay(content_id)
+        task = process_content_text_only.delay(content_id)
 
         logger.info(f"Started processing task {task.id} for content {content_id}")
 
@@ -547,7 +547,7 @@ async def get_pipeline_status():
 
 
 @app.post("/api/pipeline/process-full", response_model=TaskResponse, tags=["pipeline"])
-async def process_full_pipeline(request: ContentCreateRequest):
+async def process_full_pipeline(request: URLProcessRequest):
     """
     Trigger full content processing pipeline using Celery.
 
@@ -587,7 +587,7 @@ async def process_full_pipeline(request: ContentCreateRequest):
             raise HTTPException(status_code=500, detail="Failed to store content")
 
         # Queue the full pipeline task
-        task = full_pipeline.delay(content_id, request.url, request.content_type)
+        task = process_content.delay(content_id, request.options)
 
         logger.info(f"Full pipeline queued for {content_id} with task {task.id}")
 
@@ -599,34 +599,6 @@ async def process_full_pipeline(request: ContentCreateRequest):
         raise
     except Exception as e:
         logger.error(f"Failed to trigger full pipeline: {e}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@app.post("/api/celery/debug", response_model=TaskResponse, tags=["celery"])
-async def trigger_debug_task():
-    """
-    Trigger a debug Celery task for testing purposes.
-
-    Queues a simple debug task to verify Celery worker connectivity
-    and task execution. Useful for debugging worker setup and
-    monitoring task lifecycle.
-
-    Returns:
-        TaskResponse: Task status with task ID
-
-    Raises:
-        HTTPException: If task queuing fails
-    """
-    try:
-        task = debug_task.delay()
-        logger.info(f"Debug task queued with ID: {task.id}")
-
-        return TaskResponse(
-            message="Debug task queued", task_id=task.id, status="queued"
-        )
-
-    except Exception as e:
-        logger.error(f"Failed to queue debug task: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -671,11 +643,40 @@ async def process_top_hn_stories(
         queued_tasks = []
         for story_id in queued_stories:
             try:
+                # Get HN story data
+                hn_data = hn_service.get_story(story_id)
+                if not hn_data:
+                    logger.warning(f"Could not fetch HN story {story_id}")
+                    skipped_stories.append(story_id)
+                    continue
+
+                # Create content item
+                content_id = str(uuid.uuid4())
+                now = datetime.now()
+
+                content_data = {
+                    "id": content_id,
+                    "hn_item_id": story_id,
+                    "title": hn_data.get("title", f"HN Story {story_id}"),
+                    "url": hn_data.get("url", ""),
+                    "content_type": "article",
+                    "status": "queued",
+                    "created_at": now,
+                    "updated_at": now,
+                    "processing_steps": ["created"],
+                    "errors": [],
+                }
+
+                if not db.store_content(content_id, content_data):
+                    logger.error(f"Failed to store content for HN story {story_id}")
+                    skipped_stories.append(story_id)
+                    continue
+
                 # Queue the Celery task
-                task = celery_app.send_task(
-                    "process_hn_story", args=[story_id], queue="hnfm_tasks"
+                task = process_content_text_only.delay(content_id)
+                queued_tasks.append(
+                    {"story_id": story_id, "task_id": task.id, "content_id": content_id}
                 )
-                queued_tasks.append({"story_id": story_id, "task_id": task.id})
                 logger.info(f"Queued story {story_id} for processing (task: {task.id})")
             except Exception as e:
                 logger.error(f"Failed to queue story {story_id}: {e}")
@@ -1023,7 +1024,7 @@ async def content_pipeline_endpoint(request: ContentCreateRequest):
             raise HTTPException(status_code=500, detail="Failed to store content")
 
         # Queue the processing task
-        task = content_pipeline.apply_async(args=[content_id, request.options])
+        task = process_content_text_only.delay(content_id, request.options)
 
         logger.info(f"Content processing queued for {content_id} with task {task.id}")
 
@@ -1035,6 +1036,167 @@ async def content_pipeline_endpoint(request: ContentCreateRequest):
         raise
     except Exception as e:
         logger.error(f"Failed to trigger content processing: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post(
+    "/api/pipeline/process-latest-hn", response_model=TaskResponse, tags=["pipeline"]
+)
+async def process_latest_hn_item():
+    """
+    Fetch the latest HN items and process the most recent one.
+
+    This endpoint:
+    1. Fetches the top HN stories
+    2. Finds the most recent unprocessed story
+    3. Creates a content item and queues it for processing
+
+    Returns:
+        TaskResponse: Processing status with content ID and task ID
+
+    Raises:
+        HTTPException: If processing initiation fails
+    """
+    try:
+        logger.info("Fetching latest HN items for processing")
+
+        # Fetch top HN stories
+        story_ids = hn_service.get_top_stories(limit=10)
+        if not story_ids:
+            raise HTTPException(status_code=500, detail="Failed to fetch HN stories")
+
+        logger.info(f"Fetched {len(story_ids)} top HN stories")
+
+        # Find the first unprocessed story
+        content_id = None
+        story_id = None
+
+        for sid in story_ids:
+            if not db.is_hn_story_processed(sid):
+                story_id = sid
+                break
+
+        if not story_id:
+            raise HTTPException(
+                status_code=404, detail="No unprocessed HN stories found"
+            )
+
+        # Get HN story data
+        hn_data = hn_service.get_story(story_id)
+        if not hn_data:
+            raise HTTPException(
+                status_code=404, detail=f"Could not fetch HN story {story_id}"
+            )
+
+        # Create content item
+        content_id = str(uuid.uuid4())
+        now = datetime.now()
+
+        content_data = {
+            "id": content_id,
+            "hn_item_id": story_id,
+            "title": hn_data.get("title", f"HN Story {story_id}"),
+            "url": hn_data.get("url", ""),
+            "content_type": "article",
+            "status": "queued",
+            "created_at": now,
+            "updated_at": now,
+            "processing_steps": ["created"],
+            "errors": [],
+        }
+
+        if not db.store_content(content_id, content_data):
+            raise HTTPException(status_code=500, detail="Failed to store content")
+
+        # Queue the processing task
+        task = process_content_text_only.delay(content_id)
+
+        logger.info(
+            f"Latest HN item processing queued for {content_id} (story {story_id}) with task {task.id}"
+        )
+
+        return TaskResponse(
+            message=f"Latest HN item processing queued (story {story_id})",
+            task_id=task.id,
+            status="queued",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to process latest HN item: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.post(
+    "/api/pipeline/process-hn-story/{story_id}",
+    response_model=TaskResponse,
+    tags=["pipeline"],
+)
+async def process_specific_hn_story(story_id: int):
+    """
+    Process a specific HN story by ID.
+
+    This endpoint:
+    1. Fetches the specific HN story
+    2. Creates a content item and queues it for processing
+
+    Args:
+        story_id: Hacker News story ID to process
+
+    Returns:
+        TaskResponse: Processing status with content ID and task ID
+
+    Raises:
+        HTTPException: If processing initiation fails
+    """
+    try:
+        logger.info(f"Processing specific HN story {story_id}")
+
+        # Get HN story data
+        hn_data = hn_service.get_story(story_id)
+        if not hn_data:
+            raise HTTPException(
+                status_code=404, detail=f"Could not fetch HN story {story_id}"
+            )
+
+        # Create content item
+        content_id = str(uuid.uuid4())
+        now = datetime.now()
+
+        content_data = {
+            "id": content_id,
+            "hn_item_id": story_id,
+            "title": hn_data.get("title", f"HN Story {story_id}"),
+            "url": hn_data.get("url", ""),
+            "content_type": "article",
+            "status": "queued",
+            "created_at": now,
+            "updated_at": now,
+            "processing_steps": ["created"],
+            "errors": [],
+        }
+
+        if not db.store_content(content_id, content_data):
+            raise HTTPException(status_code=500, detail="Failed to store content")
+
+        # Queue the processing task
+        task = process_content_text_only.delay(content_id)
+
+        logger.info(
+            f"Specific HN story processing queued for {content_id} (story {story_id}) with task {task.id}"
+        )
+
+        return TaskResponse(
+            message=f"Specific HN story processing queued (story {story_id})",
+            task_id=task.id,
+            status="queued",
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to process specific HN story {story_id}: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
@@ -1119,8 +1281,11 @@ async def retry_failed_pipeline_step(content_id: str, step_name: str):
                 status_code=400, detail=f"No failed segment found for step {step_name}"
             )
 
-        # Queue the retry task
-        task = retry_failed_segment.apply_async(args=[segment.segment_id])
+        # Retry functionality removed - use process_content instead
+        raise HTTPException(
+            status_code=400,
+            detail="Retry functionality not available in simplified task system",
+        )
 
         logger.info(
             f"Retry task queued for {content_id}:{step_name} with task {task.id}"
@@ -1164,15 +1329,10 @@ async def cleanup_old_pipeline_versions(
         HTTPException: If cleanup initiation fails
     """
     try:
-        # Queue the cleanup task
-        task = cleanup_completed_segments.apply_async(args=[content_id, keep_versions])
-
-        logger.info(f"Cleanup task queued for {content_id} with task {task.id}")
-
-        return TaskResponse(
-            message=f"Cleanup task queued (keeping {keep_versions} versions)",
-            task_id=task.id,
-            status="queued",
+        # Cleanup functionality removed - use process_content instead
+        raise HTTPException(
+            status_code=400,
+            detail="Cleanup functionality not available in simplified task system",
         )
 
     except Exception as e:
