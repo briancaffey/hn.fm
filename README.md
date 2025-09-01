@@ -19,7 +19,7 @@ cp env.example .env
 # Edit .env with your API keys and service URLs
 
 # Start development environment
-make dev-docker
+make docker-dev
 ```
 
 ## What It Does
@@ -61,7 +61,7 @@ uv run python generate_audio.py outputs/tts_lines_*.txt --batch-size 3
 
 ```bash
 # Start development environment
-make dev-docker
+make docker-dev
 
 # Code formatting
 make black

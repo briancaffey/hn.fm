@@ -32,7 +32,7 @@ help:
 	@echo "Development Services:"
 	@echo "  dev-start         - Start all services with auto-reload"
 	@echo "  dev-start-background - Start services in background"
-	@echo "  dev-docker        - Start all services in Docker"
+	@echo "  docker-dev        - Start all services in Docker"
 	@echo "  docker-up         - Start services (docker compose up)"
 	@echo "  docker-down       - Stop services (docker compose down)"
 	@echo "  docker-logs       - View logs (docker compose logs)"
@@ -245,7 +245,7 @@ docker-clean:
 	@echo "✅ Docker cleanup complete!"
 
 # Development with Docker
-dev-docker: docker-up
+docker-dev: docker-up
 	@echo "🚀 Development environment ready with Docker!"
 	@echo "Web server: http://localhost:8000"
 	@echo "API docs: http://localhost:8000/docs"

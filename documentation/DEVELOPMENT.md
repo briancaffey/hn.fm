@@ -15,7 +15,7 @@ source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 uv pip install -e .
 
 # Start development environment
-make dev-docker
+make docker-dev
 ```
 
 ## Development Commands
@@ -30,7 +30,7 @@ make test           # Run tests
 ### Services
 ```bash
 # Start all services with auto-reload
-make dev-docker
+make docker-dev
 
 # Individual services
 make docker-up      # Start services

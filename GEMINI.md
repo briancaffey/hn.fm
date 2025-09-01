@@ -26,7 +26,7 @@ The preferred method for development is using Docker Compose.
 
 *   **Start development services:**
     ```bash
-    make dev-docker
+    make docker-dev
     ```
 *   **Stop services:**
     ```bash

@@ -7,7 +7,7 @@ Web API endpoints for hn.fm pipeline management.
 Start the web server:
 
 ```bash
-make dev-docker
+make docker-dev
 ```
 
 Access the API:
