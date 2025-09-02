@@ -5,3 +5,5 @@ alwaysApply: true
 ---
 
 When running commands for the backend, always use either docker compose commands directly or the commands in the Makefile, such as `make docker-dev` to start up the servics, or `make docker-down` to stop all of the services.
+
+When running python commands, always run them through docker using the docker compose web service as the container in which commands run.

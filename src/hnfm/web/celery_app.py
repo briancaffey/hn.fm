@@ -48,6 +48,7 @@ celery_app.conf.update(
     task_routes={
         "process_content": {"queue": "hnfm_tasks"},
         "process_content_text_only": {"queue": "hnfm_tasks"},
+        "process_hn_story": {"queue": "hnfm_tasks"},
         "hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
     },
     # Task serialization

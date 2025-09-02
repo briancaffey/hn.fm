@@ -78,14 +78,15 @@ const formatTimestamp = (timestamp: string) => {
 </script>
 
 <template>
-  <div class="space-y-8">
-    <!-- Page Header -->
-    <div class="space-y-2">
-      <h1 class="text-3xl font-bold text-foreground">Services Status</h1>
-      <p class="text-muted-foreground">
-        Monitor the health and availability of all pipeline services.
-      </p>
-    </div>
+  <div class="container mx-auto px-4 py-8 max-w-7xl">
+    <div class="space-y-8">
+      <!-- Page Header -->
+      <div class="space-y-2">
+        <h1 class="text-3xl font-bold text-foreground">Services Status</h1>
+        <p class="text-muted-foreground">
+          Monitor the health and availability of all pipeline services.
+        </p>
+      </div>
 
     <!-- Overall Status -->
     <Card>
@@ -126,20 +127,20 @@ const formatTimestamp = (timestamp: string) => {
     </div>
 
     <!-- Services Grid -->
-    <div v-else-if="servicesData?.services" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-      <Card v-for="service in servicesData.services" :key="service.name" class="service-card">
-        <CardHeader>
-          <div class="flex items-start justify-between">
-            <div class="flex items-center space-x-3">
+    <div v-else-if="servicesData?.services" class="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-6">
+      <Card v-for="service in servicesData.services" :key="service.name" class="service-card h-fit">
+        <CardHeader class="pb-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="flex items-center space-x-3 min-w-0 flex-1">
               <div
                 :class="[
-                  'w-3 h-3 rounded-full',
+                  'w-3 h-3 rounded-full flex-shrink-0',
                   getStatusColor(service.status)
                 ]"
               />
-              <CardTitle class="text-lg">{{ service.name }}</CardTitle>
+              <CardTitle class="text-lg truncate">{{ service.name }}</CardTitle>
             </div>
-            <Badge :variant="getStatusBadgeVariant(service.status)">
+            <Badge :variant="getStatusBadgeVariant(service.status)" class="flex-shrink-0">
               {{ service.status }}
             </Badge>
           </div>
@@ -148,30 +149,32 @@ const formatTimestamp = (timestamp: string) => {
         <CardContent class="space-y-4">
           <!-- Service Details -->
           <div class="space-y-3 text-sm">
-            <div class="flex justify-between">
+            <div class="space-y-1">
               <span class="font-medium text-muted-foreground">URL:</span>
-              <span class="font-mono text-xs text-foreground break-all">{{ service.url }}</span>
+              <div class="bg-muted/50 p-2 rounded border">
+                <code class="text-xs text-foreground break-all block">{{ service.url }}</code>
+              </div>
             </div>
 
-            <div class="flex justify-between">
+            <div class="flex justify-between items-center">
               <span class="font-medium text-muted-foreground">Response Time:</span>
-              <span class="text-foreground">{{ service.response_time.toFixed(3) }}s</span>
+              <span class="text-foreground font-mono">{{ service.response_time.toFixed(3) }}s</span>
             </div>
           </div>
 
           <!-- Service Details -->
           <div v-if="service.details" class="space-y-2">
             <span class="text-sm font-medium text-muted-foreground">Details:</span>
-            <div class="bg-muted p-3 rounded-md">
-              <pre class="text-xs text-muted-foreground whitespace-pre-wrap">{{ formatDetails(service.details) }}</pre>
+            <div class="bg-muted p-3 rounded-md border max-h-48 overflow-y-auto">
+              <pre class="text-xs text-muted-foreground whitespace-pre-wrap break-words">{{ formatDetails(service.details) }}</pre>
             </div>
           </div>
 
           <!-- Error Message -->
           <div v-if="service.error_message" class="space-y-2">
             <span class="text-sm font-medium text-destructive">Error:</span>
-            <div class="bg-destructive/10 p-3 rounded-md">
-              <pre class="text-xs text-destructive whitespace-pre-wrap">{{ service.error_message }}</pre>
+            <div class="bg-destructive/10 p-3 rounded-md border max-h-32 overflow-y-auto">
+              <pre class="text-xs text-destructive whitespace-pre-wrap break-words">{{ service.error_message }}</pre>
             </div>
           </div>
         </CardContent>
@@ -185,20 +188,21 @@ const formatTimestamp = (timestamp: string) => {
       <p class="text-muted-foreground">Unable to load services status. Please try again.</p>
     </div>
 
-    <!-- Refresh Button -->
-    <div class="flex justify-center">
-      <Button
-        :disabled="pending"
-        variant="outline"
-        class="inline-flex items-center space-x-2"
-        @click="refresh"
-      >
-        <Icon
-          :name="pending ? 'lucide:loader-2' : 'lucide:refresh-cw'"
-          :class="['h-4 w-4', pending && 'animate-spin']"
-        />
-        <span>{{ pending ? 'Refreshing...' : 'Refresh Services' }}</span>
-      </Button>
+      <!-- Refresh Button -->
+      <div class="flex justify-center">
+        <Button
+          :disabled="pending"
+          variant="outline"
+          class="inline-flex items-center space-x-2"
+          @click="refresh"
+        >
+          <Icon
+            :name="pending ? 'lucide:loader-2' : 'lucide:refresh-cw'"
+            :class="['h-4 w-4', pending && 'animate-spin']"
+          />
+          <span>{{ pending ? 'Refreshing...' : 'Refresh Services' }}</span>
+        </Button>
+      </div>
     </div>
   </div>
 </template>

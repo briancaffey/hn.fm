@@ -83,17 +83,24 @@ class SystemChecker:
 
         try:
             start_time = time.time()
-            response = requests.get(f"{base_url}/v1/models", timeout=self.timeout)
+            # Handle both cases: base_url with or without /v1
+            if base_url.endswith("/v1"):
+                models_url = f"{base_url}/models"
+            else:
+                models_url = f"{base_url}/v1/models"
+
+            response = requests.get(models_url, timeout=self.timeout)
             response_time = time.time() - start_time
 
             if response.status_code == 200:
                 models = response.json().get("data", [])
+                model_names = [model.get("id", "unknown") for model in models]
                 return ServiceStatus(
                     name="Local LLM",
                     url=base_url,
                     status="online",
                     response_time=response_time,
-                    details={"models": len(models)},
+                    details={"models": model_names},
                 )
             else:
                 return ServiceStatus(

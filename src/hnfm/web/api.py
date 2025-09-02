@@ -43,7 +43,6 @@ app.add_middleware(
 )
 
 
-
 # Initialize database and services
 db = ContentDatabase()
 hn_service = HackerNewsService()
@@ -75,7 +74,9 @@ async def health_check():
     )
 
 
-@app.get("/api/services/status", response_model=ServicesStatusResponse, tags=["services"])
+@app.get(
+    "/api/services/status", response_model=ServicesStatusResponse, tags=["services"]
+)
 async def get_services_status():
     """Get status of all services"""
     try:
@@ -240,7 +241,7 @@ async def process_content_pipeline(request: PipelineProcessRequest):
         return {
             "message": "Pipeline processing started",
             "hn_item_id": request.hn_item_id,
-            "status": "processing"
+            "status": "processing",
         }
 
     except Exception as e:
@@ -416,12 +417,14 @@ async def get_active_tasks():
         all_active = []
         for worker, tasks in active_tasks.items():
             for task in tasks:
-                all_active.append({
-                    "task_id": task["id"],
-                    "name": task["name"],
-                    "worker": worker,
-                    "started": task.get("time_start", 0),
-                })
+                all_active.append(
+                    {
+                        "task_id": task["id"],
+                        "name": task["name"],
+                        "worker": worker,
+                        "started": task.get("time_start", 0),
+                    }
+                )
 
         return {"active_tasks": all_active}
     except Exception as e:
@@ -444,7 +447,9 @@ async def delete_all_data():
         if keys:
             # Delete all keys
             deleted_count = db.redis_client.delete(*keys)
-            logger.warning(f"Deleted {deleted_count} keys from Redis - all data cleared")
+            logger.warning(
+                f"Deleted {deleted_count} keys from Redis - all data cleared"
+            )
         else:
             deleted_count = 0
             logger.info("No keys found to delete")
@@ -452,7 +457,7 @@ async def delete_all_data():
         return {
             "message": "All data deleted successfully",
             "deleted_keys": deleted_count,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
         }
 
     except Exception as e:

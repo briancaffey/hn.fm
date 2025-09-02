@@ -85,7 +85,8 @@ const getStatusVariant = (status: string) => {
 }
 
 const getMediaUrl = (path: string, mediaType: string) => {
-  return `${apiBase}/api/content/${itemId}/media/${mediaType}/${path.split('/').pop()}`
+  // Media endpoint removed - simplified
+  return '#'
 }
 
 const fetchContentItem = async () => {
@@ -104,21 +105,13 @@ const fetchContentItem = async () => {
 }
 
 const fetchPipelineStatus = async () => {
-  try {
-    const data: PipelineStatus = await $fetch(`${apiBase}/api/content/${itemId}/pipeline-status`)
-    pipelineStatus.value = data
-  } catch {
-    console.log('Pipeline status not available for this content item')
-  }
+  // Pipeline status endpoint removed - simplified
+  pipelineStatus.value = null
 }
 
 const fetchArtifacts = async () => {
-  try {
-    const data: ContentArtifacts = await $fetch(`${apiBase}/api/content/${itemId}/artifacts`)
-    artifacts.value = data
-  } catch {
-    console.log('Artifacts not available for this content item')
-  }
+  // Artifacts endpoint removed - simplified
+  artifacts.value = null
 }
 
 const triggerProcessing = async () => {

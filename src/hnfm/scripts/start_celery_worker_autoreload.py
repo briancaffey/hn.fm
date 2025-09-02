@@ -47,9 +47,8 @@ def restart_celery_worker():
         "worker",
         "--loglevel=info",
         "--queues=hnfm_tasks",
-        "--concurrency=2",
+        "--concurrency=1",
         "--hostname=hnfm-worker@%h",
-        "--autoscale=2,4",
     ]
 
     print(f"🚀 Starting worker with command: {' '.join(cmd)}")

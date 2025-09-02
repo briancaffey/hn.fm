@@ -119,9 +119,19 @@ class ContentDatabase:
             updated_at = content_data.get(
                 "updated_at", content_data.get("created_at", datetime.now().isoformat())
             )
+            # Convert to timestamp for sorted set
             if isinstance(updated_at, datetime):
-                updated_at = updated_at.timestamp()
-            self.redis_client.zadd(list_key, {content_id: updated_at})
+                updated_at_timestamp = updated_at.timestamp()
+            elif isinstance(updated_at, str):
+                try:
+                    updated_at_timestamp = datetime.fromisoformat(
+                        updated_at
+                    ).timestamp()
+                except ValueError:
+                    updated_at_timestamp = datetime.now().timestamp()
+            else:
+                updated_at_timestamp = datetime.now().timestamp()
+            self.redis_client.zadd(list_key, {content_id: updated_at_timestamp})
 
             # Store metadata for quick access
             metadata_key = self._get_key("metadata", content_id)
@@ -134,7 +144,9 @@ class ContentDatabase:
                 "created_at": content_data.get(
                     "created_at", datetime.now().isoformat()
                 ),
-                "updated_at": updated_at,
+                "updated_at": content_data.get(
+                    "updated_at", datetime.now().isoformat()
+                ),
             }
 
             # Convert metadata datetime objects to ISO strings

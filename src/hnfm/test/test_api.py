@@ -284,7 +284,7 @@ class TestAPI:
                 "content",
                 "pipeline",
                 "hacker-news",
-                "celery"
+                "celery",
             ]
 
             # This is a structural test - we're verifying the API organization

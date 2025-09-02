@@ -10,6 +10,8 @@ x-common-app-config: &common-app-config
     - ./src:/app/src  # Mount source code for hot reloading
     - ./outputs:/app/outputs
     - ./cache:/app/cache
+    - ./voices:/app/voices  # Mount voice samples for TTS
+    - ./htmlcov:/app/htmlcov  # Mount coverage reports for easy access
     - ./config.yaml:/app/config.yaml:ro
   depends_on:
     redis:
@@ -122,7 +124,7 @@ services:
     environment:
       <<: *common-env
       CELERY_ALWAYS_EAGER: "false"
-      CELERY_WORKER_CONCURRENCY: "2"
+      CELERY_WORKER_CONCURRENCY: "1"
       CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
       CELERY_TASK_SOFT_TIME_LIMIT: "300"
       CELERY_TASK_TIME_LIMIT: "600"

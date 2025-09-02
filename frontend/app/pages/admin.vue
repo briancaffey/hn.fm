@@ -80,6 +80,10 @@ onMounted(() => {
   errorMessage.value = ''
 })
 
+// Get runtime config for API base URL
+const config = useRuntimeConfig()
+const apiBase = config.public.apiBase
+
 // Delete all data function
 const deleteAllData = async () => {
   // Clear previous messages
@@ -89,7 +93,7 @@ const deleteAllData = async () => {
   isDeleting.value = true
 
   try {
-    const response = await $fetch<DeleteAllDataResponse>('/api/admin/delete-all-data', {
+    const response = await $fetch<DeleteAllDataResponse>(`${apiBase}/api/admin/delete-all-data`, {
       method: 'DELETE'
     })
 
