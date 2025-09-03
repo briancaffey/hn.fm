@@ -51,9 +51,7 @@ class ConfigManager:
 
             # Merge with defaults to ensure all required keys exist
             default_config = self._get_default_config()
-            logger.info(f"Default config: {default_config}")
             config = self._merge_configs(default_config, config)
-            logger.info(f"After merging: {config}")
 
             logger.info(f"Loaded configuration from {self.config_file}")
             return config

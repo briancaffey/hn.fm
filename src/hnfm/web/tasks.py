@@ -21,11 +21,26 @@ from ..content.content_enrichment import (
     generate_emoji,
     generate_haiku,
 )
-from .models import ProcessedRun, Segment
+from .models import ProcessedRun, Segment, SegmentSection
 from ..utils.segment_utils import (
     generate_script_v1,
     save_segment,
     k_seg,
+    get_segment,
+)
+from ..audio.audio_utils import (
+    split_script_into_sections,
+    tts_synthesize_to_wav,
+    studio_voice_clean_inplace,
+    save_section_meta,
+    get_section_meta,
+    list_section_numbers,
+    stitch_sections_to_wav,
+    update_segment_audio_status,
+    k_sec,
+    k_sec_list,
+    sec_audio_path,
+    combined_audio_path,
 )
 
 logger = logging.getLogger(__name__)
@@ -233,4 +248,174 @@ def generate_segment(item_id: int, run: int, seg: int) -> Dict[str, any]:
 
     except Exception as e:
         logger.error(f"Failed to generate segment {seg} for run {run} of item {item_id}: {e}")
+        raise
+
+
+@celery_app.task(name="src.hnfm.web.tasks.build_segment_audio")
+def build_segment_audio(item_id: int, run: int, seg: int, mode: str = "all", section: int = None, text_override: str = None) -> Dict[str, any]:
+    """
+    Build audio for segment sections.
+
+    Args:
+        item_id: Item ID
+        run: Run number
+        seg: Segment number
+        mode: Build mode ("all" or "one")
+        section: Section number (required if mode is "one")
+        text_override: Override text for section (optional)
+
+    Returns:
+        Status dictionary
+    """
+    try:
+        # Get Redis client
+        redis_host = os.getenv("REDIS_HOST", "localhost")
+        redis_port = int(os.getenv("REDIS_PORT", "6379"))
+        redis_db = int(os.getenv("REDIS_DB", "0"))
+
+        redis_client = redis.Redis(
+            host=redis_host,
+            port=redis_port,
+            db=redis_db,
+            decode_responses=False,  # Keep as bytes for JSON compatibility
+        )
+
+        # Get outputs directory
+        outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
+
+        # Step 1: Load Segment (must exist)
+        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        if not segment:
+            raise RuntimeError(f"Segment {item_id}:{run}:{seg} not found")
+
+        if mode == "all":
+            # Build all sections
+            logger.info(f"Building all audio sections for segment {item_id}:{run}:{seg}")
+
+                                    # Step 2a: Split script into sections
+            sections_text = split_script_into_sections(segment.script)
+            logger.info(f"Script split into {len(sections_text)} sections")
+
+            # Step 2b: Clear existing section list
+            section_key = k_sec_list(item_id, run, seg)
+            redis_client.delete(section_key)  # Clear existing sections
+
+            # Step 2c: Generate all audio sections first
+            section_metas = []
+            for idx, text in enumerate(sections_text, start=1):
+                logger.info(f"Processing section {idx} of {len(sections_text)}")
+
+                # Generate audio
+                out_wav = sec_audio_path(outputs_dir, item_id, run, seg, idx)
+                duration = tts_synthesize_to_wav(text, out_wav)
+
+                # Clean with studio-voice
+                studio_voice_clean_inplace(out_wav)
+
+                # Create metadata (don't save yet)
+                meta = SegmentSection(
+                    key=k_sec(item_id, run, seg, idx),
+                    item_id=item_id,
+                    run=run,
+                    seg=seg,
+                    section=idx,
+                    text=text,
+                    audio_path=out_wav,
+                    cleaned=True,
+                    duration_ms=duration,
+                    created_at=datetime.utcnow(),
+                    updated_at=datetime.utcnow()
+                )
+                section_metas.append(meta)
+
+            # Step 2d: Save all section metadata to Redis
+            for meta in section_metas:
+                # Add section to the list
+                redis_client.rpush(section_key, str(meta.section))
+                # Save section metadata
+                save_section_meta(meta, redis_client=redis_client, outputs_root=outputs_dir)
+
+            # Step 2e: Get all section paths in order and stitch together
+            section_numbers = list_section_numbers(item_id, run, seg, redis_client=redis_client)
+            paths = [sec_audio_path(outputs_dir, item_id, run, seg, s) for s in section_numbers]
+
+            combined_path = combined_audio_path(outputs_dir, item_id, run, seg)
+            total_ms = stitch_sections_to_wav(paths, combined_path)
+
+            # Step 2f: Update segment status
+            update_segment_audio_status(
+                item_id, run, seg,
+                sections_total=len(paths),
+                combined_path=combined_path,
+                ready=True,
+                redis_client=redis_client,
+                outputs_root=outputs_dir
+            )
+
+            logger.info(f"Successfully built {len(paths)} audio sections for segment {item_id}:{run}:{seg}")
+            return {"status": "ok", "item_id": item_id, "run": run, "seg": seg, "sections": len(paths)}
+
+        elif mode == "one":
+            # Build one specific section
+            if section is None:
+                raise ValueError("Section number required for mode 'one'")
+
+            logger.info(f"Building audio section {section} for segment {item_id}:{run}:{seg}")
+
+            # Step 3a: Get text (override or existing)
+            if text_override is None:
+                existing_meta = get_section_meta(item_id, run, seg, section, redis_client=redis_client)
+                if not existing_meta:
+                    raise RuntimeError(f"Section {section} not found and no text override provided")
+                text = existing_meta.text
+            else:
+                text = text_override
+
+            # Step 3b: Generate audio
+            out_wav = sec_audio_path(outputs_dir, item_id, run, seg, section)
+            duration = tts_synthesize_to_wav(text, out_wav)
+
+            # Step 3c: Clean with studio-voice
+            studio_voice_clean_inplace(out_wav)
+
+            # Step 3d: Create and save metadata
+            meta = SegmentSection(
+                key=k_sec(item_id, run, seg, section),
+                item_id=item_id,
+                run=run,
+                seg=seg,
+                section=section,
+                text=text,
+                audio_path=out_wav,
+                cleaned=True,
+                duration_ms=duration,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow()
+            )
+            save_section_meta(meta, redis_client=redis_client, outputs_root=outputs_dir)
+
+            # Step 3e: Re-stitch all sections
+            section_numbers = list_section_numbers(item_id, run, seg, redis_client=redis_client)
+            paths = [sec_audio_path(outputs_dir, item_id, run, seg, s) for s in section_numbers]
+            combined_path = combined_audio_path(outputs_dir, item_id, run, seg)
+            total_ms = stitch_sections_to_wav(paths, combined_path)
+
+            # Step 3f: Update segment status
+            update_segment_audio_status(
+                item_id, run, seg,
+                sections_total=len(paths),
+                combined_path=combined_path,
+                ready=True,
+                redis_client=redis_client,
+                outputs_root=outputs_dir
+            )
+
+            logger.info(f"Successfully built audio section {section} for segment {item_id}:{run}:{seg}")
+            return {"status": "ok", "item_id": item_id, "run": run, "seg": seg, "section": section}
+
+        else:
+            raise ValueError(f"Invalid mode: {mode}. Must be 'all' or 'one'")
+
+    except Exception as e:
+        logger.error(f"Failed to build audio for segment {item_id}:{run}:{seg}: {e}")
         raise

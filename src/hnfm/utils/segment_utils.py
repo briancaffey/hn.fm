@@ -48,9 +48,11 @@ def _clean_script_for_tts(script: str) -> str:
         ord("’"): "'",
         ord('—'): ', ',
         ord('–'): ', ',
-        ord('\n\n'): '\n',
+        # ord('\n\n'): '\n',
         ord('…'): ', '
     }
+
+    script = script.replace("\n\n", "\n")
 
     script = script.translate(replacements)
 

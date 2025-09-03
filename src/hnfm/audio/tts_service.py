@@ -34,10 +34,17 @@ class TTSService:
             )
 
         self.base_url = base_url.rstrip("/")
-        self.max_attempts = config_manager.get("tts.max_attempts", 3)
-        self.delay_between_attempts = config_manager.get("tts.delay_between_batches", 2)
-        self.timeout_seconds = config_manager.get("tts.timeout_seconds", 120)
-        self.retry_delay = config_manager.get("tts.retry_delay", 5)
+        self.max_attempts = int(config_manager.get("tts.max_attempts", 3))
+        self.delay_between_attempts = int(config_manager.get("tts.delay_between_batches", 2))
+
+        # Handle timeout_seconds with proper fallback
+        timeout_val = config_manager.get("tts.timeout_seconds", 120)
+        if isinstance(timeout_val, str) and timeout_val.startswith("${"):
+            self.timeout_seconds = 120  # Default fallback
+        else:
+            self.timeout_seconds = int(timeout_val)
+
+        self.retry_delay = 5  # Fixed value, no config needed
 
         # Test connection
         self._test_connection()

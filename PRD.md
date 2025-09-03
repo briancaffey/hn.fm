@@ -888,3 +888,379 @@ Use **fakeredis-py** for Redis. Monkeypatch the LLM call `generate_script_v1` to
 7. **Frontend**: update run page with Segments list + “Start New Segment”; add segment detail page with accordion + delete.
 
 This adds the **Segment** layer cleanly: you can create, view, list, and delete segments per run, with all data saved in Redis and mirrored to disk.
+
+---
+
+Here’s a **single, unambiguous plan** to add **TTS sections** to a Segment (script-only v1 → narration). It covers models, Redis keys, disk layout, utilities, one Celery task that loops internally, API, tests, and frontend updates.
+
+---
+
+# 1) Data models
+
+### 1.1 Update `Segment` (add audio fields)
+
+```python
+from pydantic import BaseModel
+from datetime import datetime
+from typing import Optional
+
+class Segment(BaseModel):
+    key: str                      # "hnfm:seg:{item_id}:{run}:{seg}"
+    item_id: int
+    run: int
+    seg: int
+    created_at: datetime
+    processed_run_key: str        # "hnfm:item:{item_id}:run:{run}"
+    script: str
+
+    # NEW (audio status)
+    sections_total: int = 0
+    audio_combined_path: Optional[str] = None  # outputs/.../audio/segment.wav
+    audio_ready: bool = False                  # True after stitching succeeds
+```
+
+### 1.2 Section metadata
+
+```python
+class SegmentSection(BaseModel):
+    key: str                      # "hnfm:seg:{item_id}:{run}:{seg}:sec:{section}"
+    item_id: int
+    run: int
+    seg: int
+    section: int                  # 1-based
+    text: str                     # the exact text used for TTS
+    audio_path: Optional[str]     # outputs/.../audio/sections/{section}/audio.wav
+    cleaned: bool                 # True if sent through studio-voice
+    duration_ms: Optional[int]    # total duration in milliseconds
+    created_at: datetime
+    updated_at: datetime
+```
+
+---
+
+# 2) Redis keys and disk paths
+
+### 2.1 Redis
+
+* **Per-section JSON**: `hnfm:seg:{item_id}:{run}:{seg}:sec:{section}` → serialized `SegmentSection`
+* **Per-segment section list** (ordered): `hnfm:seg:{item_id}:{run}:{seg}:sec:list`
+
+  * Use `RPUSH` section numbers as strings **in ascending order** (1..N).
+  * Retrieve with `LRANGE` to preserve order.
+
+*(Segment JSON remains at `hnfm:seg:{item_id}:{run}:{seg}` and now includes audio fields.)*
+
+### 2.2 Disk
+
+```
+outputs/hn/item/{item_id}/runs/{run}/segments/{seg}/
+  segment.json
+  audio/
+    sections/
+      {section}/
+        audio.wav           # final (cleaned) audio; overwrite on regen
+        meta.json           # serialized SegmentSection
+    segment.wav             # stitched combined audio
+```
+
+---
+
+# 3) Utilities (synchronous helpers)
+
+Create parent directories before writing any files. On any error, raise and do not write partial metadata.
+
+### 3.1 Key/path helpers
+
+```python
+def k_seg(item_id:int, run:int, seg:int) -> str: ...
+def k_sec(item_id:int, run:int, seg:int, section:int) -> str:
+    return f"hnfm:seg:{item_id}:{run}:{seg}:sec:{section}"
+def k_sec_list(item_id:int, run:int, seg:int) -> str:
+    return f"hnfm:seg:{item_id}:{run}:{seg}:sec:list"
+
+def seg_root(outputs_root:str, item_id:int, run:int, seg:int) -> str: ...
+def sec_dir(outputs_root:str, item_id:int, run:int, seg:int, section:int) -> str:
+    return f"{seg_root(outputs_root,item_id,run,seg)}/audio/sections/{section}"
+def sec_audio_path(outputs_root:str, item_id:int, run:int, seg:int, section:int) -> str:
+    return f"{sec_dir(outputs_root,item_id,run,seg,section)}/audio.wav"
+def sec_meta_path(outputs_root:str, item_id:int, run:int, seg:int, section:int) -> str:
+    return f"{sec_dir(outputs_root,item_id,run,seg,section)}/meta.json"
+def combined_audio_path(outputs_root:str, item_id:int, run:int, seg:int) -> str:
+    return f"{seg_root(outputs_root,item_id,run,seg)}/audio/segment.wav"
+```
+
+### 3.2 Split script into sections (two lines at a time)
+
+```python
+def split_script_into_sections(script: str) -> list[str]:
+    """
+    - Split by '\n'
+    - Trim each line
+    - Drop empty lines
+    - Group consecutive non-empty lines into chunks of size 2 (last chunk may be size 1)
+    - For each chunk, join with '\n' (keep newline between the two lines)
+    - Return list[str] in order (indexes become sections 1..N)
+    """
+```
+
+### 3.3 TTS synthesis (returns path and duration)
+
+```python
+def tts_synthesize_to_wav(text: str, out_path: str) -> int:
+    """
+    - Call your TTS service with `text`.
+    - Write resulting WAV bytes to `out_path`.
+    - Return duration in milliseconds (compute via 'wave' or similar).
+    """
+```
+
+### 3.4 Studio-voice cleaning (in-place replace)
+
+```python
+def studio_voice_clean_inplace(wav_path: str) -> None:
+    """
+    - Send `wav_path` to studio-voice service and get cleaned audio back.
+    - Overwrite `wav_path` with cleaned audio.
+    """
+```
+
+### 3.5 Section save/load/list
+
+```python
+def save_section_meta(meta: SegmentSection, *, redis_client, outputs_root:str) -> None:
+    # SET k_sec(...): JSON(meta)
+    # Ensure sec_dir exists
+    # Write meta.json to sec_meta_path(...)
+
+def get_section_meta(item_id:int, run:int, seg:int, section:int, *, redis_client) -> SegmentSection | None:
+    # GET k_sec(...), parse or None
+
+def list_section_numbers(item_id:int, run:int, seg:int, *, redis_client) -> list[int]:
+    # LRANGE k_sec_list(...) 0 -1 -> [ "1", "2", ... ] -> [1,2,...]
+```
+
+### 3.6 Stitch sections into one WAV
+
+```python
+def stitch_sections_to_wav(section_paths: list[str], out_path: str) -> int:
+    """
+    - Concatenate all `section_paths` in order into `out_path` (16-bit PCM WAV).
+    - Return total duration in ms.
+    """
+```
+
+### 3.7 Segment audio status update
+
+```python
+def update_segment_audio_status(item_id:int, run:int, seg:int, sections_total:int,
+                                combined_path:str, ready:bool, *, redis_client) -> None:
+    """
+    - Load Segment JSON, update fields:
+        sections_total, audio_combined_path=combined_path, audio_ready=ready
+    - SET Segment back to Redis
+    - Overwrite segment.json on disk
+    """
+```
+
+---
+
+# 4) Celery task (single task; loops internally)
+
+We keep **one** task that either builds **all sections** or **one** specific section, then stitches.
+
+```python
+def build_segment_audio(item_id:int, run:int, seg:int, mode:str="all", section:int|None=None, text_override:str|None=None) -> dict:
+    """
+    1) Load Segment (must exist) and its script.
+    2) If mode == "all":
+         a) sections_text = split_script_into_sections(segment.script)
+         b) For idx, text in enumerate(sections_text, start=1):
+               ensure 'idx' is appended to k_sec_list with RPUSH (only once; if already present, skip RPUSH)
+               out_wav = sec_audio_path(...)
+               duration = tts_synthesize_to_wav(text, out_wav)
+               studio_voice_clean_inplace(out_wav)
+               meta = SegmentSection(..., text=text, audio_path=out_wav, cleaned=True, duration_ms=duration)
+               save_section_meta(meta)
+         c) paths = [sec_audio_path(..., section=s) for s in list_section_numbers(...)]
+         d) total_ms = stitch_sections_to_wav(paths, combined_audio_path(...))
+         e) update_segment_audio_status(..., sections_total=len(paths), combined_path=..., ready=True)
+         f) return {"status":"ok","item_id":item_id,"run":run,"seg":seg,"sections":len(paths)}
+
+       If mode == "one":
+         a) Require `section` int.
+         b) If text_override is None: load existing meta and use meta.text; else use text_override.
+         c) out_wav = sec_audio_path(...)
+         d) duration = tts_synthesize_to_wav(text, out_wav)
+         e) studio_voice_clean_inplace(out_wav)
+         f) meta = SegmentSection(..., text=text, audio_path=out_wav, cleaned=True, duration_ms=duration, updated_at=now)
+         g) save_section_meta(meta)
+         h) paths = [sec_audio_path(..., s) for s in list_section_numbers(...)]
+         i) total_ms = stitch_sections_to_wav(paths, combined_audio_path(...))
+         j) update_segment_audio_status(..., sections_total=len(paths), combined_path=..., ready=True)
+         k) return {"status":"ok","item_id":item_id,"run":run,"seg":seg,"section":section}
+    """
+```
+
+* Enqueue with `apply_async(args=[item_id, run, seg], kwargs={"mode":"all"})` to build all.
+* Enqueue with `apply_async(args=[item_id, run, seg], kwargs={"mode":"one","section":N,"text_override":...})` to regenerate one.
+
+---
+
+# 5) API (FastAPI)
+
+All endpoints are synchronous and enqueue the single task above.
+
+### 5.1 Build or rebuild **all** sections and combined audio
+
+* **POST** `/api/hn/items/{item_id}/runs/{run}/segments/{seg}/audio`
+* **Body:** none.
+* **Action:** `build_segment_audio.apply_async(args=[item_id, run, seg], kwargs={"mode":"all"})`
+* **Response:** `{"status":"queued","item_id":...,"run":...,"seg":...,"mode":"all"}`
+
+### 5.2 Regenerate **one** section (optionally with new text)
+
+* **POST** `/api/hn/items/{item_id}/runs/{run}/segments/{seg}/sections/{section}/audio`
+* **Body (optional):** `{ "text": "new text" }`
+* **Action:**
+
+  * If body has `text`, pass as `text_override`.
+  * `build_segment_audio.apply_async(args=[item_id, run, seg], kwargs={"mode":"one","section":section,"text_override":text_or_None})`
+* **Response:** `{"status":"queued","item_id":...,"run":...,"seg":...,"section":section,"mode":"one"}`
+
+### 5.3 List sections with metadata
+
+* **GET** `/api/hn/items/{item_id}/runs/{run}/segments/{seg}/sections`
+* **Response:**
+
+```json
+{
+  "item_id": 45114175,
+  "run": 1,
+  "seg": 1,
+  "sections": [
+    {
+      "section": 1,
+      "text": "line1\nline2",
+      "audio_path": "/abs/.../audio/sections/1/audio.wav",
+      "cleaned": true,
+      "duration_ms": 4321
+    },
+    ...
+  ]
+}
+```
+
+*(Load numbers via LRANGE, then GET each section’s JSON.)*
+
+---
+
+# 6) Tests (pytest)
+
+Use **fakeredis-py**. Monkeypatch `tts_synthesize_to_wav`, `studio_voice_clean_inplace`, and `stitch_sections_to_wav` to deterministic behaviors. Do not perform real audio work.
+
+### 6.1 Utilities
+
+* **`test_split_script_into_sections_pairs_and_last_single`**
+
+  * Provide 5 non-empty lines; expect sections: 3 chunks (2,2,1).
+* **`test_save_get_list_section_meta_roundtrip`**
+
+  * Save a section meta; GET returns equal; LRANGE yields `[1]`; meta.json exists.
+
+### 6.2 Task – build all
+
+* **`test_build_segment_audio_all_happy_path`**
+
+  * Seed a Segment with a script of 3 non-empty lines (→ 2 sections).
+  * Monkeypatch:
+
+    * `tts_synthesize_to_wav` → write dummy file and return fixed durations \[1000, 2000].
+    * `studio_voice_clean_inplace` → no-op.
+    * `stitch_sections_to_wav` → create combined file and return 3000.
+  * Call task directly with `mode="all"`.
+  * Assert:
+
+    * LRANGE sec\:list → `["1","2"]`
+    * Each section key exists; `cleaned=True`; durations set.
+    * Segment updated: `sections_total=2`, `audio_ready=True`, and `audio_combined_path` exists on disk.
+
+### 6.3 Task – regenerate one section (with text override)
+
+* **`test_build_segment_audio_one_replaces_section_and_restitches`**
+
+  * Pre-seed two sections’ metas and files.
+  * Call task with `mode="one", section=2, text_override="NEW TEXT"`.
+  * Assert section 2 meta has `text == "NEW TEXT"` and duration updated.
+  * Assert combined audio file exists (re-stitched).
+
+### 6.4 API
+
+* **`test_post_audio_all_queues_task`**
+
+  * Monkeypatch `.apply_async` capture args.
+  * POST `/api/.../audio` → response queued; kwargs `mode="all"`.
+* **`test_post_audio_one_section_queues_task`**
+
+  * POST `/api/.../sections/2/audio` with body `{ "text": "X" }` → kwargs include `section=2`, `text_override="X"`.
+* **`test_get_sections_lists_in_order`**
+
+  * Seed LRANGE as `["1","2"]` and metas; GET returns two entries in order.
+
+---
+
+# 7) Frontend (Nuxt)
+
+### 7.1 Segment detail page: `/hn/item/[id]/run-[runId]-seg-[segId]`
+
+Add a **Narration** section under Script.
+
+* **Server-side fetches:**
+
+  * Already fetches Segment (includes `audio_ready`, `sections_total`, `audio_combined_path`).
+  * Fetch sections list: `GET /api/hn/items/{id}/runs/{runId}/segments/{segId}/sections`.
+
+* **UI layout (below Script accordion):**
+
+  1. **Accordion: “Narration Sections” (open by default)**
+
+     * Top-right buttons:
+
+       * **Build All** → `POST /api/.../segments/{segId}/audio`, then refetch sections and segment.
+     * For each section (ordered 1..N):
+
+       * Show **Section {n}**
+       * `<textarea>` bound to section `text`
+       * **Regenerate** button:
+
+         * If text changed, send `{text: <edited>}`; else send no body.
+         * POST `/api/.../sections/{n}/audio`
+         * On success, refetch sections + segment.
+       * **Audio player** using `audio_path` (serve statically from your `/public` or a file-serving endpoint).
+       * **Duration** label in seconds (duration\_ms / 1000).
+       * **Cleaned** badge if `cleaned` is true.
+  2. **Accordion: “Combined Audio”**
+
+     * If `segment.audio_ready` is true:
+
+       * Show **audio player** for `audio_combined_path`.
+     * Else show “Not built yet.”
+
+* **Route validation**: keep numeric checks for `id`, `runId`, `segId`.
+
+---
+
+# 8) Build order (sequential)
+
+1. **Model updates**: add audio fields to `Segment`; add `SegmentSection`.
+2. **Key/Path helpers** (3.1).
+3. **Utilities**: `split_script_into_sections`, `tts_synthesize_to_wav`, `studio_voice_clean_inplace`, section save/get/list, `stitch_sections_to_wav`, `update_segment_audio_status`.
+4. **Task**: `build_segment_audio` (modes “all” and “one”).
+5. **API**:
+
+   * POST build-all
+   * POST regenerate-one
+   * GET list sections
+6. **Tests**: utilities → task (all / one) → API.
+7. **Frontend**: segment page “Narration Sections” accordion + buttons, audio players, combined audio accordion.
+
+This keeps everything **simple and overwrite-friendly**, guarantees **sequential order**, and gives you a clean UI to generate, audit, and redo any section quickly.

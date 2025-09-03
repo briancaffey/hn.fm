@@ -22,9 +22,11 @@ from .models import (
     SegmentsListResponse,
     CreateSegmentResponse,
     DeleteSegmentResponse,
+    BuildAudioResponse,
+    SectionsListResponse,
 )
 from .celery_app import celery_app
-from .tasks import hn_fetch_item, process_hn_item_run, generate_segment
+from .tasks import hn_fetch_item, process_hn_item_run, generate_segment, build_segment_audio
 from ..utils.hn_utils import (
     get_top_story_ids,
     get_item,
@@ -41,6 +43,10 @@ from ..utils.segment_utils import (
     get_segment,
     list_segments_for_run,
     delete_segment,
+)
+from ..audio.audio_utils import (
+    get_section_meta,
+    list_section_numbers,
 )
 
 logger = logging.getLogger(__name__)
@@ -445,3 +451,135 @@ async def delete_single_segment(
     except Exception as e:
         logger.error(f"Failed to delete segment {seg} for item {item_id}, run {run}: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete segment")
+
+
+# Audio API Endpoints
+@app.post("/api/hn/items/{item_id}/runs/{run}/segments/{seg}/audio", response_model=BuildAudioResponse, tags=["audio"])
+async def build_segment_audio_all(
+    item_id: int,
+    run: int,
+    seg: int
+):
+    """Build or rebuild all sections and combined audio for a segment"""
+    try:
+        # Queue the task to build all sections
+        build_segment_audio.apply_async(args=[item_id, run, seg], kwargs={"mode": "all"}, queue="hnfm_tasks")
+
+        return BuildAudioResponse(
+            status="queued",
+            item_id=item_id,
+            run=run,
+            seg=seg,
+            mode="all"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to queue audio build for segment {item_id}:{run}:{seg}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to queue audio build")
+
+
+@app.post("/api/hn/items/{item_id}/runs/{run}/segments/{seg}/sections/{section}/audio", response_model=BuildAudioResponse, tags=["audio"])
+async def build_segment_audio_one(
+    item_id: int,
+    run: int,
+    seg: int,
+    section: int,
+    text_override: str = None
+):
+    """Regenerate one section (optionally with new text)"""
+    try:
+        # Prepare kwargs
+        kwargs = {"mode": "one", "section": section}
+        if text_override:
+            kwargs["text_override"] = text_override
+
+        # Queue the task to build one section
+        build_segment_audio.apply_async(args=[item_id, run, seg], kwargs=kwargs, queue="hnfm_tasks")
+
+        return BuildAudioResponse(
+            status="queued",
+            item_id=item_id,
+            run=run,
+            seg=seg,
+            mode="one",
+            section=section
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to queue audio build for section {item_id}:{run}:{seg}:{section}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to queue audio build")
+
+
+@app.get("/api/hn/items/{item_id}/runs/{run}/segments/{seg}/sections", response_model=SectionsListResponse, tags=["audio"])
+async def list_segment_sections(
+    item_id: int,
+    run: int,
+    seg: int,
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """List sections with metadata for a segment"""
+    try:
+        # Get section numbers in order
+        section_numbers = list_section_numbers(item_id, run, seg, redis_client=redis_client)
+
+        # Fetch section metadata
+        sections = []
+        for section_num in section_numbers:
+            section_meta = get_section_meta(item_id, run, seg, section_num, redis_client=redis_client)
+            if section_meta:
+                sections.append({
+                    "section": section_meta.section,
+                    "text": section_meta.text,
+                    "audio_path": section_meta.audio_path,
+                    "cleaned": section_meta.cleaned,
+                    "duration_ms": section_meta.duration_ms
+                })
+
+        return SectionsListResponse(
+            item_id=item_id,
+            run=run,
+            seg=seg,
+            sections=sections
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to list sections for segment {item_id}:{run}:{seg}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list sections")
+
+
+@app.get("/api/audio/{item_id}/{run}/{seg}/{filename}")
+async def serve_audio_file(item_id: int, run: int, seg: int, filename: str):
+    """Serve audio files for segments and sections"""
+    try:
+        from fastapi.responses import FileResponse
+
+        # Get outputs directory
+        outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
+
+        # Construct the file path
+        if filename == "segment.wav":
+            # Combined segment audio
+            audio_path = os.path.join(outputs_dir, "hn", "item", str(item_id), "runs", str(run), "segments", str(seg), "audio", "segment.wav")
+        elif filename.startswith("section_") and filename.endswith(".wav"):
+            # Individual section audio
+            section_num = filename.replace("section_", "").replace(".wav", "")
+            audio_path = os.path.join(outputs_dir, "hn", "item", str(item_id), "runs", str(run), "segments", str(seg), "audio", "sections", section_num, "audio.wav")
+        else:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+
+        # Check if file exists
+        if not os.path.exists(audio_path):
+            raise HTTPException(status_code=404, detail="Audio file not found")
+
+        # Return the file
+        return FileResponse(
+            path=audio_path,
+            media_type="audio/wav",
+            filename=filename
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to serve audio file {filename} for segment {item_id}:{run}:{seg}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to serve audio file")
