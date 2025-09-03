@@ -31,6 +31,32 @@ def seg_dir(outputs_root: str, item_id: int, run: int, seg: int) -> str:
     return f"{outputs_root}/hn/item/{item_id}/runs/{run}/segments/{seg}"
 
 
+def _clean_script_for_tts(script: str) -> str:
+    """
+    Clean script text for better TTS results.
+
+    Args:
+        script: Raw script text from LLM
+
+    Returns:
+        Cleaned script text with TTS-friendly characters
+    """
+    replacements = {
+        ord('“'): '"',
+        ord('”'): '"',
+        ord("‘"): "'",
+        ord("’"): "'",
+        ord('—'): ', ',
+        ord('–'): ', ',
+        ord('\n\n'): '\n',
+        ord('…'): ', '
+    }
+
+    script = script.translate(replacements)
+
+    return script
+
+
 def next_seg_id(item_id: int, run: int, *, redis_client: redis.Redis) -> int:
     """Get next segment ID atomically"""
     return int(redis_client.incr(k_seg_seq(item_id, run)))
@@ -95,6 +121,9 @@ def generate_script_v1(content_clean: str, summary: str) -> str:
 
         if not script:
             raise RuntimeError("LLM returned empty script")
+
+        # Clean the script for better TTS results
+        script = _clean_script_for_tts(script)
 
         return script
 
