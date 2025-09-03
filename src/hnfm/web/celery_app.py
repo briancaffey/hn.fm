@@ -3,7 +3,6 @@
 import os
 import logging
 from celery import Celery
-from .database import ContentDatabase
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +25,7 @@ celery_app = Celery(
     "hnfm",
     broker=broker_url,
     backend=result_backend,
-    include=["hnfm.web.tasks"],
+    include=["src.hnfm.web.tasks"],  # Include our HN tasks
 )
 
 # Log the configuration for debugging
@@ -37,18 +36,15 @@ logger.info(f"Celery app includes: {celery_app.conf.include}")
 # Import tasks AFTER creating the app to ensure they're registered
 try:
     from . import tasks
-
     logger.info("Tasks imported successfully")
 except ImportError as e:
     logger.error(f"Failed to import tasks: {e}")
 
 # Celery configuration
 celery_app.conf.update(
-    # Task routing - Simplified routing for the new task system
+    # Task routing - Route HN tasks to hnfm_tasks queue
     task_routes={
-        "process_content": {"queue": "hnfm_tasks"},
-        "process_content_text_only": {"queue": "hnfm_tasks"},
-        "process_hn_story": {"queue": "hnfm_tasks"},
+        "src.hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
         "hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
     },
     # Task serialization
@@ -89,12 +85,6 @@ logger.info(f"Registered tasks: {list(celery_app.tasks.keys())}")
 # Optional: Configure Celery Beat for periodic tasks
 # Removed cleanup task - simplified task system
 celery_app.conf.beat_schedule = {}
-
-
-# Database helper for tasks
-def get_db():
-    """Get database instance for tasks"""
-    return ContentDatabase()
 
 
 if __name__ == "__main__":

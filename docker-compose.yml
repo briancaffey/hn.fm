@@ -117,7 +117,7 @@ services:
       retries: 3
       start_period: 40s
 
-  # Celery worker with auto-reload
+  # Celery worker
   celery-worker:
     <<: *common-app-config
     container_name: hnfm-celery-worker
@@ -128,7 +128,7 @@ services:
       CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
       CELERY_TASK_SOFT_TIME_LIMIT: "300"
       CELERY_TASK_TIME_LIMIT: "600"
-    command: ["python", "src/hnfm/scripts/start_celery_worker_autoreload.py"]
+    command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "worker", "--loglevel=info", "--queues=hnfm_tasks"]
     healthcheck:
       test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping"]
       interval: 30s
@@ -136,14 +136,14 @@ services:
       retries: 3
       start_period: 40s
 
-  # Celery Beat with auto-reload
+  # Celery Beat
   celery-beat:
     <<: *common-app-config
     container_name: hnfm-celery-beat
     environment:
       <<: *common-env
       PIDFILE: "/tmp/celerybeat.pid"
-    command: ["python", "src/hnfm/scripts/start_celery_beat_autoreload.py"]
+    command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "beat", "--loglevel=info"]
     healthcheck:
       test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping"]
       interval: 30s

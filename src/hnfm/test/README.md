@@ -1,87 +1,46 @@
 # hn.fm Test Suite
 
-This directory contains all the test files for the hn.fm project. The tests are organized by functionality and can be run individually or as a suite.
+This directory contains tests for the core inference services of the hn.fm project. The test suite has been simplified to focus on the essential services.
 
 ## 🧪 Test Overview
 
-### Web Interface Tests
-- **`test_web_server.py`** - Tests the FastAPI web server, Redis database, and Pydantic models
-- **`test_celery.py`** - Tests Celery task queue setup, task execution, and monitoring
+### Core Service Tests
+- **`test_pipeline.py`** - Tests individual pipeline components (HN scraper, content scraper, content processor, script generator)
+- **`test_tts_service.py`** - Tests TTS (Text-to-Speech) service functionality
+- **`test_image_generator.py`** - Tests image generation service
+- **`test_script_generator.py`** - Tests script generation functionality
+- **`test_datetime_serialization.py`** - Tests datetime serialization utilities
 
-### Pipeline Tests
-- **`test_full_pipeline.py`** - Tests the complete content processing pipeline
-- **`test_text_only_pipeline.py`** - Tests text-only content processing
-- **`test_pipeline_with_images.py`** - Tests pipeline with image generation
-- **`test_scraper.py`** - Tests content scraping functionality
-- **`test_firecrawl_integration.py`** - Comprehensive Firecrawl integration tests
-- **`test_firecrawl_quick.py`** - Quick Firecrawl functionality tests
-
-### Service Tests
-- **`test_config.py`** - Tests configuration management and loading
-- **`test_asr_with_audio.py`** - Tests ASR (Automatic Speech Recognition) with audio files
-- **`test_asr_error_details.py`** - Tests ASR error handling and detailed error reporting
-- **`test_asr_timeout.py`** - Tests ASR timeout handling
-- **`test_tts_timeout.py`** - Tests TTS (Text-to-Speech) timeout handling
-- **`test_image_generation.py`** - Tests image generation service
-- **`test_video_generation.py`** - Tests video generation functionality
+### Removed Tests
+The following tests were removed as part of the codebase simplification:
+- Complex pipeline integration tests
+- Web API tests (for deleted web components)
+- Database integration tests (for deleted database components)
 
 ## 🚀 How to Run Tests
 
 ### Prerequisites
-1. **Redis running**: `docker-compose up redis -d`
-2. **Dependencies installed**: `uv sync`
-3. **Environment configured**: Copy `env.example` to `.env` and update as needed
-4. **Web server running**: For Firecrawl tests, start the web server with `uv run python -m src.hnfm.web.server`
-5. **Test HTML available**: Ensure `src/hnfm/web/static/test_html/test_content.html` contains test content
+1. **Dependencies installed**: `uv sync`
+2. **Environment configured**: Copy `env.example` to `.env` and update as needed
 
 ### Running Individual Tests
 
-#### Web Server Tests
+#### Core Service Tests
 ```bash
-# Test web server setup
-uv run python -m src.hnfm.test.test_web_server
+# Test individual pipeline components
+uv run python -m src.hnfm.test.test_pipeline
 
-# Test Celery setup
-uv run python -m src.hnfm.test.test_celery
-```
-
-#### Pipeline Tests
-```bash
-# Test full pipeline
-uv run python -m src.hnfm.test.test_full_pipeline
-
-# Test text-only pipeline
-uv run python -m src.hnfm.test.test_text_only_pipeline
-
-# Test pipeline with images
-uv run python -m src.hnfm.test.test_pipeline_with_images
-```
-
-#### Service Tests
-```bash
-# Test configuration
-uv run python -m src.hnfm.test.test_config
-
-# Test ASR services
-uv run python -m src.hnfm.test.test_asr_with_audio
-uv run python -m src.hnfm.test.test_asr_error_details
-uv run python -m src.hnfm.test.test_asr_timeout
-
-# Test TTS services
-uv run python -m src.hnfm.test.test_tts_timeout
+# Test TTS service
+uv run python -m src.hnfm.test.test_tts_service
 
 # Test image generation
-uv run python -m src.hnfm.test.test_image_generation
+uv run python -m src.hnfm.test.test_image_generator
 
-# Test video generation
-uv run python -m src.hnfm.test.test_video_generation
+# Test script generation
+uv run python -m src.hnfm.test.test_script_generator
 
-# Test scraper
-uv run python -m src.hnfm.test.test_scraper
-
-# Test Firecrawl integration
-uv run python -m src.hnfm.test.test_firecrawl_quick
-uv run pytest src/hnfm/test/test_firecrawl_integration.py -v
+# Test datetime utilities
+uv run python -m src.hnfm.test.test_datetime_serialization
 ```
 
 ### Running All Tests

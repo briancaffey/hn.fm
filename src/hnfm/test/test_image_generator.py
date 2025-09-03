@@ -55,7 +55,7 @@ class TestImageGenerationService:
 
         # Create a fake base64 image data
         fake_image_data = b"fake_image_data_for_testing"
-        fake_base64_data = base64.b64encode(fake_image_data).decode('utf-8')
+        fake_base64_data = base64.b64encode(fake_image_data).decode("utf-8")
 
         # Mock all the external dependencies
         with (
@@ -82,7 +82,7 @@ class TestImageGenerationService:
                     {
                         "base64": fake_base64_data,
                         "seed": 12345,
-                        "finishReason": "SUCCESS"
+                        "finishReason": "SUCCESS",
                     }
                 ]
             }

@@ -159,7 +159,7 @@ onMounted(() => {
       </CardHeader>
       <CardContent>
         <div class="flex flex-wrap gap-2">
-          <Button variant="outline" size="sm" class="cursor-pointer" @click="navigateTo('/items')">
+          <Button variant="outline" size="sm" class="cursor-pointer" @click="navigateTo('/hn/items')">
             <Icon name="lucide:list" class="h-4 w-4 mr-2" />
             View All Items
           </Button>
