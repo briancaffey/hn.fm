@@ -3,16 +3,16 @@
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-3xl font-bold">Hacker News Items</h1>
       <Button
-        @click="queueTopStories"
         :disabled="isQueueing"
         variant="default"
+        @click="queueTopStories"
       >
         {{ isQueueing ? 'Queueing...' : 'Queue Top (50)' }}
       </Button>
     </div>
 
     <div v-if="isLoading" class="text-center py-8">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"></div>
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto"/>
       <p class="mt-2 text-muted-foreground">Loading items...</p>
     </div>
 

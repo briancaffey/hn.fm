@@ -36,7 +36,9 @@ logger.info(f"Celery app includes: {celery_app.conf.include}")
 # Import tasks AFTER creating the app to ensure they're registered
 try:
     from . import tasks
+
     logger.info("Tasks imported successfully")
+    logger.info(f"Available tasks after import: {list(celery_app.tasks.keys())}")
 except ImportError as e:
     logger.error(f"Failed to import tasks: {e}")
 
@@ -46,6 +48,8 @@ celery_app.conf.update(
     task_routes={
         "src.hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
         "hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
+        "src.hnfm.web.tasks.process_hn_item_run": {"queue": "hnfm_tasks"},
+        "hnfm.web.tasks.process_hn_item_run": {"queue": "hnfm_tasks"},
     },
     # Task serialization
     task_serializer="json",

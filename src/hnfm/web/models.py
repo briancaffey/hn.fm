@@ -7,10 +7,11 @@ from pydantic import BaseModel, Field
 
 class HNItem(BaseModel):
     """Hacker News item model"""
+
     id: int
     type: Optional[str] = None
     by: Optional[str] = None
-    time: Optional[int] = None      # Unix seconds
+    time: Optional[int] = None  # Unix seconds
     url: Optional[str] = None
     title: Optional[str] = None
     text: Optional[str] = None
@@ -65,3 +66,39 @@ class ServicesStatusResponse(BaseModel):
     timestamp: datetime = Field(
         ..., description="When the status was checked", example="2024-01-15T15:00:00Z"
     )
+
+
+class ProcessedRun(BaseModel):
+    """Model for processed HN item runs"""
+
+    key: str = Field(..., description="Redis key format: hnfm:item:{item_id}:run:{run}")
+    item_id: int = Field(..., description="Hacker News item ID")
+    run: int = Field(..., description="Run number for this item")
+    created_at: datetime = Field(..., description="When the run was created")
+    source_url: str = Field(..., description="Original URL that was scraped")
+    content_raw: str = Field(..., description="Raw text/markdown from Firecrawl")
+    content_clean: str = Field(..., description="Cleaned text (whitespace/boilerplate removed)")
+    summary: str = Field(..., description="LLM summary text")
+
+
+class RunSummary(BaseModel):
+    """Summary view of a run for listing"""
+
+    run: int = Field(..., description="Run number")
+    summary: str = Field(..., description="LLM summary text")
+
+
+class RunsListResponse(BaseModel):
+    """Response model for listing runs"""
+
+    item_id: int = Field(..., description="Hacker News item ID")
+    runs: List[RunSummary] = Field(..., description="List of runs with summaries")
+    pagination: Dict[str, int] = Field(..., description="Pagination info")
+
+
+class CreateRunResponse(BaseModel):
+    """Response model for creating a new run"""
+
+    item_id: int = Field(..., description="Hacker News item ID")
+    run: int = Field(..., description="Run number that was created")
+    status: str = Field(..., description="Status of the operation")

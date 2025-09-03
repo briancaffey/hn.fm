@@ -67,7 +67,7 @@ pytest src/hnfm/test/test_integration.py -v
 pytest src/hnfm/test/test_pipeline.py::TestPipeline -v
 
 # Run specific test method
-pytest src/hnfm/test/test_pipeline.py::TestPipeline::test_hn_scraper -v
+pytest src/hnfm/test/test_pipeline.py::TestPipeline::test_hn_utils -v
 ```
 
 ## 📊 Test Results

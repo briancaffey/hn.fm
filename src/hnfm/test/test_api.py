@@ -14,8 +14,8 @@ from ..web.api import queue_top_stories, list_downloaded_items, get_single_item
 class TestAPIEndpoints:
     """Test API endpoints"""
 
-    @patch('hnfm.web.api.get_top_story_ids')
-    @patch('hnfm.web.tasks.hn_fetch_item.apply_async')
+    @patch("hnfm.web.api.get_top_story_ids")
+    @patch("hnfm.web.tasks.hn_fetch_item.apply_async")
     def test_queue_top_enqueues_apply_async(self, mock_apply_async, mock_get_top_ids):
         """Test queue top endpoint enqueues tasks with apply_async"""
         # Mock get_top_story_ids to return test data
@@ -23,9 +23,11 @@ class TestAPIEndpoints:
 
         # Mock apply_async to collect calls
         apply_async_calls = []
-        def mock_apply_async_func(args):
+
+        def mock_apply_async_func(args=None, queue=None, **kwargs):
             apply_async_calls.append(args)
             return Mock()
+
         mock_apply_async.side_effect = mock_apply_async_func
 
         # Create fake Redis
@@ -51,7 +53,9 @@ class TestAPIEndpoints:
         fake_redis.set("hnfm:item:1", json.dumps({"id": 1, "title": "Item 1"}))
 
         # Call the function directly
-        result = asyncio.run(list_downloaded_items(offset=0, limit=2, redis_client=fake_redis))
+        result = asyncio.run(
+            list_downloaded_items(offset=0, limit=2, redis_client=fake_redis)
+        )
 
         # Assertions
         assert len(result["items"]) == 2
@@ -67,7 +71,7 @@ class TestAPIEndpoints:
         fake_redis = fakeredis.FakeRedis(decode_responses=False)
         fake_redis.set("hnfm:item:9", json.dumps({"id": 9, "title": "Test Item"}))
 
-                        # Test existing item
+        # Test existing item
         result = asyncio.run(get_single_item(item_id=9, redis_client=fake_redis))
         assert result["id"] == 9
         assert result["title"] == "Test Item"
@@ -83,13 +87,13 @@ class TestAPIEndpointsIntegration:
 
     def test_queue_top_endpoint_integration(self):
         """Test the actual endpoint with mocked dependencies"""
-        with patch('hnfm.web.api.get_top_story_ids') as mock_get_top_ids:
+        with patch("hnfm.web.api.get_top_story_ids") as mock_get_top_ids:
             mock_get_top_ids.return_value = [1, 2, 3, 4, 5]
 
-            with patch('hnfm.web.tasks.hn_fetch_item.apply_async') as mock_apply_async:
+            with patch("hnfm.web.tasks.hn_fetch_item.apply_async") as mock_apply_async:
                 mock_apply_async.return_value = Mock()
 
-                with patch('hnfm.web.api.get_redis_client') as mock_get_redis:
+                with patch("hnfm.web.api.get_redis_client") as mock_get_redis:
                     fake_redis = fakeredis.FakeRedis(decode_responses=False)
                     mock_get_redis.return_value = fake_redis
 

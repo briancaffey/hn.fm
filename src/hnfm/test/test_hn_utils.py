@@ -20,7 +20,7 @@ from ..web.models import HNItem
 class TestHTTPFunctions:
     """Test HTTP (Firebase) functions"""
 
-    @patch('requests.get')
+    @patch("requests.get")
     def test_get_top_story_ids_returns_list(self, mock_get):
         """Test get_top_story_ids returns a list of integers"""
         # Mock the response
@@ -36,9 +36,11 @@ class TestHTTPFunctions:
         assert result == [1, 2, 3]
         assert isinstance(result, list)
         assert all(isinstance(x, int) for x in result)
-        mock_get.assert_called_once_with("https://hacker-news.firebaseio.com/v0/topstories.json")
+        mock_get.assert_called_once_with(
+            "https://hacker-news.firebaseio.com/v0/topstories.json"
+        )
 
-    @patch('requests.get')
+    @patch("requests.get")
     def test_get_item_json_and_store_saves_redis_and_file(self, mock_get, tmp_path):
         """Test get_item_json_and_store saves to Redis and file"""
         # Mock the response
@@ -48,7 +50,7 @@ class TestHTTPFunctions:
             "type": "story",
             "time": 1000,
             "title": "T",
-            "by": "u"
+            "by": "u",
         }
         mock_response.raise_for_status.return_value = None
         mock_get.return_value = mock_response
@@ -58,9 +60,7 @@ class TestHTTPFunctions:
 
         # Call the function
         result = get_item_json_and_store(
-            1,
-            redis_client=fake_redis,
-            outputs_dir=str(tmp_path)
+            1, redis_client=fake_redis, outputs_dir=str(tmp_path)
         )
 
         # Assertions
@@ -113,11 +113,7 @@ class TestRedisHelpers:
         fake_redis = fakeredis.FakeRedis(decode_responses=False)
 
         # Seed Redis with items in random order
-        items_data = [
-            {"id": 1},
-            {"id": 10},
-            {"id": 3}
-        ]
+        items_data = [{"id": 1}, {"id": 10}, {"id": 3}]
 
         for item_data in items_data:
             fake_redis.set(f"hnfm:item:{item_data['id']}", json.dumps(item_data))

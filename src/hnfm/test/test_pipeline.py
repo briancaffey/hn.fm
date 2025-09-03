@@ -9,7 +9,7 @@ from unittest.mock import patch, MagicMock
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from hnfm.scraper.hn_scraper import HNScraper
+from hnfm.utils.hn_utils import get_top_story_ids
 from hnfm.scraper.content_scraper import ContentScraper
 from hnfm.content.content_processor import ContentProcessor
 from hnfm.content.script_generator import ScriptGenerator
@@ -22,34 +22,33 @@ class TestPipeline:
     def setup_method(self):
         """Setup test environment"""
         self.config = config_manager
-        self.hn_scraper = HNScraper()
         self.content_scraper = ContentScraper(
             self.config.get("apis.firecrawl.api_key") or "test_key"
         )
         self.processor = ContentProcessor()
         self.script_generator = ScriptGenerator()
 
-    def test_hn_scraper(self):
-        """Test Hacker News scraping functionality"""
-        print("🧪 Testing HN Scraper...")
+    def test_hn_utils(self):
+        """Test Hacker News utilities functionality"""
+        print("🧪 Testing HN Utils...")
 
         try:
-            # Test getting top stories
-            stories = self.hn_scraper.get_top_stories(limit=3)
-            assert stories is not None, "Should return stories list"
-            assert len(stories) <= 3, "Should respect limit"
+            # Test getting top story IDs
+            story_ids = get_top_story_ids()
+            assert story_ids is not None, "Should return story IDs list"
+            assert len(story_ids) > 0, "Should return some story IDs"
+            assert all(
+                isinstance(id, int) for id in story_ids[:10]
+            ), "IDs should be integers"
 
-            if stories:
-                story = stories[0]
-                assert "title" in story, "Story should have title"
-                assert "url" in story, "Story should have URL"
-                print(f"✅ Found story: {story.get('title', 'Unknown')}")
+            print(f"✅ Retrieved {len(story_ids)} story IDs")
+            print(f"   📰 First few IDs: {story_ids[:5]}")
 
-            print("✅ HN Scraper test passed")
+            print("✅ HN Utils test passed")
             return True
 
         except Exception as e:
-            print(f"❌ HN Scraper test failed: {e}")
+            print(f"❌ HN Utils test failed: {e}")
             return False
 
     def test_content_scraper(self):

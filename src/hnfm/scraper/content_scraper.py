@@ -22,15 +22,16 @@ class ScrapedContent:
 class ContentScraper:
     """Scrapes content from URLs using Firecrawl."""
 
-    def __init__(self, api_key: str = None, base_url: str = "http://localhost:3002"):
+    def __init__(self, api_key: str = None, base_url: str = None):
         """Initialize the content scraper.
 
         Args:
             api_key: Firecrawl API key (not used for local instance)
-            base_url: Local Firecrawl base URL
+            base_url: Local Firecrawl base URL (defaults to FIRECRAWL_BASE_URL env var)
         """
+        import os
         self.api_key = api_key  # Keep for compatibility but not used
-        self.base_url = base_url.rstrip("/") or "http://localhost:3002"
+        self.base_url = (base_url or os.getenv("FIRECRAWL_BASE_URL", "http://localhost:3002")).rstrip("/")
 
         # Always use local Firecrawl
         self.is_local_firecrawl = True

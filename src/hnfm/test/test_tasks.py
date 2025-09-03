@@ -12,8 +12,8 @@ from ..web.tasks import hn_fetch_item
 class TestCeleryTask:
     """Test Celery task functionality"""
 
-    @patch('requests.get')
-    @patch('redis.Redis')
+    @patch("requests.get")
+    @patch("redis.Redis")
     def test_hn_fetch_item_exists_short_circuits(self, mock_redis_class, mock_get):
         """Test hn_fetch_item short circuits when item already exists"""
         # Create fake Redis with existing item
@@ -27,12 +27,15 @@ class TestCeleryTask:
         mock_get.side_effect = Exception("Should not be called")
 
         # Mock environment variables
-        with patch.dict(os.environ, {
-            "REDIS_HOST": "localhost",
-            "REDIS_PORT": "6379",
-            "REDIS_DB": "0",
-            "OUTPUTS_DIR": "/tmp"
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "REDIS_HOST": "localhost",
+                "REDIS_PORT": "6379",
+                "REDIS_DB": "0",
+                "OUTPUTS_DIR": "/tmp",
+            },
+        ):
             # Call the task directly (not via worker)
             result = hn_fetch_item(7)
 
@@ -40,7 +43,7 @@ class TestCeleryTask:
         assert result == {"status": "exists", "id": 7}
         mock_get.assert_not_called()
 
-    @patch('requests.get')
+    @patch("requests.get")
     def test_hn_fetch_item_fetches_when_missing(self, mock_get):
         """Test hn_fetch_item fetches when item is missing"""
         # Create empty fake Redis
@@ -53,14 +56,17 @@ class TestCeleryTask:
         mock_get.return_value = mock_response
 
         # Mock environment variables
-        with patch.dict(os.environ, {
-            "REDIS_HOST": "localhost",
-            "REDIS_PORT": "6379",
-            "REDIS_DB": "0",
-            "OUTPUTS_DIR": "/tmp"
-        }):
+        with patch.dict(
+            os.environ,
+            {
+                "REDIS_HOST": "localhost",
+                "REDIS_PORT": "6379",
+                "REDIS_DB": "0",
+                "OUTPUTS_DIR": "/tmp",
+            },
+        ):
             # Mock the Redis client creation
-            with patch('redis.Redis') as mock_redis_class:
+            with patch("redis.Redis") as mock_redis_class:
                 mock_redis_class.return_value = fake_redis
 
                 # Call the task directly

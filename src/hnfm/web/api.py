@@ -13,13 +13,22 @@ from .models import (
     ServiceStatus,
     ServicesStatusResponse,
     HNItem,
+    ProcessedRun,
+    RunsListResponse,
+    CreateRunResponse,
+    RunSummary,
 )
 from .celery_app import celery_app
-from .tasks import hn_fetch_item
+from .tasks import hn_fetch_item, process_hn_item_run
 from ..utils.hn_utils import (
     get_top_story_ids,
     get_item,
     list_items,
+)
+from ..utils.run_utils import (
+    next_run_id,
+    list_runs_for_item,
+    get_run,
 )
 
 logger = logging.getLogger(__name__)
@@ -35,7 +44,7 @@ def get_redis_client() -> redis.Redis:
         host=redis_host,
         port=redis_port,
         db=redis_db,
-        decode_responses=False  # Keep as bytes for JSON compatibility
+        decode_responses=False,  # Keep as bytes for JSON compatibility
     )
 
 
@@ -118,8 +127,7 @@ async def get_services_status():
 # HN API Endpoints
 @app.post("/api/hn/queue-top", tags=["hacker-news"])
 async def queue_top_stories(
-    limit: int = 50,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    limit: int = 50, redis_client: redis.Redis = Depends(get_redis_client)
 ):
     """Queue top stories for processing"""
     try:
@@ -131,13 +139,9 @@ async def queue_top_stories(
 
         # Queue each ID using apply_async with explicit queue
         for item_id in ids_to_queue:
-            hn_fetch_item.apply_async(args=[item_id], queue='hnfm_tasks')
+            hn_fetch_item.apply_async(args=[item_id], queue="hnfm_tasks")
 
-        return {
-            "queued_count": len(ids_to_queue),
-            "ids": ids_to_queue,
-            "limit": limit
-        }
+        return {"queued_count": len(ids_to_queue), "ids": ids_to_queue, "limit": limit}
 
     except Exception as e:
         logger.error(f"Failed to queue top stories: {e}")
@@ -148,7 +152,7 @@ async def queue_top_stories(
 async def list_downloaded_items(
     offset: int = 0,
     limit: int = 50,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """List downloaded items with pagination"""
     try:
@@ -156,11 +160,7 @@ async def list_downloaded_items(
 
         return {
             "items": [item.model_dump() for item in items],
-            "pagination": {
-                "offset": offset,
-                "limit": limit,
-                "count": len(items)
-            }
+            "pagination": {"offset": offset, "limit": limit, "count": len(items)},
         }
 
     except Exception as e:
@@ -170,8 +170,7 @@ async def list_downloaded_items(
 
 @app.get("/api/hn/items/{item_id}", tags=["hacker-news"])
 async def get_single_item(
-    item_id: int,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    item_id: int, redis_client: redis.Redis = Depends(get_redis_client)
 ):
     """Get a single item by ID"""
     try:
@@ -187,6 +186,94 @@ async def get_single_item(
     except Exception as e:
         logger.error(f"Failed to get item {item_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get item")
+
+
+# HN Item Runs API Endpoints
+@app.post("/api/hn/items/{item_id}/runs", response_model=CreateRunResponse, tags=["hacker-news"])
+async def create_and_queue_run(
+    item_id: int, redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """Create and queue a new run for an item"""
+    try:
+        # Get next run ID
+        run = next_run_id(item_id, redis_client=redis_client)
+
+        # Queue the task
+        process_hn_item_run.apply_async(args=[item_id, run], queue="hnfm_tasks")
+
+        return CreateRunResponse(
+            item_id=item_id,
+            run=run,
+            status="queued"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to create run for item {item_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create run")
+
+
+@app.get("/api/hn/items/{item_id}/runs", response_model=RunsListResponse, tags=["hacker-news"])
+async def list_runs_for_item_endpoint(
+    item_id: int,
+    offset: int = 0,
+    limit: int = 20,
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """List runs for an item with pagination"""
+    try:
+        # Get run IDs
+        run_ids = list_runs_for_item(
+            item_id,
+            redis_client=redis_client,
+            offset=offset,
+            limit=limit
+        )
+
+        # Fetch ProcessedRun objects and extract summaries
+        runs = []
+        for run_id in run_ids:
+            processed_run = get_run(item_id, run_id, redis_client=redis_client)
+            if processed_run:
+                runs.append(RunSummary(
+                    run=run_id,
+                    summary=processed_run.summary
+                ))
+
+        return RunsListResponse(
+            item_id=item_id,
+            runs=runs,
+            pagination={
+                "offset": offset,
+                "limit": limit,
+                "count": len(runs)
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to list runs for item {item_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list runs")
+
+
+@app.get("/api/hn/items/{item_id}/runs/{run}", response_model=ProcessedRun, tags=["hacker-news"])
+async def get_single_run(
+    item_id: int,
+    run: int,
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """Get a single run by item ID and run number"""
+    try:
+        processed_run = get_run(item_id, run, redis_client=redis_client)
+
+        if processed_run is None:
+            raise HTTPException(status_code=404, detail="Run not found")
+
+        return processed_run
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get run {run} for item {item_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get run")
 
 
 # Error handlers

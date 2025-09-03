@@ -263,3 +263,314 @@ Use `TestClient` with fakeredis injected into your app’s Redis dependency.
 * [ ] `GET /api/hn/items/{id}` returns 200 if present, 404 if missing.
 * [ ] Frontend pages `/hn/items` and `/hn/items/[id]` render correctly.
 * [ ] All tests pass with **fakeredis-py** and `requests` monkeypatched.
+
+
+This is the next step of what wer are going to do: It adds Firecrawl scraping + LLM summary, per-item **runs**, storage in Redis and disk, API, tasks, tests, and two small frontend views. Please implement as specified here:
+
+---
+
+# 1) Data model
+
+```python
+from pydantic import BaseModel
+from typing import Optional
+from datetime import datetime
+
+class ProcessedRun(BaseModel):
+    key: str                 # "hnfm:item:{item_id}:run:{run}"
+    item_id: int
+    run: int
+    created_at: datetime
+    source_url: str
+    content_raw: str         # raw text/markdown from Firecrawl
+    content_clean: str       # cleaned text (whitespace/boilerplate removed)
+    summary: str             # LLM summary text
+```
+
+---
+
+# 2) Redis keys and disk paths
+
+* **Per-run JSON**: `hnfm:item:{item_id}:run:{run}` → serialized `ProcessedRun`.
+* **Per-item run sequence counter**: `hnfm:item:{item_id}:run_seq` (INCR to get next run).
+* **Per-item run list**: `hnfm:item:{item_id}:runs` (LIST of run ints as strings). On successful save: `LPUSH` the run number.
+
+**Disk:**
+
+```
+outputs/hn/item/{item_id}/runs/{run}/processed.json
+```
+
+---
+
+# 3) Utilities
+
+Implement these **synchronous** helpers. All file writes must create parent directories as needed.
+
+1. **Run ID**
+
+```python
+def next_run_id(item_id: int, *, redis_client) -> int:
+    # INCR hnfm:item:{item_id}:run_seq → int
+```
+
+2. **Scrape with Firecrawl** (I think we already have logic for this in scraper/content_scraper.py, so please check there first)
+
+```python
+def scrape_url_firecrawl(url: str) -> str:
+    """
+    Use requests.post to your Firecrawl endpoint and return the raw text/markdown.
+    If non-200 or empty payload, raise an exception.
+    """
+```
+
+3. **Clean content** (also please check the content/content_processor.py file for related logic here)
+
+```python
+def clean_content(text: str) -> str:
+    """
+    Simple deterministic cleanup:
+    - Strip leading/trailing whitespace
+    - Collapse consecutive whitespace/newlines
+    Return cleaned string.
+    """
+```
+
+4. **Summarize with LLM**
+
+```python
+def summarize_text_v1(text: str) -> str:
+    """
+    Use requests.post to your LLM summary endpoint.
+    Prompt: 'Summarize the article in 5-7 sentences. Be specific and factual.'
+    Return the summary string.
+    If non-200 or empty, raise an exception.
+    """
+```
+
+5. **Save run (Redis + Disk)**
+
+```python
+def save_processed_run(pr: ProcessedRun, *, redis_client, outputs_root: str) -> None:
+    """
+    - SET hnfm:item:{item_id}:run:{run} with JSON(pr)
+    - LPUSH hnfm:item:{item_id}:runs the run number
+    - Write to outputs/hn/item/{item_id}/runs/{run}/processed.json
+    """
+```
+
+6. **Get runs for an item**
+
+```python
+def list_runs_for_item(item_id: int, *, redis_client, offset: int = 0, limit: int = 20) -> list[int]:
+    """
+    Use LRANGE on hnfm:item:{item_id}:runs (it's newest-first because we LPUSH).
+    Slice with offset/limit and return a list of run ints.
+    """
+```
+
+7. **Get one run**
+
+```python
+def get_run(item_id: int, run: int, *, redis_client) -> Optional[ProcessedRun]:
+    """
+    GET hnfm:item:{item_id}:run:{run} and parse to ProcessedRun. Return None if missing.
+    """
+```
+
+---
+
+# 4) Celery task
+
+```python
+def process_hn_item_run(item_id: int, run: int) -> dict:
+    """
+    Steps:
+    1) GET hn:item:{item_id} from Redis. If missing → raise.
+    2) Parse JSON; read item['url']. If missing → raise.
+    3) content_raw = scrape_url_firecrawl(url)
+    4) content_clean = clean_content(content_raw)
+    5) summary = summarize_text_v1(content_clean)
+    6) Build ProcessedRun(...) with created_at=utcnow()
+    7) save_processed_run(...)
+    8) return {"status": "ok", "item_id": item_id, "run": run}
+    """
+```
+
+* Use `apply_async(args=[item_id, run])` when enqueueing (see API below).
+* Do **not** write anything if an exception occurs (let Celery log the error).
+
+---
+
+# 5) API (FastAPI)
+
+All endpoints are synchronous.
+
+## 5.1 Create and queue a new run
+
+* **Route:** `POST /api/hn/items/{item_id}/runs`
+* **Behavior:**
+
+  1. `run = next_run_id(item_id, redis_client=...)`
+  2. `process_hn_item_run.apply_async(args=[item_id, run])`
+  3. Return `{ "item_id": item_id, "run": run, "status": "queued" }`
+
+## 5.2 List runs for an item
+
+* **Route:** `GET /api/hn/items/{item_id}/runs?offset=0&limit=20`
+* **Behavior:**
+
+  1. `run_ids = list_runs_for_item(item_id, offset, limit)`
+  2. For each run id, fetch `ProcessedRun` and include only `{run, summary}` in the response list.
+* **Response:**
+
+```json
+{
+  "item_id": 45114175,
+  "runs": [
+    { "run": 2, "summary": "..." },
+    { "run": 1, "summary": "..." }
+  ],
+  "pagination": { "offset": 0, "limit": 20, "count": 2 }
+}
+```
+
+## 5.3 Get a single run
+
+* **Route:** `GET /api/hn/items/{item_id}/runs/{run}`
+* **Behavior:**
+
+  * Return full `ProcessedRun` JSON.
+  * 404 if missing.
+
+---
+
+# 6) Tests (pytest)
+
+Use **fakeredis-py** for Redis and `monkeypatch` to stub network calls (`scrape_url_firecrawl` and `summarize_text_v1`). Do not perform real HTTP.
+
+## 6.1 Utilities
+
+* **`test_next_run_id_increments`**
+
+  * New item: INCR returns 1, then 2.
+
+* **`test_save_processed_run_persists_everywhere`**
+
+  * Build a small `ProcessedRun`.
+  * Call `save_processed_run(...)`.
+  * Assert Redis `GET hnfm:item:{id}:run:{run}` exists.
+  * Assert Redis `LLEN hnfm:item:{id}:runs` increased and `LRANGE` contains the run.
+  * Assert file `outputs/hn/item/{id}/runs/{run}/processed.json` exists.
+
+* **`test_list_runs_for_item_newest_first`**
+
+  * Seed `hnfm:item:{id}:runs` with LPUSH 2 then 1.
+  * Assert `list_runs_for_item(id)` returns `[2,1]`.
+
+* **`test_get_run_roundtrip`**
+
+  * Seed one run JSON; `get_run` returns `ProcessedRun` with matching fields.
+
+## 6.2 Task
+
+* **`test_process_hn_item_run_happy_path`**
+
+  * Seed `hn:item:{id}` with an item containing a `url`.
+  * Monkeypatch `scrape_url_firecrawl` → `"RAW TEXT"`.
+  * Monkeypatch `summarize_text_v1` → `"SUMMARY"`.
+  * Call task directly: `process_hn_item_run(item_id, run=1)`.
+  * Assert Redis run key exists and includes `content_raw="RAW TEXT"`, `summary="SUMMARY"`.
+  * Assert run is LPUSHed.
+
+* **`test_process_hn_item_run_missing_item_raises`**
+
+  * No `hn:item:{id}` in Redis.
+  * Expect exception; assert no run key written, no LPUSH.
+
+* **`test_process_hn_item_run_missing_url_raises`**
+
+  * Seed item without `url`.
+  * Expect exception; assert no run key written, no LPUSH.
+
+## 6.3 API
+
+* **`test_create_and_queue_run`**
+
+  * Monkeypatch `process_hn_item_run.apply_async` to capture args.
+  * POST `/api/hn/items/{id}/runs`.
+  * Assert response contains `"status":"queued"` and a positive `"run"`.
+  * Assert `apply_async` called once with `[id, run]`.
+
+* **`test_list_runs_endpoint`**
+
+  * Seed two run keys and LPUSH runs `[2,1]`.
+  * GET `/api/hn/items/{id}/runs`.
+  * Assert order `[2,1]`; summaries present.
+
+* **`test_get_single_run_endpoint_200_and_404`**
+
+  * GET existing run → 200 with full `ProcessedRun`.
+  * GET non-existing → 404.
+
+---
+
+# 7) Frontend
+
+## 7.1 Item detail page `/hn/items/[id]`
+
+* Add a **Runs** section beneath the existing item fields.
+* On server-side, fetch `GET /api/hn/items/{id}/runs?offset=0&limit=20`.
+* Render a list (newest first). Each row shows:
+
+  * **Run ID** (e.g., `1`)
+  * **Summary** (show first \~200 chars; add “…”, no client options)
+  * Link to `/hn/item/{id}/run/{run}`
+* Add a button **“Start New Run”** that `POST`s `/api/hn/items/{id}/runs`, then refreshes the runs list.
+
+## 7.2 Run detail page `/hn/item/[id]/run/[run]`
+
+* On server-side, fetch:
+
+  * `GET /api/hn/items/{id}` (basic item info)
+  * `GET /api/hn/items/{id}/runs/{run}` (full `ProcessedRun`)
+* Render:
+
+  * Item title + link to the original URL.
+  * Three collapsible accordions (open/close):
+
+    1. **Raw scraped** → `content_raw`
+    2. **Cleaned** → `content_clean`
+    3. **Summary** → `summary`
+* Add a back link to `/hn/items/{id}`.
+
+---
+
+# 8) Endpoint + storage behavior (confirmation)
+
+* `POST /api/hn/items/{item_id}/runs`:
+
+  * Creates **one** new run id with `INCR`.
+  * Enqueues **one** Celery task using `apply_async(args=[item_id, run])`.
+* Task:
+
+  * Reads `hn:item:{item_id}`, scrapes, cleans, summarizes.
+  * Writes **one** Redis key: `hnfm:item:{item_id}:run:{run}`.
+  * LPUSHes `run` into `hnfm:item:{item_id}:runs`.
+  * Writes **one** file: `outputs/hn/item/{item_id}/runs/{run}/processed.json`.
+* `GET /api/hn/items/{item_id}/runs` returns newest-first runs with `{run, summary}`.
+* `GET /api/hn/items/{item_id}/runs/{run}` returns the full `ProcessedRun`.
+
+---
+
+# 9) Build order (sequential)
+
+1. **Models**: `ProcessedRun`.
+2. **Redis keys + disk path conventions** (constant helpers).
+3. **Utilities**: `next_run_id`, `scrape_url_firecrawl`, `clean_content`, `summarize_text_v1`, `save_processed_run`, `list_runs_for_item`, `get_run`.
+4. **Task**: `process_hn_item_run(item_id, run)`.
+5. **API**: POST create/queue run; GET list runs; GET single run.
+6. **Tests**: utilities → task → API (fakeredis + monkeypatch for network).
+7. **Frontend**: update `/hn/items/[id]` to show runs; add `/hn/item/[id]/run/[run]` detail view with accordions.
+
+This completes the “runs v1”: scrape → clean → summarize → store → list → view.

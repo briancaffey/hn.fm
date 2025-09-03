@@ -3,7 +3,7 @@
     <h1 class="text-3xl font-bold mb-6">API Test</h1>
 
     <div v-if="isLoading" class="text-center py-8">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"></div>
+      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600 mx-auto"/>
       <p class="mt-2 text-gray-600">Testing API...</p>
     </div>
 
@@ -17,8 +17,8 @@
     </div>
 
     <button
-      @click="testAPI"
       class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded"
+      @click="testAPI"
     >
       Test API
     </button>

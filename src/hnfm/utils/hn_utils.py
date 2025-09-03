@@ -30,7 +30,9 @@ def get_item_json_and_store(
     """Get item JSON from Firebase, validate, and store in Redis and file"""
     try:
         # Fetch from Firebase
-        response = requests.get(f"https://hacker-news.firebaseio.com/v0/item/{item_id}.json")
+        response = requests.get(
+            f"https://hacker-news.firebaseio.com/v0/item/{item_id}.json"
+        )
         response.raise_for_status()
         item_data = response.json()
 
@@ -105,9 +107,7 @@ def list_item_ids(*, redis_client: redis.Redis) -> List[int]:
     return item_ids
 
 
-def list_items(
-    offset: int, limit: int, *, redis_client: redis.Redis
-) -> List[HNItem]:
+def list_items(offset: int, limit: int, *, redis_client: redis.Redis) -> List[HNItem]:
     """List items with pagination, ordered by ID descending"""
     # Get all item IDs
     all_ids = list_item_ids(redis_client=redis_client)
@@ -116,7 +116,7 @@ def list_items(
     all_ids.sort(reverse=True)
 
     # Apply pagination
-    paginated_ids = all_ids[offset:offset + limit]
+    paginated_ids = all_ids[offset : offset + limit]
 
     # Fetch items using MGET for efficiency
     if paginated_ids:
