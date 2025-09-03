@@ -31,7 +31,7 @@ def get_runs_list_key(item_id: int) -> str:
 
 
 # Disk path helpers
-def get_run_disk_path(item_id: int, run: int, outputs_root: str) -> str:
+def get_run_disk_path(outputs_root: str, item_id: int, run: int) -> str:
     """Get disk path for a run's processed.json file."""
     return os.path.join(outputs_root, "hn", "item", str(item_id), "runs", str(run), "processed.json")
 
@@ -137,7 +137,7 @@ def save_processed_run(pr: ProcessedRun, *, redis_client: redis.Redis, outputs_r
         redis_client.lpush(runs_list_key, str(pr.run))
 
         # Save to disk
-        disk_path = get_run_disk_path(pr.item_id, pr.run, outputs_root)
+        disk_path = get_run_disk_path(outputs_root, pr.item_id, pr.run)
         ensure_parent_dirs(disk_path)
 
         with open(disk_path, 'w', encoding='utf-8') as f:
@@ -198,3 +198,47 @@ def get_run(item_id: int, run: int, *, redis_client: redis.Redis) -> Optional[Pr
     except Exception as e:
         logger.error(f"Failed to get run {run} for item {item_id}: {e}")
         return None
+
+
+def delete_run(item_id: int, run: int, *, redis_client: redis.Redis, outputs_root: str) -> bool:
+    """Delete a run completely - removes Redis keys and disk files.
+
+    Args:
+        item_id: Hacker News item ID
+        run: Run number to delete
+        redis_client: Redis client instance
+        outputs_root: Root directory for outputs
+
+    Returns:
+        bool: True if deletion was successful, False otherwise
+    """
+    try:
+        # Get run data first to verify it exists
+        run_data = get_run(item_id, run, redis_client=redis_client)
+        if not run_data:
+            logger.warning(f"Run {run} for item {item_id} not found, nothing to delete")
+            return False
+
+        # Delete Redis keys
+        run_key = get_run_key(item_id, run)
+        runs_list_key = get_runs_list_key(item_id)
+
+        # Remove from Redis
+        redis_client.delete(run_key)
+        redis_client.lrem(runs_list_key, 0, str(run).encode())
+
+        # Delete disk files and folder
+        run_disk_path = get_run_disk_path(outputs_root, item_id, run)
+        run_folder = os.path.dirname(run_disk_path)
+
+        if os.path.exists(run_folder):
+            import shutil
+            shutil.rmtree(run_folder)
+            logger.info(f"Deleted run folder: {run_folder}")
+
+        logger.info(f"Successfully deleted run {run} for item {item_id}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to delete run {run} for item {item_id}: {e}")
+        return False

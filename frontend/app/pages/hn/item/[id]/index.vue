@@ -74,6 +74,10 @@
           </Button>
         </div>
 
+        <div v-if="deleteMessage" class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded mb-4">
+          {{ deleteMessage }}
+        </div>
+
         <div v-if="runsLoading" class="text-center py-4">
           <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"/>
           <p class="mt-2 text-sm text-muted-foreground">Loading runs...</p>
@@ -113,12 +117,24 @@
                   </div>
                 </td>
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-foreground">
-                  <NuxtLink
-                    :to="`/hn/item/${item.id}/run-${run.run}`"
-                    class="text-primary hover:text-primary/80 font-medium"
-                  >
-                    View Details
-                  </NuxtLink>
+                  <div class="flex gap-2">
+                    <NuxtLink
+                      :to="`/hn/item/${item.id}/run-${run.run}`"
+                      class="text-primary hover:text-primary/80 font-medium"
+                    >
+                      View Details
+                    </NuxtLink>
+                    <Button
+                      variant="destructive"
+                      size="sm"
+                      @click="deleteRun(run.run)"
+                      :disabled="deletingRuns.has(run.run)"
+                      class="ml-2 bg-red-600 hover:bg-red-700 text-white border-red-600"
+                    >
+                      <span v-if="deletingRuns.has(run.run)">Deleting...</span>
+                      <span v-else>🗑️</span>
+                    </Button>
+                  </div>
                 </td>
               </tr>
             </tbody>
@@ -170,6 +186,8 @@ const runs = ref([])
 const runsLoading = ref(false)
 const runsError = ref(null)
 const isStartingRun = ref(false)
+const deletingRuns = ref(new Set())
+const deleteMessage = ref('')
 
 // Fetch runs when item is loaded
 watch(item, async (newItem) => {
@@ -224,5 +242,34 @@ function formatTime(timestamp) {
 
   const date = new Date(timestamp * 1000)
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
+}
+
+async function deleteRun(runId) {
+  if (deletingRuns.value.has(runId)) return
+
+  deletingRuns.value.add(runId)
+  deleteMessage.value = ''
+
+  try {
+    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs/${runId}`, {
+      method: 'DELETE'
+    })
+
+    deleteMessage.value = `Run ${runId} deleted successfully!`
+
+    // Reload the runs list
+    await fetchRuns()
+
+    // Clear message after 3 seconds
+    setTimeout(() => {
+      deleteMessage.value = ''
+    }, 3000)
+
+  } catch (err) {
+    console.error('Failed to delete run:', err)
+    deleteMessage.value = `Failed to delete run ${runId}. Please try again.`
+  } finally {
+    deletingRuns.value.delete(runId)
+  }
 }
 </script>

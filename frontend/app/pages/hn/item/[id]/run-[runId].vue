@@ -23,21 +23,37 @@
       {{ error }}
     </div>
 
+    <div v-if="deleteMessage" class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded mb-4">
+      {{ deleteMessage }}
+    </div>
+
     <div v-else-if="!!item && !!run" class="space-y-6">
       <!-- Item Info -->
       <div class="bg-card border rounded-lg p-6">
         <h1 class="text-3xl font-bold mb-4">{{ item.title || 'No Title' }}</h1>
 
-        <div class="flex flex-wrap gap-2 mb-4">
-          <Badge class="bg-orange-500 text-white border-orange-500 text-sm">
-            Item ID: {{ item.id }}
-          </Badge>
-          <Badge class="bg-blue-500 text-white border-blue-500 text-sm">
-            Run: {{ run.run }}
-          </Badge>
-          <Badge class="bg-green-500 text-white border-green-500 text-sm">
-            {{ formatDateTime(run.created_at) }}
-          </Badge>
+        <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
+          <div class="flex flex-wrap gap-2">
+            <Badge class="bg-orange-500 text-white border-orange-500 text-sm">
+              Item ID: {{ item.id }}
+            </Badge>
+            <Badge class="bg-blue-500 text-white border-blue-500 text-sm">
+              Run: {{ run.run }}
+            </Badge>
+            <Badge class="bg-green-500 text-white border-green-500 text-sm">
+              {{ formatDateTime(run.created_at) }}
+            </Badge>
+          </div>
+          <Button
+            variant="destructive"
+            size="sm"
+            @click="deleteRun"
+            :disabled="isDeleting"
+            class="ml-auto bg-red-600 hover:bg-red-700 text-white border-red-600"
+          >
+            <span v-if="isDeleting">Deleting...</span>
+            <span v-else>🗑️ Delete Run</span>
+          </Button>
         </div>
 
         <div v-if="item.url" class="mb-4">
@@ -89,6 +105,62 @@
               </div>
             </AccordionContent>
           </AccordionItem>
+
+          <AccordionItem value="short-description">
+            <AccordionTrigger class="text-lg font-semibold">
+              Short Description
+            </AccordionTrigger>
+            <AccordionContent>
+              <div class="bg-muted/50 p-4 rounded-lg">
+                <p class="text-foreground leading-relaxed">{{ run.short_description }}</p>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="tags">
+            <AccordionTrigger class="text-lg font-semibold">
+              Tags
+            </AccordionTrigger>
+            <AccordionContent>
+              <div class="bg-muted/50 p-4 rounded-lg">
+                <div class="flex flex-wrap gap-2">
+                  <Badge
+                    v-for="tag in run.tags"
+                    :key="tag"
+                    class="bg-blue-100 text-blue-800 border-blue-200 text-sm"
+                  >
+                    #{{ tag }}
+                  </Badge>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="emoji">
+            <AccordionTrigger class="text-lg font-semibold">
+              Emoji
+            </AccordionTrigger>
+            <AccordionContent>
+              <div class="bg-muted/50 p-4 rounded-lg">
+                <div class="flex gap-4 text-4xl">
+                  <span v-for="emoji in run.emoji" :key="emoji">{{ emoji }}</span>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="haiku">
+            <AccordionTrigger class="text-lg font-semibold">
+              Haiku
+            </AccordionTrigger>
+            <AccordionContent>
+              <div class="bg-muted/50 p-4 rounded-lg">
+                <div class="text-center">
+                  <p class="text-foreground leading-relaxed text-lg italic whitespace-pre-line">{{ run.haiku }}</p>
+                </div>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
         </Accordion>
       </div>
 
@@ -124,6 +196,7 @@
 
 <script setup>
 import { Badge } from '~/components/ui/badge'
+import { Button } from '~/components/ui/button'
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '~/components/ui/accordion'
 
 // Define page meta to ensure proper routing
@@ -157,6 +230,8 @@ const item = ref(null)
 const run = ref(null)
 const isLoading = ref(true)
 const error = ref(null)
+const isDeleting = ref(false)
+const deleteMessage = ref('')
 
 // Fetch data
 const { data: itemData, pending: itemLoading, error: itemError } = await useAsyncData(
@@ -216,5 +291,31 @@ function formatDateTime(dateString) {
 
   const date = new Date(dateString)
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
+}
+
+async function deleteRun() {
+  if (isDeleting.value) return
+
+  isDeleting.value = true
+  deleteMessage.value = ''
+
+  try {
+    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}`, {
+      method: 'DELETE'
+    })
+
+    deleteMessage.value = 'Run deleted successfully!'
+
+    // Redirect to item detail page after a short delay
+    setTimeout(() => {
+      navigateTo(`/hn/item/${itemId.value}`)
+    }, 1000)
+
+  } catch (err) {
+    console.error('Failed to delete run:', err)
+    deleteMessage.value = 'Failed to delete run. Please try again.'
+  } finally {
+    isDeleting.value = false
+  }
 }
 </script>

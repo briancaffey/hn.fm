@@ -15,6 +15,12 @@ from ..utils.run_utils import (
     summarize_text_v1,
     save_processed_run,
 )
+from ..content.content_enrichment import (
+    generate_short_description,
+    generate_tags,
+    generate_emoji,
+    generate_haiku,
+)
 from .models import ProcessedRun
 
 logger = logging.getLogger(__name__)
@@ -113,7 +119,20 @@ def process_hn_item_run(item_id: int, run: int) -> Dict[str, any]:
         logger.info(f"Summarizing content for item {item_id}, run {run}")
         summary = summarize_text_v1(content_clean)
 
-        # Step 6: Build ProcessedRun
+        # Step 6: Generate additional content fields
+        logger.info(f"Generating short description for item {item_id}, run {run}")
+        short_description = generate_short_description(summary)
+
+        logger.info(f"Generating tags for item {item_id}, run {run}")
+        tags = generate_tags(summary)
+
+        logger.info(f"Generating emoji for item {item_id}, run {run}")
+        emoji = generate_emoji(summary)
+
+        logger.info(f"Generating haiku for item {item_id}, run {run}")
+        haiku = generate_haiku(content_clean)
+
+        # Step 7: Build ProcessedRun
         processed_run = ProcessedRun(
             key=f"hnfm:item:{item_id}:run:{run}",
             item_id=item_id,
@@ -122,10 +141,14 @@ def process_hn_item_run(item_id: int, run: int) -> Dict[str, any]:
             source_url=url,
             content_raw=content_raw,
             content_clean=content_clean,
-            summary=summary
+            summary=summary,
+            short_description=short_description,
+            tags=tags,
+            emoji=emoji,
+            haiku=haiku
         )
 
-        # Step 7: Save to Redis and disk
+        # Step 8: Save to Redis and disk
         save_processed_run(processed_run, redis_client=redis_client, outputs_root=outputs_dir)
 
         logger.info(f"Successfully processed run {run} for item {item_id}")

@@ -79,6 +79,10 @@ class ProcessedRun(BaseModel):
     content_raw: str = Field(..., description="Raw text/markdown from Firecrawl")
     content_clean: str = Field(..., description="Cleaned text (whitespace/boilerplate removed)")
     summary: str = Field(..., description="LLM summary text")
+    short_description: str = Field(..., description="Short 1-2 sentence description of the article")
+    tags: List[str] = Field(..., description="List of lowercase alphanumeric tags (2-6 tags)")
+    emoji: List[str] = Field(..., description="List of exactly 4 emoji characters describing the content")
+    haiku: str = Field(..., description="Haiku describing the article content")
 
 
 class RunSummary(BaseModel):

@@ -29,6 +29,7 @@ from ..utils.run_utils import (
     next_run_id,
     list_runs_for_item,
     get_run,
+    delete_run,
 )
 
 logger = logging.getLogger(__name__)
@@ -285,3 +286,26 @@ async def not_found_handler(request, exc):
 @app.exception_handler(500)
 async def internal_error_handler(request, exc):
     return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
+
+@app.delete("/api/hn/items/{item_id}/runs/{run}", tags=["hacker-news"])
+async def delete_single_run(
+    item_id: int,
+    run: int,
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """Delete a single run by item ID and run number"""
+    try:
+        outputs_root = os.getenv("OUTPUTS_ROOT", "outputs")
+        success = delete_run(item_id, run, redis_client=redis_client, outputs_root=outputs_root)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Run not found or could not be deleted")
+
+        return {"message": f"Run {run} for item {item_id} deleted successfully", "success": True}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete run {run} for item {item_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete run")
