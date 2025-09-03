@@ -17,9 +17,14 @@ from .models import (
     RunsListResponse,
     CreateRunResponse,
     RunSummary,
+    Segment,
+    SegmentSummary,
+    SegmentsListResponse,
+    CreateSegmentResponse,
+    DeleteSegmentResponse,
 )
 from .celery_app import celery_app
-from .tasks import hn_fetch_item, process_hn_item_run
+from .tasks import hn_fetch_item, process_hn_item_run, generate_segment
 from ..utils.hn_utils import (
     get_top_story_ids,
     get_item,
@@ -30,6 +35,12 @@ from ..utils.run_utils import (
     list_runs_for_item,
     get_run,
     delete_run,
+)
+from ..utils.segment_utils import (
+    next_seg_id,
+    get_segment,
+    list_segments_for_run,
+    delete_segment,
 )
 
 logger = logging.getLogger(__name__)
@@ -309,3 +320,128 @@ async def delete_single_run(
     except Exception as e:
         logger.error(f"Failed to delete run {run} for item {item_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to delete run")
+
+
+# HN Item Segments API Endpoints
+@app.post("/api/hn/items/{item_id}/runs/{run}/segments", response_model=CreateSegmentResponse, tags=["hacker-news"])
+async def create_and_queue_segment(
+    item_id: int,
+    run: int,
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """Create and queue a new segment for a run"""
+    try:
+        # Get next segment ID
+        seg = next_seg_id(item_id, run, redis_client=redis_client)
+
+        # Queue the task
+        generate_segment.apply_async(args=[item_id, run, seg], queue="hnfm_tasks")
+
+        return CreateSegmentResponse(
+            item_id=item_id,
+            run=run,
+            seg=seg,
+            status="queued"
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to create segment for item {item_id}, run {run}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to create segment")
+
+
+@app.get("/api/hn/items/{item_id}/runs/{run}/segments", response_model=SegmentsListResponse, tags=["hacker-news"])
+async def list_segments_for_run_endpoint(
+    item_id: int,
+    run: int,
+    offset: int = 0,
+    limit: int = 20,
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """List segments for a run with pagination"""
+    try:
+        # Get segment IDs
+        seg_ids = list_segments_for_run(
+            item_id,
+            run,
+            redis_client=redis_client,
+            offset=offset,
+            limit=limit
+        )
+
+        # Fetch Segment objects and extract previews
+        segments = []
+        for seg_id in seg_ids:
+            segment = get_segment(item_id, run, seg_id, redis_client=redis_client)
+            if segment:
+                script_preview = segment.script[:200] + "..." if len(segment.script) > 200 else segment.script
+                segments.append(SegmentSummary(
+                    seg=seg_id,
+                    script_preview=script_preview
+                ))
+
+        return SegmentsListResponse(
+            item_id=item_id,
+            run=run,
+            segments=segments,
+            pagination={
+                "offset": offset,
+                "limit": limit,
+                "count": len(segments)
+            }
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to list segments for item {item_id}, run {run}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list segments")
+
+
+@app.get("/api/hn/items/{item_id}/runs/{run}/segments/{seg}", response_model=Segment, tags=["hacker-news"])
+async def get_single_segment(
+    item_id: int,
+    run: int,
+    seg: int,
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """Get a single segment by item ID, run number, and segment number"""
+    try:
+        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+
+        if segment is None:
+            raise HTTPException(status_code=404, detail="Segment not found")
+
+        return segment
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get segment {seg} for item {item_id}, run {run}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get segment")
+
+
+@app.delete("/api/hn/items/{item_id}/runs/{run}/segments/{seg}", response_model=DeleteSegmentResponse, tags=["hacker-news"])
+async def delete_single_segment(
+    item_id: int,
+    run: int,
+    seg: int,
+    redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """Delete a single segment by item ID, run number, and segment number"""
+    try:
+        outputs_root = os.getenv("OUTPUTS_ROOT", "outputs")
+        success = delete_segment(item_id, run, seg, redis_client=redis_client, outputs_root=outputs_root)
+
+        if not success:
+            raise HTTPException(status_code=404, detail="Segment not found or could not be deleted")
+
+        return DeleteSegmentResponse(
+            item_id=item_id,
+            run=run,
+            seg=seg,
+            status="deleted"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to delete segment {seg} for item {item_id}, run {run}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to delete segment")

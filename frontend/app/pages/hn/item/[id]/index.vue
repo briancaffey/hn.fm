@@ -119,7 +119,7 @@
                 <td class="px-6 py-4 whitespace-nowrap text-sm text-foreground">
                   <div class="flex gap-2">
                     <NuxtLink
-                      :to="`/hn/item/${item.id}/run-${run.run}`"
+                      :to="`/hn/item/${item.id}/run/${run.run}`"
                       class="text-primary hover:text-primary/80 font-medium"
                     >
                       View Details

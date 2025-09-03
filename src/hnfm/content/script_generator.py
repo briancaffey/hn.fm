@@ -15,7 +15,12 @@ logger = logging.getLogger(__name__)
 
 
 class ScriptGenerator:
-    """Generates audio from script lines."""
+    """Generates audio from script lines using TTS and audio enhancement services.
+
+    Note: Script generation (creating [S1]/[S2] formatted scripts from content)
+    is now handled by generate_script_v1() in segment_utils.py. This class
+    focuses on audio processing: TTS generation, audio enhancement, and combining audio files.
+    """
 
     def __init__(self, output_dir: str = "outputs"):
         """Initialize the script generator.
@@ -454,140 +459,4 @@ class ScriptGenerator:
         name = name.replace("_", " ").title()
         return name
 
-    def generate_script_from_content(self, title: str, paragraphs: List[str]) -> dict:
-        """Generate a podcast script from content paragraphs.
 
-        Args:
-            title: Article title
-            paragraphs: List of content paragraphs
-
-        Returns:
-            Dictionary with script, tts_lines, and metadata
-        """
-        try:
-            from ..content.llm_service import LLMService
-
-            logger.info(f"📝 Generating podcast script for: {title}")
-
-            # Get LLM configuration from config
-            llm_config = config_manager.get("llm", {})
-
-            # Initialize LLM service with configuration
-            if llm_config.get("enabled", False):
-                base_url = llm_config.get("base_url")
-                model = llm_config.get("model", "gpt-oss")
-                logger.info(f"Using local LLM: {base_url} with model: {model}")
-                llm_service = LLMService(base_url=base_url, model=model)
-            else:
-                logger.info("Using OpenAI LLM (fallback)")
-                llm_service = LLMService()
-
-            # Prepare content for script generation
-            content_text = "\n\n".join(paragraphs)
-
-            # Generate script using LLM
-            script_prompt = f"""
-            Create a natural, engaging podcast script from this article.
-
-            Article Title: {title}
-
-            Content:
-            {content_text}
-
-            Requirements:
-            - Use [S1] and [S2] speaker tags for dialogue (NOT **S1:** format)
-            - Make it conversational and engaging
-            - Break into natural speaking segments (2-3 sentences max per line)
-            - Maintain the key insights and information
-            - Keep total length reasonable for a podcast segment (3-5 minutes)
-            - Use straight quotes (") and apostrophes (') instead of curly quotes (") and apostrophes (')
-            - Avoid special characters that might cause TTS issues
-            - Each line should start with [S1] or [S2] followed by the dialogue
-
-            Format the output as a script with [S1] and [S2] tags, one per line.
-            Example:
-            [S1] Hey there, welcome to the podcast!
-            [S2] Today we're talking about an interesting topic.
-            [S1] Let's dive right in.
-            """
-
-            script = llm_service.generate_content(script_prompt)
-
-            if not script:
-                logger.error("🚨 CRITICAL: LLM returned None - this should not happen!")
-                print(f"   🚨 CRITICAL: LLM returned None - using emergency fallback")
-                raise RuntimeError("Failed to generate script from LLM")
-
-            # Check if this is the fallback script
-            if script == "[S1] This is a fallback, error generating script":
-                logger.warning(
-                    "⚠️  WARNING: Using emergency fallback script due to LLM failure"
-                )
-                print(f"   ⚠️  WARNING: LLM failed, using emergency fallback script")
-                print(f"   📝 Fallback script: {script}")
-            else:
-                logger.info(f"✅ Script generated successfully by LLM")
-                print(f"   ✅ Script generated successfully by LLM")
-
-            # Split script into TTS lines
-            tts_lines = []
-            for line in script.split("\n"):
-                line = line.strip()
-                if line and (line.startswith("[S1]") or line.startswith("[S2]")):
-                    tts_lines.append(line)
-
-            if not tts_lines:
-                # Fallback: create simple lines from paragraphs
-                logger.warning(
-                    "⚠️  WARNING: No valid TTS lines found in script, creating fallback lines"
-                )
-                print(
-                    f"   ⚠️  WARNING: No valid TTS lines found, creating fallback lines"
-                )
-                tts_lines = []
-                for i, para in enumerate(
-                    paragraphs[:10]
-                ):  # Limit to first 10 paragraphs
-                    speaker = "[S1]" if i % 2 == 0 else "[S2]"
-                    # Truncate long paragraphs
-                    if len(para) > 200:
-                        para = para[:200] + "..."
-                    tts_lines.append(f"{speaker} {para}")
-
-            logger.info(f"📝 Script length: {len(script)} characters")
-            logger.info(f"🎙️ TTS lines: {len(tts_lines)}")
-            print(f"   📝 Script length: {len(script)} characters")
-            print(f"   🎙️ TTS lines: {len(tts_lines)}")
-
-            return {
-                "script": script,
-                "tts_lines": tts_lines,
-                "meta": {
-                    "title": title,
-                    "paragraph_count": len(paragraphs),
-                    "script_length": len(script),
-                    "tts_line_count": len(tts_lines),
-                },
-            }
-
-        except Exception as e:
-            logger.error(f"Failed to generate script: {e}")
-            # Fallback: create simple script from paragraphs
-            tts_lines = []
-            for i, para in enumerate(paragraphs[:8]):  # Limit to first 8 paragraphs
-                speaker = "[S1]" if i % 2 == 0 else "[S2]"
-                if len(para) > 150:
-                    para = para[:150] + "..."
-                tts_lines.append(f"{speaker} {para}")
-
-            return {
-                "script": "\n".join(tts_lines),
-                "tts_lines": tts_lines,
-                "meta": {
-                    "title": title,
-                    "paragraph_count": len(paragraphs),
-                    "script_length": len("\n".join(tts_lines)),
-                    "tts_line_count": len(tts_lines),
-                    "fallback": True,
-                },
-            }

@@ -21,7 +21,12 @@ from ..content.content_enrichment import (
     generate_emoji,
     generate_haiku,
 )
-from .models import ProcessedRun
+from .models import ProcessedRun, Segment
+from ..utils.segment_utils import (
+    generate_script_v1,
+    save_segment,
+    k_seg,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -156,4 +161,76 @@ def process_hn_item_run(item_id: int, run: int) -> Dict[str, any]:
 
     except Exception as e:
         logger.error(f"Failed to process run {run} for item {item_id}: {e}")
+        raise
+
+
+@celery_app.task(name="src.hnfm.web.tasks.generate_segment")
+def generate_segment(item_id: int, run: int, seg: int) -> Dict[str, any]:
+    """
+    Generate a script segment for a specific run.
+
+    Steps:
+    1) Load ProcessedRun from Redis: GET "hnfm:item:{item_id}:run:{run}".
+       - If missing → raise.
+    2) Extract content_clean and summary.
+       - If missing/empty → raise.
+    3) script = generate_script_v1(content_clean, summary)
+    4) Build Segment(...)
+    5) save_segment(...)
+    6) return {"status":"ok","item_id":item_id,"run":run,"seg":seg}
+    """
+    try:
+        # Get Redis client
+        redis_host = os.getenv("REDIS_HOST", "localhost")
+        redis_port = int(os.getenv("REDIS_PORT", "6379"))
+        redis_db = int(os.getenv("REDIS_DB", "0"))
+
+        redis_client = redis.Redis(
+            host=redis_host,
+            port=redis_port,
+            db=redis_db,
+            decode_responses=False,  # Keep as bytes for JSON compatibility
+        )
+
+        # Get outputs directory
+        outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
+
+        # Step 1: Load ProcessedRun from Redis
+        processed_run_key = f"hnfm:item:{item_id}:run:{run}"
+        processed_run_json = redis_client.get(processed_run_key)
+
+        if not processed_run_json:
+            raise RuntimeError(f"ProcessedRun {processed_run_key} not found in Redis")
+
+        # Step 2: Parse JSON and extract content_clean and summary
+        processed_run_data = json.loads(processed_run_json)
+        content_clean = processed_run_data.get('content_clean', '')
+        summary = processed_run_data.get('summary', '')
+
+        if not content_clean or not summary:
+            raise RuntimeError(f"ProcessedRun {processed_run_key} missing content_clean or summary")
+
+        # Step 3: Generate script
+        logger.info(f"Generating script for segment {seg} of run {run} for item {item_id}")
+        script = generate_script_v1(content_clean, summary)
+
+        # Step 4: Build Segment
+        segment = Segment(
+            key=k_seg(item_id, run, seg),
+            item_id=item_id,
+            run=run,
+            seg=seg,
+            created_at=datetime.utcnow(),
+            processed_run_key=processed_run_key,
+            script=script
+        )
+
+        # Step 5: Save segment
+        save_segment(segment, redis_client=redis_client, outputs_root=outputs_dir)
+
+        logger.info(f"Successfully generated segment {seg} for run {run} of item {item_id}")
+        return {"status": "ok", "item_id": item_id, "run": run, "seg": seg}
+
+    except Exception as e:
+        logger.error(f"Failed to generate segment {seg} for run {run} of item {item_id}: {e}")
         raise

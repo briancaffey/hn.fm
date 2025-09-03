@@ -398,7 +398,7 @@ async function createSegment() {
 
 // View a segment
 function viewSegment(segmentId) {
-  navigateTo(`/hn/item/${itemId.value}/run/${runId.value}/seg/${segmentId}`)
+  navigateTo(`/hn/item/${itemId.value}/run/${runId.value}/segment/${segmentId}`)
 }
 
 // Load segments when component mounts
