@@ -7,7 +7,7 @@
         variant="default"
         @click="queueTopStories"
       >
-        {{ isQueueing ? 'Queueing...' : 'Queue Top (50)' }}
+        {{ isQueueing ? 'Queueing...' : 'Queue Top (20)' }}
       </Button>
     </div>
 
@@ -26,6 +26,9 @@
           <thead class="bg-muted/50">
             <tr>
               <th class="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
+                #
+              </th>
+              <th class="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
                 Title
               </th>
               <th class="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
@@ -43,7 +46,10 @@
             </tr>
           </thead>
           <tbody class="bg-card divide-y divide-border">
-            <tr v-for="item in items" :key="item.id" class="hover:bg-muted/50 transition-colors">
+            <tr v-for="(item, index) in items" :key="item.id" class="hover:bg-muted/50 transition-colors">
+              <td class="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
+                {{ (pagination.page.value - 1) * pagination.limit.value + index + 1 }}
+              </td>
               <td class="px-6 py-4 whitespace-nowrap">
                 <a
                   v-if="item.url"
@@ -83,35 +89,92 @@
       <div v-if="items.length === 0" class="text-center py-8 text-muted-foreground">
         No items found. Try queuing some top stories!
       </div>
+
+      <!-- Pagination -->
+      <div v-if="pagination" class="mt-6">
+        <Pagination
+          :page="pagination.page"
+          :total="pagination.total"
+          :limit="pagination.limit"
+          :total-pages="pagination.totalPages"
+          :has-next-page="pagination.hasNextPage"
+          :has-previous-page="pagination.hasPreviousPage"
+          :set-page="pagination.setPage"
+          :next-page="pagination.nextPage"
+          :previous-page="pagination.previousPage"
+          :first-page="pagination.firstPage"
+          :last-page="pagination.lastPage"
+        />
+      </div>
     </div>
   </div>
 </template>
 
 <script setup>
+import { usePagination } from '~/composables/usePagination'
+import Pagination from '~/components/Pagination.vue'
+
+// Disable SSR for this page
+definePageMeta({
+  ssr: false
+})
+
 const config = useRuntimeConfig()
 
-// Use useAsyncData for fetching items with proper SSR handling
-const { data: itemsData, pending: isLoading, error, refresh: refreshItems } = await useAsyncData(
-  'hn-items',
-  () => $fetch(`${config.public.apiBase}/api/hn/items?offset=0&limit=50`),
-  {
-    default: () => ({ items: [], pagination: { offset: 0, limit: 50, count: 0 } }),
-    server: false // Only fetch on client side to avoid SSR issues
-  }
-)
-
-const items = computed(() => itemsData.value?.items || [])
+// Simple reactive state
+const items = ref([])
+const isLoading = ref(true)
+const error = ref(null)
 const isQueueing = ref(false)
 
+// Initialize pagination
+const pagination = usePagination({
+  initialPage: 1,
+  initialLimit: 20,
+  onPageChange: (page) => {
+    // Fetch data when page changes
+    fetchItems(page)
+  }
+})
+
+// Fetch data
+async function fetchItems(page = 1) {
+  try {
+    isLoading.value = true
+    error.value = null
+
+    const limit = pagination.limit.value
+    const offset = pagination.offset.value
+
+    console.log('Fetching items from:', `${config.public.apiBase}/api/hn/items?offset=${offset}&limit=${limit}`)
+
+    const response = await $fetch(`${config.public.apiBase}/api/hn/items?offset=${offset}&limit=${limit}`)
+    console.log('API response:', response)
+
+    items.value = response.items || []
+
+    // Update pagination with total count
+    if (response.pagination?.total !== undefined) {
+      pagination.setTotal(response.pagination.total)
+    }
+  } catch (err) {
+    console.error('API error:', err)
+    error.value = 'Failed to fetch items: ' + err.message
+  } finally {
+    isLoading.value = false
+  }
+}
+
+// Queue top stories
 async function queueTopStories() {
   try {
     isQueueing.value = true
     error.value = null
 
-    await $fetch(`${config.public.apiBase}/api/hn/queue-top?limit=50`, { method: 'POST' })
+    await $fetch(`${config.public.apiBase}/api/hn/queue-top?limit=20`, { method: 'POST' })
 
     // Refetch the list after queuing
-    await refreshItems()
+    await fetchItems(pagination.page.value)
   } catch (err) {
     error.value = 'Failed to queue top stories: ' + err.message
   } finally {
@@ -119,10 +182,16 @@ async function queueTopStories() {
   }
 }
 
+// Format time
 function formatTime(timestamp) {
   if (!timestamp) return 'Unknown'
 
   const date = new Date(timestamp * 1000)
   return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
 }
+
+// Fetch data on mount
+onMounted(() => {
+  fetchItems(1)
+})
 </script>

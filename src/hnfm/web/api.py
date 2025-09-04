@@ -36,6 +36,8 @@ from ..utils.hn_utils import (
     get_top_story_ids,
     get_item,
     list_items,
+    list_item_ids,
+    exists_item,
 )
 from ..utils.run_utils import (
     next_run_id,
@@ -181,9 +183,18 @@ async def list_downloaded_items(
     try:
         items = list_items(offset=offset, limit=limit, redis_client=redis_client)
 
+        # Get total count for pagination - but only count items that actually exist
+        all_ids = list_item_ids(redis_client=redis_client)
+
+        # Count how many items actually exist by checking each one
+        existing_count = 0
+        for item_id in all_ids:
+            if exists_item(item_id, redis_client=redis_client):
+                existing_count += 1
+
         return {
             "items": [item.model_dump() for item in items],
-            "pagination": {"offset": offset, "limit": limit, "count": len(items)},
+            "pagination": {"offset": offset, "limit": limit, "count": len(items), "total": existing_count},
         }
 
     except Exception as e:
