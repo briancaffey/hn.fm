@@ -35,7 +35,9 @@ class TTSService:
 
         self.base_url = base_url.rstrip("/")
         self.max_attempts = int(config_manager.get("tts.max_attempts", 3))
-        self.delay_between_attempts = int(config_manager.get("tts.delay_between_batches", 2))
+        self.delay_between_attempts = int(
+            config_manager.get("tts.delay_between_batches", 2)
+        )
 
         # Handle timeout_seconds with proper fallback
         timeout_val = config_manager.get("tts.timeout_seconds", 120)

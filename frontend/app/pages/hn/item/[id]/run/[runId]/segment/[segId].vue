@@ -50,9 +50,9 @@
           <Button
             variant="destructive"
             size="sm"
-            @click="deleteSegment"
             :disabled="isDeleting"
             class="ml-auto bg-red-600 hover:bg-red-700 text-white border-red-600"
+            @click="deleteSegment"
           >
             <span v-if="isDeleting">Deleting...</span>
             <span v-else>🗑️ Delete Segment</span>
@@ -104,10 +104,10 @@
                     No Audio
                   </Badge>
                   <Button
-                    @click.stop="buildAllAudio"
                     :disabled="isBuildingAudio"
                     size="sm"
                     class="bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
+                    @click.stop="buildAllAudio"
                   >
                     <span v-if="isBuildingAudio">Building...</span>
                     <span v-else>🎵 Build All</span>
@@ -160,11 +160,11 @@
 
                     <div class="flex items-center gap-2">
                       <Button
-                        @click="regenerateSection(section.section)"
                         :disabled="isRegeneratingSection === section.section"
                         size="sm"
                         variant="outline"
                         class="text-primary border-primary hover:bg-primary hover:text-white"
+                        @click="regenerateSection(section.section)"
                       >
                         <span v-if="isRegeneratingSection === section.section">Regenerating...</span>
                         <span v-else>🔄 Regenerate</span>
@@ -172,7 +172,7 @@
 
                       <div v-if="section.audio_path" class="flex items-center gap-2">
                         <audio controls class="h-8">
-                          <source :src="getAudioUrl(section.audio_path)" type="audio/wav" />
+                          <source :src="getAudioUrl(section.audio_path)" type="audio/wav" >
                           Your browser does not support the audio element.
                         </audio>
                       </div>
@@ -191,7 +191,7 @@
               <div v-if="segment.audio_ready && segment.audio_combined_path" class="space-y-4">
                 <div class="flex items-center gap-4">
                   <audio controls class="w-full">
-                    <source :src="getAudioUrl(segment.audio_combined_path)" type="audio/wav" />
+                    <source :src="getAudioUrl(segment.audio_combined_path)" type="audio/wav" >
                     Your browser does not support the audio element.
                   </audio>
                 </div>
@@ -358,7 +358,7 @@ async function deleteSegment() {
   deleteMessage.value = ''
 
   try {
-    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments/${segId.value}`, {
+    await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments/${segId.value}`, {
       method: 'DELETE'
     })
 

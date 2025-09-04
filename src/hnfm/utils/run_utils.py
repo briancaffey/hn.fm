@@ -33,7 +33,9 @@ def get_runs_list_key(item_id: int) -> str:
 # Disk path helpers
 def get_run_disk_path(outputs_root: str, item_id: int, run: int) -> str:
     """Get disk path for a run's processed.json file."""
-    return os.path.join(outputs_root, "hn", "item", str(item_id), "runs", str(run), "processed.json")
+    return os.path.join(
+        outputs_root, "hn", "item", str(item_id), "runs", str(run), "processed.json"
+    )
 
 
 def ensure_parent_dirs(file_path: str) -> None:
@@ -86,8 +88,8 @@ def clean_content(text: str) -> str:
     text = text.strip()
 
     # Collapse consecutive whitespace/newlines
-    text = re.sub(r'\s+', ' ', text)  # Replace multiple whitespace with single space
-    text = re.sub(r'\n\s*\n', '\n\n', text)  # Preserve paragraph breaks
+    text = re.sub(r"\s+", " ", text)  # Replace multiple whitespace with single space
+    text = re.sub(r"\n\s*\n", "\n\n", text)  # Preserve paragraph breaks
 
     return text
 
@@ -104,7 +106,10 @@ def summarize_text_v1(text: str) -> str:
         from ..content.llm_service import LLMService
 
         llm_service = LLMService()
-        prompt = "Summarize the article in 5-7 sentences. Be specific and factual.\n\nArticle:\n" + text
+        prompt = (
+            "Summarize the article in 5-7 sentences. Be specific and factual.\n\nArticle:\n"
+            + text
+        )
 
         summary = llm_service.generate_content(prompt)
 
@@ -118,7 +123,9 @@ def summarize_text_v1(text: str) -> str:
         raise RuntimeError(f"Failed to summarize text: {e}")
 
 
-def save_processed_run(pr: ProcessedRun, *, redis_client: redis.Redis, outputs_root: str) -> None:
+def save_processed_run(
+    pr: ProcessedRun, *, redis_client: redis.Redis, outputs_root: str
+) -> None:
     """
     - SET hnfm:item:{item_id}:run:{run} with JSON(pr)
     - LPUSH hnfm:item:{item_id}:runs the run number
@@ -140,7 +147,7 @@ def save_processed_run(pr: ProcessedRun, *, redis_client: redis.Redis, outputs_r
         disk_path = get_run_disk_path(outputs_root, pr.item_id, pr.run)
         ensure_parent_dirs(disk_path)
 
-        with open(disk_path, 'w', encoding='utf-8') as f:
+        with open(disk_path, "w", encoding="utf-8") as f:
             f.write(pr_json)
 
         logger.info(f"Saved run {pr.run} for item {pr.item_id} to Redis and disk")
@@ -150,7 +157,9 @@ def save_processed_run(pr: ProcessedRun, *, redis_client: redis.Redis, outputs_r
         raise
 
 
-def list_runs_for_item(item_id: int, *, redis_client: redis.Redis, offset: int = 0, limit: int = 20) -> List[int]:
+def list_runs_for_item(
+    item_id: int, *, redis_client: redis.Redis, offset: int = 0, limit: int = 20
+) -> List[int]:
     """
     Use LRANGE on hnfm:item:{item_id}:runs (it's newest-first because we LPUSH).
     Slice with offset/limit and return a list of run ints.
@@ -180,7 +189,9 @@ def list_runs_for_item(item_id: int, *, redis_client: redis.Redis, offset: int =
         return []
 
 
-def get_run(item_id: int, run: int, *, redis_client: redis.Redis) -> Optional[ProcessedRun]:
+def get_run(
+    item_id: int, run: int, *, redis_client: redis.Redis
+) -> Optional[ProcessedRun]:
     """
     GET hnfm:item:{item_id}:run:{run} and parse to ProcessedRun. Return None if missing.
     """
@@ -200,7 +211,9 @@ def get_run(item_id: int, run: int, *, redis_client: redis.Redis) -> Optional[Pr
         return None
 
 
-def delete_run(item_id: int, run: int, *, redis_client: redis.Redis, outputs_root: str) -> bool:
+def delete_run(
+    item_id: int, run: int, *, redis_client: redis.Redis, outputs_root: str
+) -> bool:
     """Delete a run completely - removes Redis keys and disk files.
 
     Args:
@@ -233,6 +246,7 @@ def delete_run(item_id: int, run: int, *, redis_client: redis.Redis, outputs_roo
 
         if os.path.exists(run_folder):
             import shutil
+
             shutil.rmtree(run_folder)
             logger.info(f"Deleted run folder: {run_folder}")
 

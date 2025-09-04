@@ -35,23 +35,40 @@ class TestSegmentAPI:
             seg=1,
             created_at=datetime.utcnow(),
             processed_run_key="hnfm:item:123:run:1",
-            script="This is a test script with more than 200 characters. " * 10  # Make it long for preview testing
+            script="This is a test script with more than 200 characters. "
+            * 10,  # Make it long for preview testing
         )
 
     def test_segment_api_endpoints_exist(self, client):
         """Test that segment API endpoints exist and return proper error codes"""
         # Test POST endpoint exists (should return 422 for missing data)
         response = client.post("/api/hn/items/123/runs/1/segments")
-        assert response.status_code in [200, 422, 500]  # Any of these is fine for basic existence test
+        assert response.status_code in [
+            200,
+            422,
+            500,
+        ]  # Any of these is fine for basic existence test
 
         # Test GET list endpoint exists
         response = client.get("/api/hn/items/123/runs/1/segments")
-        assert response.status_code in [200, 404, 500]  # Any of these is fine for basic existence test
+        assert response.status_code in [
+            200,
+            404,
+            500,
+        ]  # Any of these is fine for basic existence test
 
         # Test GET single endpoint exists
         response = client.get("/api/hn/items/123/runs/1/segments/1")
-        assert response.status_code in [200, 404, 500]  # Any of these is fine for basic existence test
+        assert response.status_code in [
+            200,
+            404,
+            500,
+        ]  # Any of these is fine for basic existence test
 
         # Test DELETE endpoint exists
         response = client.delete("/api/hn/items/123/runs/1/segments/1")
-        assert response.status_code in [200, 404, 500]  # Any of these is fine for basic existence test
+        assert response.status_code in [
+            200,
+            404,
+            500,
+        ]  # Any of these is fine for basic existence test

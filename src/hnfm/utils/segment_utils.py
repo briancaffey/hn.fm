@@ -42,14 +42,14 @@ def _clean_script_for_tts(script: str) -> str:
         Cleaned script text with TTS-friendly characters
     """
     replacements = {
-        ord('“'): '"',
-        ord('”'): '"',
+        ord("“"): '"',
+        ord("”"): '"',
         ord("‘"): "'",
         ord("’"): "'",
-        ord('—'): ', ',
-        ord('–'): ', ',
+        ord("—"): ", ",
+        ord("–"): ", ",
         # ord('\n\n'): '\n',
-        ord('…'): ', '
+        ord("…"): ", ",
     }
 
     script = script.replace("\n\n", "\n")
@@ -133,7 +133,9 @@ def generate_script_v1(content_clean: str, summary: str) -> str:
         raise RuntimeError(f"Failed to generate script: {e}")
 
 
-def save_segment(seg_obj: Segment, *, redis_client: redis.Redis, outputs_root: str) -> None:
+def save_segment(
+    seg_obj: Segment, *, redis_client: redis.Redis, outputs_root: str
+) -> None:
     """
     Save segment to Redis and disk.
 
@@ -143,7 +145,9 @@ def save_segment(seg_obj: Segment, *, redis_client: redis.Redis, outputs_root: s
         outputs_root: Root outputs directory
     """
     # Save to Redis
-    redis_client.set(k_seg(seg_obj.item_id, seg_obj.run, seg_obj.seg), seg_obj.model_dump_json())
+    redis_client.set(
+        k_seg(seg_obj.item_id, seg_obj.run, seg_obj.seg), seg_obj.model_dump_json()
+    )
 
     # Add to segment list (newest-first)
     redis_client.lpush(k_seg_list(seg_obj.item_id, seg_obj.run), str(seg_obj.seg))
@@ -157,7 +161,9 @@ def save_segment(seg_obj: Segment, *, redis_client: redis.Redis, outputs_root: s
         f.write(seg_obj.model_dump_json())
 
 
-def get_segment(item_id: int, run: int, seg: int, *, redis_client: redis.Redis) -> Optional[Segment]:
+def get_segment(
+    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
+) -> Optional[Segment]:
     """
     Get segment from Redis.
 
@@ -188,7 +194,7 @@ def list_segments_for_run(
     *,
     redis_client: redis.Redis,
     offset: int = 0,
-    limit: int = 20
+    limit: int = 20,
 ) -> List[int]:
     """
     List segment IDs for a run (newest-first).
@@ -210,12 +216,7 @@ def list_segments_for_run(
 
 
 def delete_segment(
-    item_id: int,
-    run: int,
-    seg: int,
-    *,
-    redis_client: redis.Redis,
-    outputs_root: str
+    item_id: int, run: int, seg: int, *, redis_client: redis.Redis, outputs_root: str
 ) -> bool:
     """
     Delete segment from Redis and disk.

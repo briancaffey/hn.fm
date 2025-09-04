@@ -30,8 +30,11 @@ class ContentScraper:
             base_url: Local Firecrawl base URL (defaults to FIRECRAWL_BASE_URL env var)
         """
         import os
+
         self.api_key = api_key  # Keep for compatibility but not used
-        self.base_url = (base_url or os.getenv("FIRECRAWL_BASE_URL", "http://localhost:3002")).rstrip("/")
+        self.base_url = (
+            base_url or os.getenv("FIRECRAWL_BASE_URL", "http://localhost:3002")
+        ).rstrip("/")
 
         # Always use local Firecrawl
         self.is_local_firecrawl = True

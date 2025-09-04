@@ -17,22 +17,18 @@ class TestRunTasks:
         fake_redis = fakeredis.FakeRedis(decode_responses=False)
 
         # Seed item data
-        item_data = {
-            "id": 123,
-            "title": "Test Article",
-            "url": "https://example.com"
-        }
+        item_data = {"id": 123, "title": "Test Article", "url": "https://example.com"}
         item_key = "hn:item:123"
         fake_redis.set(item_key, json.dumps(item_data).encode())
 
         # Mock Redis client creation
-        with patch('src.hnfm.web.tasks.redis.Redis', return_value=fake_redis):
-            with patch('src.hnfm.web.tasks.os.getenv') as mock_getenv:
+        with patch("src.hnfm.web.tasks.redis.Redis", return_value=fake_redis):
+            with patch("src.hnfm.web.tasks.os.getenv") as mock_getenv:
                 mock_getenv.side_effect = lambda key, default=None: {
                     "REDIS_HOST": "localhost",
                     "REDIS_PORT": "6379",
                     "REDIS_DB": "0",
-                    "OUTPUTS_DIR": "/tmp"
+                    "OUTPUTS_DIR": "/tmp",
                 }.get(key, default)
 
                 # Call the task - should raise due to network error
@@ -44,13 +40,13 @@ class TestRunTasks:
         # Mock Redis client with no item
         fake_redis = fakeredis.FakeRedis(decode_responses=False)
 
-        with patch('src.hnfm.web.tasks.redis.Redis', return_value=fake_redis):
-            with patch('src.hnfm.web.tasks.os.getenv') as mock_getenv:
+        with patch("src.hnfm.web.tasks.redis.Redis", return_value=fake_redis):
+            with patch("src.hnfm.web.tasks.os.getenv") as mock_getenv:
                 mock_getenv.side_effect = lambda key, default=None: {
                     "REDIS_HOST": "localhost",
                     "REDIS_PORT": "6379",
                     "REDIS_DB": "0",
-                    "OUTPUTS_DIR": "/tmp"
+                    "OUTPUTS_DIR": "/tmp",
                 }.get(key, default)
 
                 # Call the task - should raise
@@ -65,19 +61,19 @@ class TestRunTasks:
         # Seed item data without URL
         item_data = {
             "id": 123,
-            "title": "Test Article"
+            "title": "Test Article",
             # No URL field
         }
         item_key = "hn:item:123"
         fake_redis.set(item_key, json.dumps(item_data).encode())
 
-        with patch('src.hnfm.web.tasks.redis.Redis', return_value=fake_redis):
-            with patch('src.hnfm.web.tasks.os.getenv') as mock_getenv:
+        with patch("src.hnfm.web.tasks.redis.Redis", return_value=fake_redis):
+            with patch("src.hnfm.web.tasks.os.getenv") as mock_getenv:
                 mock_getenv.side_effect = lambda key, default=None: {
                     "REDIS_HOST": "localhost",
                     "REDIS_PORT": "6379",
                     "REDIS_DB": "0",
-                    "OUTPUTS_DIR": "/tmp"
+                    "OUTPUTS_DIR": "/tmp",
                 }.get(key, default)
 
                 # Call the task - should raise
@@ -90,21 +86,17 @@ class TestRunTasks:
         fake_redis = fakeredis.FakeRedis(decode_responses=False)
 
         # Seed item data
-        item_data = {
-            "id": 123,
-            "title": "Test Article",
-            "url": "https://example.com"
-        }
+        item_data = {"id": 123, "title": "Test Article", "url": "https://example.com"}
         item_key = "hn:item:123"
         fake_redis.set(item_key, json.dumps(item_data).encode())
 
-        with patch('src.hnfm.web.tasks.redis.Redis', return_value=fake_redis):
-            with patch('src.hnfm.web.tasks.os.getenv') as mock_getenv:
+        with patch("src.hnfm.web.tasks.redis.Redis", return_value=fake_redis):
+            with patch("src.hnfm.web.tasks.os.getenv") as mock_getenv:
                 mock_getenv.side_effect = lambda key, default=None: {
                     "REDIS_HOST": "localhost",
                     "REDIS_PORT": "6379",
                     "REDIS_DB": "0",
-                    "OUTPUTS_DIR": "/tmp"
+                    "OUTPUTS_DIR": "/tmp",
                 }.get(key, default)
 
                 # Call the task - should raise due to network error

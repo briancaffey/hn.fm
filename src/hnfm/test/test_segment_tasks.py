@@ -34,7 +34,7 @@ class TestGenerateSegmentTask:
             short_description="Short description",
             tags=["tech", "ai"],
             emoji=["🤖", "💻", "🚀", "⚡"],
-            haiku="Technology grows\nArtificial intelligence\nFuture is bright"
+            haiku="Technology grows\nArtificial intelligence\nFuture is bright",
         )
 
     def test_generate_segment_function_exists(self):
@@ -42,7 +42,7 @@ class TestGenerateSegmentTask:
         # Just test that the function exists and is callable
         assert callable(generate_segment)
 
-    @patch('src.hnfm.web.tasks.redis.Redis')
+    @patch("src.hnfm.web.tasks.redis.Redis")
     def test_generate_segment_missing_run_raises(self, mock_redis_class, redis_client):
         """Test segment generation when processed run is missing"""
         # Setup mocks
@@ -51,17 +51,23 @@ class TestGenerateSegmentTask:
         # Don't store any processed run in Redis
 
         # Mock environment variables
-        with patch.dict('os.environ', {
-            'REDIS_HOST': 'localhost',
-            'REDIS_PORT': '6379',
-            'REDIS_DB': '0',
-            'OUTPUTS_DIR': '/app/outputs'
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "REDIS_HOST": "localhost",
+                "REDIS_PORT": "6379",
+                "REDIS_DB": "0",
+                "OUTPUTS_DIR": "/app/outputs",
+            },
+        ):
             # Call the task and expect exception
-            with pytest.raises(RuntimeError, match="ProcessedRun hnfm:item:123:run:1 not found in Redis"):
+            with pytest.raises(
+                RuntimeError,
+                match="ProcessedRun hnfm:item:123:run:1 not found in Redis",
+            ):
                 generate_segment(123, 1, 1)
 
-    @patch('src.hnfm.web.tasks.redis.Redis')
+    @patch("src.hnfm.web.tasks.redis.Redis")
     def test_generate_segment_empty_fields_raises(self, mock_redis_class, redis_client):
         """Test segment generation when processed run has empty content_clean or summary"""
         # Setup mocks
@@ -80,23 +86,30 @@ class TestGenerateSegmentTask:
             "short_description": "Short description",
             "tags": ["tech"],
             "emoji": ["🤖"],
-            "haiku": "Test haiku"
+            "haiku": "Test haiku",
         }
         redis_client.set("hnfm:item:123:run:1", json.dumps(processed_run_data))
 
         # Mock environment variables
-        with patch.dict('os.environ', {
-            'REDIS_HOST': 'localhost',
-            'REDIS_PORT': '6379',
-            'REDIS_DB': '0',
-            'OUTPUTS_DIR': '/app/outputs'
-        }):
+        with patch.dict(
+            "os.environ",
+            {
+                "REDIS_HOST": "localhost",
+                "REDIS_PORT": "6379",
+                "REDIS_DB": "0",
+                "OUTPUTS_DIR": "/app/outputs",
+            },
+        ):
             # Call the task and expect exception
-            with pytest.raises(RuntimeError, match="ProcessedRun hnfm:item:123:run:1 missing content_clean or summary"):
+            with pytest.raises(
+                RuntimeError,
+                match="ProcessedRun hnfm:item:123:run:1 missing content_clean or summary",
+            ):
                 generate_segment(123, 1, 1)
 
     def test_generate_segment_imports_work(self):
         """Test that all required imports work for the task"""
         # Test that we can import the task function
         from ..web.tasks import generate_segment
+
         assert callable(generate_segment)

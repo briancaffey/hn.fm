@@ -98,11 +98,11 @@ Tags (JSON array):"""
             tags = json.loads(result)
         except json.JSONDecodeError:
             # If not valid JSON, try to extract array from text
-            match = re.search(r'\[(.*?)\]', result)
+            match = re.search(r"\[(.*?)\]", result)
             if match:
                 array_content = match.group(1)
                 # Split by comma and clean up
-                tags = [tag.strip().strip('"\'') for tag in array_content.split(',')]
+                tags = [tag.strip().strip("\"'") for tag in array_content.split(",")]
             else:
                 raise ValueError("Could not parse tags as JSON array")
 
@@ -111,7 +111,7 @@ Tags (JSON array):"""
         for tag in tags:
             if isinstance(tag, str):
                 # Remove any non-alphanumeric characters and convert to lowercase
-                clean_tag = re.sub(r'[^a-zA-Z0-9]', '', tag).lower()
+                clean_tag = re.sub(r"[^a-zA-Z0-9]", "", tag).lower()
                 if clean_tag and len(clean_tag) > 0:
                     validated_tags.append(clean_tag)
 
@@ -214,7 +214,9 @@ Haiku:"""
 
     try:
         llm_service = LLMService()
-        full_prompt = f"{system_prompt}\n\n{prompt_template.format(content=content_clean)}"
+        full_prompt = (
+            f"{system_prompt}\n\n{prompt_template.format(content=content_clean)}"
+        )
         result = llm_service.generate_content(full_prompt)
 
         if not result:

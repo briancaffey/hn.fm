@@ -33,12 +33,16 @@ def sec_dir(outputs_root: str, item_id: int, run: int, seg: int, section: int) -
     return f"{seg_root(outputs_root, item_id, run, seg)}/audio/sections/{section}"
 
 
-def sec_audio_path(outputs_root: str, item_id: int, run: int, seg: int, section: int) -> str:
+def sec_audio_path(
+    outputs_root: str, item_id: int, run: int, seg: int, section: int
+) -> str:
     """Generate audio file path for a section"""
     return f"{sec_dir(outputs_root, item_id, run, seg, section)}/audio.wav"
 
 
-def sec_meta_path(outputs_root: str, item_id: int, run: int, seg: int, section: int) -> str:
+def sec_meta_path(
+    outputs_root: str, item_id: int, run: int, seg: int, section: int
+) -> str:
     """Generate metadata file path for a section"""
     return f"{sec_dir(outputs_root, item_id, run, seg, section)}/meta.json"
 
@@ -58,13 +62,13 @@ def split_script_into_sections(script: str) -> List[str]:
     Returns:
         List of section texts in order (indexes become sections 1..N)
     """
-    lines = [line.strip() for line in script.split('\n') if line.strip()]
+    lines = [line.strip() for line in script.split("\n") if line.strip()]
 
     sections = []
     for i in range(0, len(lines), 2):
         # Take up to 2 lines for each section
-        section_lines = lines[i:i+2]
-        sections.append('\n'.join(section_lines))
+        section_lines = lines[i : i + 2]
+        sections.append("\n".join(section_lines))
 
     return sections
 
@@ -94,7 +98,7 @@ def tts_synthesize_to_wav(text: str, out_path: str) -> int:
         raise RuntimeError(f"Failed to generate speech for text: {text[:100]}...")
 
     # Write audio data to file
-    with open(out_path, 'wb') as f:
+    with open(out_path, "wb") as f:
         f.write(audio_data)
 
     # Get duration
@@ -112,7 +116,7 @@ def studio_voice_clean_inplace(wav_path: str) -> None:
     from .studio_voice_service import StudioVoiceService
 
     # Read original audio
-    with open(wav_path, 'rb') as f:
+    with open(wav_path, "rb") as f:
         audio_data = f.read()
 
     # Initialize studio voice service
@@ -124,11 +128,13 @@ def studio_voice_clean_inplace(wav_path: str) -> None:
         raise RuntimeError(f"Failed to enhance audio: {wav_path}")
 
     # Write enhanced audio back to file
-    with open(wav_path, 'wb') as f:
+    with open(wav_path, "wb") as f:
         f.write(enhanced_audio)
 
 
-def save_section_meta(meta: SegmentSection, *, redis_client: redis.Redis, outputs_root: str) -> None:
+def save_section_meta(
+    meta: SegmentSection, *, redis_client: redis.Redis, outputs_root: str
+) -> None:
     """
     Save section metadata to Redis and disk.
 
@@ -145,12 +151,16 @@ def save_section_meta(meta: SegmentSection, *, redis_client: redis.Redis, output
     Path(meta_dir).mkdir(parents=True, exist_ok=True)
 
     # Save to disk
-    meta_file = sec_meta_path(outputs_root, meta.item_id, meta.run, meta.seg, meta.section)
-    with open(meta_file, 'w', encoding='utf-8') as f:
+    meta_file = sec_meta_path(
+        outputs_root, meta.item_id, meta.run, meta.seg, meta.section
+    )
+    with open(meta_file, "w", encoding="utf-8") as f:
         f.write(meta.model_dump_json())
 
 
-def get_section_meta(item_id: int, run: int, seg: int, section: int, *, redis_client: redis.Redis) -> Optional[SegmentSection]:
+def get_section_meta(
+    item_id: int, run: int, seg: int, section: int, *, redis_client: redis.Redis
+) -> Optional[SegmentSection]:
     """
     Get section metadata from Redis.
 
@@ -176,7 +186,9 @@ def get_section_meta(item_id: int, run: int, seg: int, section: int, *, redis_cl
         return None
 
 
-def list_section_numbers(item_id: int, run: int, seg: int, *, redis_client: redis.Redis) -> List[int]:
+def list_section_numbers(
+    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
+) -> List[int]:
     """
     List section numbers for a segment in order.
 
@@ -213,24 +225,26 @@ def stitch_sections_to_wav(section_paths: List[str], out_path: str) -> int:
         raise ValueError("No section paths provided")
 
     # Read first file to get format info
-    with wave.open(section_paths[0], 'rb') as first_wav:
+    with wave.open(section_paths[0], "rb") as first_wav:
         n_channels = first_wav.getnchannels()
         sample_width = first_wav.getsampwidth()
         framerate = first_wav.getframerate()
 
     # Combine all audio data
-    combined_frames = b''
+    combined_frames = b""
     total_duration_ms = 0
 
     for section_path in section_paths:
         if not os.path.exists(section_path):
             raise FileNotFoundError(f"Section file not found: {section_path}")
 
-        with wave.open(section_path, 'rb') as wav_file:
+        with wave.open(section_path, "rb") as wav_file:
             # Verify format matches
-            if (wav_file.getnchannels() != n_channels or
-                wav_file.getsampwidth() != sample_width or
-                wav_file.getframerate() != framerate):
+            if (
+                wav_file.getnchannels() != n_channels
+                or wav_file.getsampwidth() != sample_width
+                or wav_file.getframerate() != framerate
+            ):
                 raise ValueError(f"Audio format mismatch in {section_path}")
 
             # Read frames and add to combined
@@ -243,7 +257,7 @@ def stitch_sections_to_wav(section_paths: List[str], out_path: str) -> int:
             total_duration_ms += duration_ms
 
     # Write combined WAV file
-    with wave.open(out_path, 'wb') as out_wav:
+    with wave.open(out_path, "wb") as out_wav:
         out_wav.setnchannels(n_channels)
         out_wav.setsampwidth(sample_width)
         out_wav.setframerate(framerate)
@@ -261,7 +275,7 @@ def update_segment_audio_status(
     ready: bool,
     *,
     redis_client: redis.Redis,
-    outputs_root: str
+    outputs_root: str,
 ) -> None:
     """
     Update segment audio status in Redis and disk.
@@ -311,7 +325,7 @@ def _get_audio_duration_ms(wav_path: str) -> int:
         Duration in milliseconds
     """
     try:
-        with wave.open(wav_path, 'rb') as wav_file:
+        with wave.open(wav_path, "rb") as wav_file:
             frames = wav_file.getnframes()
             rate = wav_file.getframerate()
             duration_seconds = frames / float(rate)

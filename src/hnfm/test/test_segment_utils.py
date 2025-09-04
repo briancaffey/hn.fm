@@ -42,7 +42,9 @@ class TestSegmentKeyHelpers:
 
     def test_seg_dir(self):
         """Test segment directory path generation"""
-        assert seg_dir("/outputs", 123, 1, 2) == "/outputs/hn/item/123/runs/1/segments/2"
+        assert (
+            seg_dir("/outputs", 123, 1, 2) == "/outputs/hn/item/123/runs/1/segments/2"
+        )
 
 
 class TestSegmentUtils:
@@ -70,7 +72,7 @@ class TestSegmentUtils:
             seg=1,
             created_at=datetime.utcnow(),
             processed_run_key="hnfm:item:123:run:1",
-            script="This is a test script."
+            script="This is a test script.",
         )
 
     def test_next_seg_id_increments(self, redis_client):
@@ -90,10 +92,14 @@ class TestSegmentUtils:
         # Just test that the function exists and is callable
         assert callable(generate_script_v1)
 
-    def test_save_and_get_segment_roundtrip(self, redis_client, temp_outputs_dir, sample_segment):
+    def test_save_and_get_segment_roundtrip(
+        self, redis_client, temp_outputs_dir, sample_segment
+    ):
         """Test saving and getting a segment"""
         # Save segment
-        save_segment(sample_segment, redis_client=redis_client, outputs_root=temp_outputs_dir)
+        save_segment(
+            sample_segment, redis_client=redis_client, outputs_root=temp_outputs_dir
+        )
 
         # Verify Redis storage
         key = k_seg(sample_segment.item_id, sample_segment.run, sample_segment.seg)
@@ -106,11 +112,18 @@ class TestSegmentUtils:
         assert [b"1"] == segment_ids
 
         # Verify disk storage
-        expected_file = os.path.join(temp_outputs_dir, "hn/item/123/runs/1/segments/1/segment.json")
+        expected_file = os.path.join(
+            temp_outputs_dir, "hn/item/123/runs/1/segments/1/segment.json"
+        )
         assert os.path.exists(expected_file)
 
         # Get segment back
-        retrieved_segment = get_segment(sample_segment.item_id, sample_segment.run, sample_segment.seg, redis_client=redis_client)
+        retrieved_segment = get_segment(
+            sample_segment.item_id,
+            sample_segment.run,
+            sample_segment.seg,
+            redis_client=redis_client,
+        )
         assert retrieved_segment is not None
         assert retrieved_segment.item_id == sample_segment.item_id
         assert retrieved_segment.run == sample_segment.run
@@ -131,10 +144,12 @@ class TestSegmentUtils:
                 seg=i,
                 created_at=datetime.utcnow(),
                 processed_run_key=f"hnfm:item:{item_id}:run:{run}",
-                script=f"Script {i}"
+                script=f"Script {i}",
             )
             segments.append(segment)
-            save_segment(segment, redis_client=redis_client, outputs_root=temp_outputs_dir)
+            save_segment(
+                segment, redis_client=redis_client, outputs_root=temp_outputs_dir
+            )
 
         # List segments (should be newest-first)
         segment_ids = list_segments_for_run(item_id, run, redis_client=redis_client)
@@ -153,32 +168,49 @@ class TestSegmentUtils:
                 seg=i,
                 created_at=datetime.utcnow(),
                 processed_run_key=f"hnfm:item:{item_id}:run:{run}",
-                script=f"Script {i}"
+                script=f"Script {i}",
             )
-            save_segment(segment, redis_client=redis_client, outputs_root=temp_outputs_dir)
+            save_segment(
+                segment, redis_client=redis_client, outputs_root=temp_outputs_dir
+            )
 
         # Test pagination
-        first_page = list_segments_for_run(item_id, run, redis_client=redis_client, offset=0, limit=2)
+        first_page = list_segments_for_run(
+            item_id, run, redis_client=redis_client, offset=0, limit=2
+        )
         assert first_page == [5, 4]
 
-        second_page = list_segments_for_run(item_id, run, redis_client=redis_client, offset=2, limit=2)
+        second_page = list_segments_for_run(
+            item_id, run, redis_client=redis_client, offset=2, limit=2
+        )
         assert second_page == [3, 2]
 
-    def test_delete_segment_removes_everything(self, redis_client, temp_outputs_dir, sample_segment):
+    def test_delete_segment_removes_everything(
+        self, redis_client, temp_outputs_dir, sample_segment
+    ):
         """Test that delete_segment removes everything"""
         # Save segment first
-        save_segment(sample_segment, redis_client=redis_client, outputs_root=temp_outputs_dir)
+        save_segment(
+            sample_segment, redis_client=redis_client, outputs_root=temp_outputs_dir
+        )
 
         # Verify it exists
         key = k_seg(sample_segment.item_id, sample_segment.run, sample_segment.seg)
         assert redis_client.exists(key)
 
-        expected_file = os.path.join(temp_outputs_dir, "hn/item/123/runs/1/segments/1/segment.json")
+        expected_file = os.path.join(
+            temp_outputs_dir, "hn/item/123/runs/1/segments/1/segment.json"
+        )
         assert os.path.exists(expected_file)
 
         # Delete segment
-        success = delete_segment(sample_segment.item_id, sample_segment.run, sample_segment.seg,
-                               redis_client=redis_client, outputs_root=temp_outputs_dir)
+        success = delete_segment(
+            sample_segment.item_id,
+            sample_segment.run,
+            sample_segment.seg,
+            redis_client=redis_client,
+            outputs_root=temp_outputs_dir,
+        )
         assert success is True
 
         # Verify Redis key is gone
@@ -195,7 +227,9 @@ class TestSegmentUtils:
 
     def test_delete_segment_not_found(self, redis_client, temp_outputs_dir):
         """Test deleting a non-existent segment"""
-        success = delete_segment(123, 1, 999, redis_client=redis_client, outputs_root=temp_outputs_dir)
+        success = delete_segment(
+            123, 1, 999, redis_client=redis_client, outputs_root=temp_outputs_dir
+        )
         assert success is False
 
     def test_get_segment_not_found(self, redis_client):

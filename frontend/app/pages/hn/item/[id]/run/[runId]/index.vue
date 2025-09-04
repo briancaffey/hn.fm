@@ -47,9 +47,9 @@
           <Button
             variant="destructive"
             size="sm"
-            @click="deleteRun"
             :disabled="isDeleting"
             class="ml-auto bg-red-600 hover:bg-red-700 text-white border-red-600"
+            @click="deleteRun"
           >
             <span v-if="isDeleting">Deleting...</span>
             <span v-else>🗑️ Delete Run</span>
@@ -176,9 +176,9 @@
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-2xl font-bold">Segments</h2>
           <Button
-            @click="createSegment"
             :disabled="isCreatingSegment"
             class="bg-green-600 hover:bg-green-700 text-white border-green-600"
+            @click="createSegment"
           >
             <span v-if="isCreatingSegment">Creating...</span>
             <span v-else>🎬 Start New Segment</span>
@@ -217,8 +217,8 @@
                 <Button
                   variant="outline"
                   size="sm"
-                  @click="viewSegment(segment.seg)"
                   class="text-primary border-primary hover:bg-primary hover:text-white"
+                  @click="viewSegment(segment.seg)"
                 >
                   View
                 </Button>
@@ -420,7 +420,7 @@ async function deleteRun() {
   deleteMessage.value = ''
 
   try {
-    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}`, {
+    await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}`, {
       method: 'DELETE'
     })
 

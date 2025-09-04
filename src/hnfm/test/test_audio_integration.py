@@ -15,7 +15,7 @@ class TestAudioIntegration:
         """Create test client"""
         return TestClient(app)
 
-    @patch('src.hnfm.web.api.build_segment_audio')
+    @patch("src.hnfm.web.api.build_segment_audio")
     def test_audio_api_endpoints(self, mock_build_task, client):
         """Test that audio API endpoints are accessible and queue tasks"""
         # Mock the task
@@ -75,7 +75,7 @@ class TestAudioIntegration:
             script="[S1] Test script",
             sections_total=2,
             audio_combined_path="/path/to/audio.wav",
-            audio_ready=True
+            audio_ready=True,
         )
 
         assert segment.sections_total == 2
@@ -94,7 +94,7 @@ class TestAudioIntegration:
             cleaned=True,
             duration_ms=1000,
             created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow()
+            updated_at=datetime.utcnow(),
         )
 
         assert section.section == 1

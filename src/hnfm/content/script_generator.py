@@ -458,5 +458,3 @@ class ScriptGenerator:
         # Convert to title case and replace underscores with spaces
         name = name.replace("_", " ").title()
         return name
-
-

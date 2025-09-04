@@ -90,11 +90,13 @@ class TestRunUtils:
                 source_url="https://example.com",
                 content_raw="Raw content",
                 content_clean="Clean content",
-                summary="Summary"
+                summary="Summary",
             )
 
             # Save the run
-            save_processed_run(processed_run, redis_client=fake_redis, outputs_root=temp_dir)
+            save_processed_run(
+                processed_run, redis_client=fake_redis, outputs_root=temp_dir
+            )
 
             # Assert Redis key exists
             run_key = get_run_key(123, 1)
@@ -110,11 +112,11 @@ class TestRunUtils:
             assert os.path.exists(disk_path)
 
             # Verify file content
-            with open(disk_path, 'r') as f:
+            with open(disk_path, "r") as f:
                 saved_data = json.load(f)
-                assert saved_data['item_id'] == 123
-                assert saved_data['run'] == 1
-                assert saved_data['summary'] == "Summary"
+                assert saved_data["item_id"] == 123
+                assert saved_data["run"] == 1
+                assert saved_data["summary"] == "Summary"
 
     def test_list_runs_for_item_newest_first(self):
         """Test that list_runs_for_item returns newest first."""
@@ -155,7 +157,7 @@ class TestRunUtils:
             source_url="https://example.com",
             content_raw="Raw content",
             content_clean="Clean content",
-            summary="Summary"
+            summary="Summary",
         )
 
         # Save to Redis

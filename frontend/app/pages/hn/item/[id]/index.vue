@@ -127,9 +127,9 @@
                     <Button
                       variant="destructive"
                       size="sm"
-                      @click="deleteRun(run.run)"
                       :disabled="deletingRuns.has(run.run)"
                       class="ml-2 bg-red-600 hover:bg-red-700 text-white border-red-600"
+                      @click="deleteRun(run.run)"
                     >
                       <span v-if="deletingRuns.has(run.run)">Deleting...</span>
                       <span v-else>🗑️</span>
@@ -251,7 +251,7 @@ async function deleteRun(runId) {
   deleteMessage.value = ''
 
   try {
-    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs/${runId}`, {
+    await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs/${runId}`, {
       method: 'DELETE'
     })
 

@@ -26,7 +26,12 @@ from .models import (
     SectionsListResponse,
 )
 from .celery_app import celery_app
-from .tasks import hn_fetch_item, process_hn_item_run, generate_segment, build_segment_audio
+from .tasks import (
+    hn_fetch_item,
+    process_hn_item_run,
+    generate_segment,
+    build_segment_audio,
+)
 from ..utils.hn_utils import (
     get_top_story_ids,
     get_item,
@@ -207,7 +212,11 @@ async def get_single_item(
 
 
 # HN Item Runs API Endpoints
-@app.post("/api/hn/items/{item_id}/runs", response_model=CreateRunResponse, tags=["hacker-news"])
+@app.post(
+    "/api/hn/items/{item_id}/runs",
+    response_model=CreateRunResponse,
+    tags=["hacker-news"],
+)
 async def create_and_queue_run(
     item_id: int, redis_client: redis.Redis = Depends(get_redis_client)
 ):
@@ -219,32 +228,29 @@ async def create_and_queue_run(
         # Queue the task
         process_hn_item_run.apply_async(args=[item_id, run], queue="hnfm_tasks")
 
-        return CreateRunResponse(
-            item_id=item_id,
-            run=run,
-            status="queued"
-        )
+        return CreateRunResponse(item_id=item_id, run=run, status="queued")
 
     except Exception as e:
         logger.error(f"Failed to create run for item {item_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to create run")
 
 
-@app.get("/api/hn/items/{item_id}/runs", response_model=RunsListResponse, tags=["hacker-news"])
+@app.get(
+    "/api/hn/items/{item_id}/runs",
+    response_model=RunsListResponse,
+    tags=["hacker-news"],
+)
 async def list_runs_for_item_endpoint(
     item_id: int,
     offset: int = 0,
     limit: int = 20,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """List runs for an item with pagination"""
     try:
         # Get run IDs
         run_ids = list_runs_for_item(
-            item_id,
-            redis_client=redis_client,
-            offset=offset,
-            limit=limit
+            item_id, redis_client=redis_client, offset=offset, limit=limit
         )
 
         # Fetch ProcessedRun objects and extract summaries
@@ -252,19 +258,12 @@ async def list_runs_for_item_endpoint(
         for run_id in run_ids:
             processed_run = get_run(item_id, run_id, redis_client=redis_client)
             if processed_run:
-                runs.append(RunSummary(
-                    run=run_id,
-                    summary=processed_run.summary
-                ))
+                runs.append(RunSummary(run=run_id, summary=processed_run.summary))
 
         return RunsListResponse(
             item_id=item_id,
             runs=runs,
-            pagination={
-                "offset": offset,
-                "limit": limit,
-                "count": len(runs)
-            }
+            pagination={"offset": offset, "limit": limit, "count": len(runs)},
         )
 
     except Exception as e:
@@ -272,11 +271,13 @@ async def list_runs_for_item_endpoint(
         raise HTTPException(status_code=500, detail="Failed to list runs")
 
 
-@app.get("/api/hn/items/{item_id}/runs/{run}", response_model=ProcessedRun, tags=["hacker-news"])
+@app.get(
+    "/api/hn/items/{item_id}/runs/{run}",
+    response_model=ProcessedRun,
+    tags=["hacker-news"],
+)
 async def get_single_run(
-    item_id: int,
-    run: int,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    item_id: int, run: int, redis_client: redis.Redis = Depends(get_redis_client)
 ):
     """Get a single run by item ID and run number"""
     try:
@@ -307,19 +308,24 @@ async def internal_error_handler(request, exc):
 
 @app.delete("/api/hn/items/{item_id}/runs/{run}", tags=["hacker-news"])
 async def delete_single_run(
-    item_id: int,
-    run: int,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    item_id: int, run: int, redis_client: redis.Redis = Depends(get_redis_client)
 ):
     """Delete a single run by item ID and run number"""
     try:
         outputs_root = os.getenv("OUTPUTS_ROOT", "outputs")
-        success = delete_run(item_id, run, redis_client=redis_client, outputs_root=outputs_root)
+        success = delete_run(
+            item_id, run, redis_client=redis_client, outputs_root=outputs_root
+        )
 
         if not success:
-            raise HTTPException(status_code=404, detail="Run not found or could not be deleted")
+            raise HTTPException(
+                status_code=404, detail="Run not found or could not be deleted"
+            )
 
-        return {"message": f"Run {run} for item {item_id} deleted successfully", "success": True}
+        return {
+            "message": f"Run {run} for item {item_id} deleted successfully",
+            "success": True,
+        }
 
     except HTTPException:
         raise
@@ -329,11 +335,13 @@ async def delete_single_run(
 
 
 # HN Item Segments API Endpoints
-@app.post("/api/hn/items/{item_id}/runs/{run}/segments", response_model=CreateSegmentResponse, tags=["hacker-news"])
+@app.post(
+    "/api/hn/items/{item_id}/runs/{run}/segments",
+    response_model=CreateSegmentResponse,
+    tags=["hacker-news"],
+)
 async def create_and_queue_segment(
-    item_id: int,
-    run: int,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    item_id: int, run: int, redis_client: redis.Redis = Depends(get_redis_client)
 ):
     """Create and queue a new segment for a run"""
     try:
@@ -343,35 +351,30 @@ async def create_and_queue_segment(
         # Queue the task
         generate_segment.apply_async(args=[item_id, run, seg], queue="hnfm_tasks")
 
-        return CreateSegmentResponse(
-            item_id=item_id,
-            run=run,
-            seg=seg,
-            status="queued"
-        )
+        return CreateSegmentResponse(item_id=item_id, run=run, seg=seg, status="queued")
 
     except Exception as e:
         logger.error(f"Failed to create segment for item {item_id}, run {run}: {e}")
         raise HTTPException(status_code=500, detail="Failed to create segment")
 
 
-@app.get("/api/hn/items/{item_id}/runs/{run}/segments", response_model=SegmentsListResponse, tags=["hacker-news"])
+@app.get(
+    "/api/hn/items/{item_id}/runs/{run}/segments",
+    response_model=SegmentsListResponse,
+    tags=["hacker-news"],
+)
 async def list_segments_for_run_endpoint(
     item_id: int,
     run: int,
     offset: int = 0,
     limit: int = 20,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """List segments for a run with pagination"""
     try:
         # Get segment IDs
         seg_ids = list_segments_for_run(
-            item_id,
-            run,
-            redis_client=redis_client,
-            offset=offset,
-            limit=limit
+            item_id, run, redis_client=redis_client, offset=offset, limit=limit
         )
 
         # Fetch Segment objects and extract previews
@@ -379,21 +382,20 @@ async def list_segments_for_run_endpoint(
         for seg_id in seg_ids:
             segment = get_segment(item_id, run, seg_id, redis_client=redis_client)
             if segment:
-                script_preview = segment.script[:200] + "..." if len(segment.script) > 200 else segment.script
-                segments.append(SegmentSummary(
-                    seg=seg_id,
-                    script_preview=script_preview
-                ))
+                script_preview = (
+                    segment.script[:200] + "..."
+                    if len(segment.script) > 200
+                    else segment.script
+                )
+                segments.append(
+                    SegmentSummary(seg=seg_id, script_preview=script_preview)
+                )
 
         return SegmentsListResponse(
             item_id=item_id,
             run=run,
             segments=segments,
-            pagination={
-                "offset": offset,
-                "limit": limit,
-                "count": len(segments)
-            }
+            pagination={"offset": offset, "limit": limit, "count": len(segments)},
         )
 
     except Exception as e:
@@ -401,12 +403,16 @@ async def list_segments_for_run_endpoint(
         raise HTTPException(status_code=500, detail="Failed to list segments")
 
 
-@app.get("/api/hn/items/{item_id}/runs/{run}/segments/{seg}", response_model=Segment, tags=["hacker-news"])
+@app.get(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}",
+    response_model=Segment,
+    tags=["hacker-news"],
+)
 async def get_single_segment(
     item_id: int,
     run: int,
     seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """Get a single segment by item ID, run number, and segment number"""
     try:
@@ -424,67 +430,74 @@ async def get_single_segment(
         raise HTTPException(status_code=500, detail="Failed to get segment")
 
 
-@app.delete("/api/hn/items/{item_id}/runs/{run}/segments/{seg}", response_model=DeleteSegmentResponse, tags=["hacker-news"])
+@app.delete(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}",
+    response_model=DeleteSegmentResponse,
+    tags=["hacker-news"],
+)
 async def delete_single_segment(
     item_id: int,
     run: int,
     seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """Delete a single segment by item ID, run number, and segment number"""
     try:
         outputs_root = os.getenv("OUTPUTS_ROOT", "outputs")
-        success = delete_segment(item_id, run, seg, redis_client=redis_client, outputs_root=outputs_root)
+        success = delete_segment(
+            item_id, run, seg, redis_client=redis_client, outputs_root=outputs_root
+        )
 
         if not success:
-            raise HTTPException(status_code=404, detail="Segment not found or could not be deleted")
+            raise HTTPException(
+                status_code=404, detail="Segment not found or could not be deleted"
+            )
 
         return DeleteSegmentResponse(
-            item_id=item_id,
-            run=run,
-            seg=seg,
-            status="deleted"
+            item_id=item_id, run=run, seg=seg, status="deleted"
         )
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to delete segment {seg} for item {item_id}, run {run}: {e}")
+        logger.error(
+            f"Failed to delete segment {seg} for item {item_id}, run {run}: {e}"
+        )
         raise HTTPException(status_code=500, detail="Failed to delete segment")
 
 
 # Audio API Endpoints
-@app.post("/api/hn/items/{item_id}/runs/{run}/segments/{seg}/audio", response_model=BuildAudioResponse, tags=["audio"])
-async def build_segment_audio_all(
-    item_id: int,
-    run: int,
-    seg: int
-):
+@app.post(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/audio",
+    response_model=BuildAudioResponse,
+    tags=["audio"],
+)
+async def build_segment_audio_all(item_id: int, run: int, seg: int):
     """Build or rebuild all sections and combined audio for a segment"""
     try:
         # Queue the task to build all sections
-        build_segment_audio.apply_async(args=[item_id, run, seg], kwargs={"mode": "all"}, queue="hnfm_tasks")
+        build_segment_audio.apply_async(
+            args=[item_id, run, seg], kwargs={"mode": "all"}, queue="hnfm_tasks"
+        )
 
         return BuildAudioResponse(
-            status="queued",
-            item_id=item_id,
-            run=run,
-            seg=seg,
-            mode="all"
+            status="queued", item_id=item_id, run=run, seg=seg, mode="all"
         )
 
     except Exception as e:
-        logger.error(f"Failed to queue audio build for segment {item_id}:{run}:{seg}: {e}")
+        logger.error(
+            f"Failed to queue audio build for segment {item_id}:{run}:{seg}: {e}"
+        )
         raise HTTPException(status_code=500, detail="Failed to queue audio build")
 
 
-@app.post("/api/hn/items/{item_id}/runs/{run}/segments/{seg}/sections/{section}/audio", response_model=BuildAudioResponse, tags=["audio"])
+@app.post(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/sections/{section}/audio",
+    response_model=BuildAudioResponse,
+    tags=["audio"],
+)
 async def build_segment_audio_one(
-    item_id: int,
-    run: int,
-    seg: int,
-    section: int,
-    text_override: str = None
+    item_id: int, run: int, seg: int, section: int, text_override: str = None
 ):
     """Regenerate one section (optionally with new text)"""
     try:
@@ -494,7 +507,9 @@ async def build_segment_audio_one(
             kwargs["text_override"] = text_override
 
         # Queue the task to build one section
-        build_segment_audio.apply_async(args=[item_id, run, seg], kwargs=kwargs, queue="hnfm_tasks")
+        build_segment_audio.apply_async(
+            args=[item_id, run, seg], kwargs=kwargs, queue="hnfm_tasks"
+        )
 
         return BuildAudioResponse(
             status="queued",
@@ -502,44 +517,53 @@ async def build_segment_audio_one(
             run=run,
             seg=seg,
             mode="one",
-            section=section
+            section=section,
         )
 
     except Exception as e:
-        logger.error(f"Failed to queue audio build for section {item_id}:{run}:{seg}:{section}: {e}")
+        logger.error(
+            f"Failed to queue audio build for section {item_id}:{run}:{seg}:{section}: {e}"
+        )
         raise HTTPException(status_code=500, detail="Failed to queue audio build")
 
 
-@app.get("/api/hn/items/{item_id}/runs/{run}/segments/{seg}/sections", response_model=SectionsListResponse, tags=["audio"])
+@app.get(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/sections",
+    response_model=SectionsListResponse,
+    tags=["audio"],
+)
 async def list_segment_sections(
     item_id: int,
     run: int,
     seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client)
+    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """List sections with metadata for a segment"""
     try:
         # Get section numbers in order
-        section_numbers = list_section_numbers(item_id, run, seg, redis_client=redis_client)
+        section_numbers = list_section_numbers(
+            item_id, run, seg, redis_client=redis_client
+        )
 
         # Fetch section metadata
         sections = []
         for section_num in section_numbers:
-            section_meta = get_section_meta(item_id, run, seg, section_num, redis_client=redis_client)
+            section_meta = get_section_meta(
+                item_id, run, seg, section_num, redis_client=redis_client
+            )
             if section_meta:
-                sections.append({
-                    "section": section_meta.section,
-                    "text": section_meta.text,
-                    "audio_path": section_meta.audio_path,
-                    "cleaned": section_meta.cleaned,
-                    "duration_ms": section_meta.duration_ms
-                })
+                sections.append(
+                    {
+                        "section": section_meta.section,
+                        "text": section_meta.text,
+                        "audio_path": section_meta.audio_path,
+                        "cleaned": section_meta.cleaned,
+                        "duration_ms": section_meta.duration_ms,
+                    }
+                )
 
         return SectionsListResponse(
-            item_id=item_id,
-            run=run,
-            seg=seg,
-            sections=sections
+            item_id=item_id, run=run, seg=seg, sections=sections
         )
 
     except Exception as e:
@@ -559,11 +583,35 @@ async def serve_audio_file(item_id: int, run: int, seg: int, filename: str):
         # Construct the file path
         if filename == "segment.wav":
             # Combined segment audio
-            audio_path = os.path.join(outputs_dir, "hn", "item", str(item_id), "runs", str(run), "segments", str(seg), "audio", "segment.wav")
+            audio_path = os.path.join(
+                outputs_dir,
+                "hn",
+                "item",
+                str(item_id),
+                "runs",
+                str(run),
+                "segments",
+                str(seg),
+                "audio",
+                "segment.wav",
+            )
         elif filename.startswith("section_") and filename.endswith(".wav"):
             # Individual section audio
             section_num = filename.replace("section_", "").replace(".wav", "")
-            audio_path = os.path.join(outputs_dir, "hn", "item", str(item_id), "runs", str(run), "segments", str(seg), "audio", "sections", section_num, "audio.wav")
+            audio_path = os.path.join(
+                outputs_dir,
+                "hn",
+                "item",
+                str(item_id),
+                "runs",
+                str(run),
+                "segments",
+                str(seg),
+                "audio",
+                "sections",
+                section_num,
+                "audio.wav",
+            )
         else:
             raise HTTPException(status_code=400, detail="Invalid filename")
 
@@ -572,14 +620,12 @@ async def serve_audio_file(item_id: int, run: int, seg: int, filename: str):
             raise HTTPException(status_code=404, detail="Audio file not found")
 
         # Return the file
-        return FileResponse(
-            path=audio_path,
-            media_type="audio/wav",
-            filename=filename
-        )
+        return FileResponse(path=audio_path, media_type="audio/wav", filename=filename)
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to serve audio file {filename} for segment {item_id}:{run}:{seg}: {e}")
+        logger.error(
+            f"Failed to serve audio file {filename} for segment {item_id}:{run}:{seg}: {e}"
+        )
         raise HTTPException(status_code=500, detail="Failed to serve audio file")
