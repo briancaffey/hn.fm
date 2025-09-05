@@ -27,6 +27,8 @@ from ..utils.segment_utils import (
     save_segment,
     k_seg,
     get_segment,
+    asr_json_path,
+    write_json,
 )
 from ..audio.audio_utils import (
     split_script_into_sections,
@@ -42,6 +44,7 @@ from ..audio.audio_utils import (
     sec_audio_path,
     combined_audio_path,
 )
+from ..audio.asr_service import ASRService
 
 logger = logging.getLogger(__name__)
 
@@ -380,16 +383,46 @@ def build_segment_audio(
                 outputs_root=outputs_dir,
             )
 
-            logger.info(
-                f"Successfully built {len(paths)} audio sections for segment {item_id}:{run}:{seg}"
-            )
-            return {
+            # Step 2g: ASR processing
+            result_dict = {
                 "status": "ok",
                 "item_id": item_id,
                 "run": run,
                 "seg": seg,
                 "sections": len(paths),
             }
+
+            # Check if combined audio exists for ASR
+            if os.path.exists(combined_path):
+                try:
+                    # Run ASR
+                    asr_service = ASRService()
+                    asr_result = asr_service.process_audio(combined_path)
+
+                    # Persist ASR JSON
+                    asr_path = asr_json_path(outputs_dir, item_id, run, seg)
+                    write_json(asr_path, asr_result)
+
+                    # Update Segment with ASR path
+                    seg_obj = get_segment(item_id, run, seg, redis_client=redis_client)
+                    if seg_obj:
+                        seg_obj.asr_json_path = asr_path
+                        save_segment(seg_obj, redis_client=redis_client, outputs_root=outputs_dir)
+
+                    result_dict["asr"] = "ok"
+                    logger.info(f"ASR processing completed for segment {item_id}:{run}:{seg}")
+                except Exception as e:
+                    # Fail ASR silently: keep task success, frontend will show "not ready" gracefully
+                    logger.warning(f"ASR processing failed for segment {item_id}:{run}:{seg}: {e}")
+                    result_dict["asr"] = "error"
+            else:
+                logger.warning(f"Combined audio not found for ASR: {combined_path}")
+                result_dict["asr"] = "no_audio"
+
+            logger.info(
+                f"Successfully built {len(paths)} audio sections for segment {item_id}:{run}:{seg}"
+            )
+            return result_dict
 
         elif mode == "one":
             # Build one specific section
@@ -462,13 +495,44 @@ def build_segment_audio(
             logger.info(
                 f"Successfully built audio section {section} for segment {item_id}:{run}:{seg}"
             )
-            return {
+
+            # Step 3g: ASR processing
+            result_dict = {
                 "status": "ok",
                 "item_id": item_id,
                 "run": run,
                 "seg": seg,
                 "section": section,
             }
+
+            # Check if combined audio exists for ASR
+            if os.path.exists(combined_path):
+                try:
+                    # Run ASR
+                    asr_service = ASRService()
+                    asr_result = asr_service.process_audio(combined_path)
+
+                    # Persist ASR JSON
+                    asr_path = asr_json_path(outputs_dir, item_id, run, seg)
+                    write_json(asr_path, asr_result)
+
+                    # Update Segment with ASR path
+                    seg_obj = get_segment(item_id, run, seg, redis_client=redis_client)
+                    if seg_obj:
+                        seg_obj.asr_json_path = asr_path
+                        save_segment(seg_obj, redis_client=redis_client, outputs_root=outputs_dir)
+
+                    result_dict["asr"] = "ok"
+                    logger.info(f"ASR processing completed for segment {item_id}:{run}:{seg}")
+                except Exception as e:
+                    # Fail ASR silently: keep task success, frontend will show "not ready" gracefully
+                    logger.warning(f"ASR processing failed for segment {item_id}:{run}:{seg}: {e}")
+                    result_dict["asr"] = "error"
+            else:
+                logger.warning(f"Combined audio not found for ASR: {combined_path}")
+                result_dict["asr"] = "no_audio"
+
+            return result_dict
 
         else:
             raise ValueError(f"Invalid mode: {mode}. Must be 'all' or 'one'")

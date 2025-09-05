@@ -205,6 +205,36 @@
               </div>
             </AccordionContent>
           </AccordionItem>
+
+          <AccordionItem value="asr">
+            <AccordionTrigger class="text-lg font-semibold">
+              <div class="flex items-center justify-between w-full">
+                <span>ASR (Word Timestamps)</span>
+                <div class="flex items-center gap-2">
+                  <Button
+                    :disabled="isRefreshingAsr"
+                    size="sm"
+                    variant="outline"
+                    class="text-primary border-primary hover:bg-primary hover:text-white"
+                    @click.stop="refreshAsr"
+                  >
+                    <span v-if="isRefreshingAsr">Refreshing...</span>
+                    <span v-else>🔄 Refresh</span>
+                  </Button>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div v-if="asrData" class="space-y-4">
+                <div class="bg-muted/50 p-4 rounded-lg">
+                  <pre class="whitespace-pre-wrap text-sm text-foreground font-mono overflow-x-auto">{{ JSON.stringify(asrData.asr, null, 2) }}</pre>
+                </div>
+              </div>
+              <div v-else class="text-center py-8 text-muted-foreground">
+                <p>ASR not ready yet.</p>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
         </Accordion>
       </div>
 
@@ -291,6 +321,10 @@ const isBuildingAudio = ref(false)
 const isRegeneratingSection = ref(null)
 const dirtySections = ref(new Set())
 
+// ASR data
+const asrData = ref(null)
+const isRefreshingAsr = ref(false)
+
 // Fetch data
 const { data: itemData, pending: itemLoading, error: itemError } = await useAsyncData(
   `hn-item-${itemId.value}`,
@@ -324,9 +358,20 @@ const { data: segmentData, pending: segmentLoading, error: segmentError } = awai
   }
 )
 
+// ASR data fetching
+const { data: asrDataResponse, refresh: refreshAsrData } = await useFetch(
+  `${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments/${segId.value}/asr`,
+  {
+    key: `asr-${itemId.value}-${runId.value}-${segId.value}`,
+    server: true,
+    default: () => null
+  }
+).catch(() => ({ data: null }))
+
 // Set reactive data
 item.value = itemData.value
 segment.value = segmentData.value
+asrData.value = asrDataResponse.value
 isLoading.value = itemLoading.value || segmentLoading.value
 error.value = itemError.value || segmentError.value
 
@@ -334,6 +379,10 @@ error.value = itemError.value || segmentError.value
 watch([itemData, segmentData], ([newItem, newSegment]) => {
   item.value = newItem
   segment.value = newSegment
+})
+
+watch(asrDataResponse, (newAsrData) => {
+  asrData.value = newAsrData
 })
 
 watch([itemLoading, segmentLoading], ([itemLoad, segmentLoad]) => {
@@ -497,6 +546,20 @@ async function refreshSegment() {
     segment.value = response
   } catch (err) {
     console.error('Failed to refresh segment:', err)
+  }
+}
+
+async function refreshAsr() {
+  if (isRefreshingAsr.value) return
+
+  isRefreshingAsr.value = true
+
+  try {
+    await refreshAsrData()
+  } catch (err) {
+    console.error('Failed to refresh ASR data:', err)
+  } finally {
+    isRefreshingAsr.value = false
   }
 }
 

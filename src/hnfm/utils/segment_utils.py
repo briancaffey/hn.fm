@@ -31,6 +31,20 @@ def seg_dir(outputs_root: str, item_id: int, run: int, seg: int) -> str:
     return f"{outputs_root}/hn/item/{item_id}/runs/{run}/segments/{seg}"
 
 
+def asr_json_path(outputs_root: str, item_id: int, run: int, seg: int) -> str:
+    """Generate path for ASR JSON file"""
+    return f"{outputs_root}/hn/item/{item_id}/runs/{run}/segments/{seg}/audio/asr.json"
+
+
+def write_json(path: str, data: dict) -> None:
+    """Write JSON data to file with proper directory creation"""
+    path_obj = Path(path)
+    path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+
+
 def _clean_script_for_tts(script: str) -> str:
     """
     Clean script text for better TTS results.
@@ -50,6 +64,8 @@ def _clean_script_for_tts(script: str) -> str:
         ord("–"): ", ",
         # ord('\n\n'): '\n',
         ord("…"): ", ",
+        ord("`"): "",
+        ord("_"): " ",
     }
 
     script = script.replace("\n\n", "\n")

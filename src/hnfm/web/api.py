@@ -1,5 +1,6 @@
 """FastAPI routes for the web API"""
 
+import json
 import logging
 import os
 from datetime import datetime
@@ -580,6 +581,43 @@ async def list_segment_sections(
     except Exception as e:
         logger.error(f"Failed to list sections for segment {item_id}:{run}:{seg}: {e}")
         raise HTTPException(status_code=500, detail="Failed to list sections")
+
+
+@app.get("/api/hn/items/{item_id}/runs/{run}/segments/{seg}/asr", tags=["audio"])
+async def get_segment_asr(
+    item_id: int,
+    run: int,
+    seg: int,
+    redis_client: redis.Redis = Depends(get_redis_client),
+):
+    """Get ASR data for a segment"""
+    try:
+        # Load Segment from Redis
+        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+
+        if not segment:
+            raise HTTPException(status_code=404, detail="Segment not found")
+
+        # Check if ASR path exists and file is available
+        if not segment.asr_json_path or not os.path.exists(segment.asr_json_path):
+            raise HTTPException(status_code=404, detail="ASR not ready")
+
+        # Read and return the ASR JSON
+        with open(segment.asr_json_path, "r", encoding="utf-8") as f:
+            asr_data = json.load(f)
+
+        return {
+            "item_id": item_id,
+            "run": run,
+            "seg": seg,
+            "asr": asr_data
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get ASR for segment {item_id}:{run}:{seg}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to get ASR data")
 
 
 @app.get("/api/audio/{item_id}/{run}/{seg}/{filename}")

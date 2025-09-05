@@ -1264,3 +1264,196 @@ Add a **Narration** section under Script.
 7. **Frontend**: segment page “Narration Sections” accordion + buttons, audio players, combined audio accordion.
 
 This keeps everything **simple and overwrite-friendly**, guarantees **sequential order**, and gives you a clean UI to generate, audit, and redo any section quickly.
+
+---
+
+Here’s a **small, clean, no-ambiguity** addition to integrate **ASR** at the end of your existing `build_segment_audio` task, plus one tiny API and a small frontend change.
+
+---
+
+# 1) Data model change
+
+**Update `Segment`** (script + audio already exist):
+
+```python
+class Segment(BaseModel):
+    key: str
+    item_id: int
+    run: int
+    seg: int
+    created_at: datetime
+    processed_run_key: str
+    script: str
+
+    sections_total: int = 0
+    audio_combined_path: Optional[str] = None
+    audio_ready: bool = False
+
+    # NEW: store the ASR JSON file path when available
+    asr_json_path: Optional[str] = None
+```
+
+No other models change.
+
+---
+
+# 2) Paths and helpers
+
+**Add a single path helper for ASR JSON:**
+
+```python
+def asr_json_path(outputs_root: str, item_id: int, run: int, seg: int) -> str:
+    # Keep it simple; store next to combined audio
+    return f"{outputs_root}/hn/item/{item_id}/runs/{run}/segments/{seg}/audio/asr.json"
+```
+
+**Add a tiny file helper:**
+
+```python
+def write_json(path: str, data: dict) -> None:
+    # mkdir -p parent
+    # write pretty-printed UTF-8 JSON
+```
+
+**Update your existing “save Segment to disk” helper** (whatever you called it) so whenever you modify a `Segment` object (e.g., set `asr_json_path`), you also overwrite `segment.json` on disk and `SET` the Redis key again.
+
+---
+
+# 3) Task change (build\_segment\_audio)
+
+Add the **final ASR step** at the end of the successful “all” and “one” flows. The logic is identical in both cases and runs **after** `audio_combined_path` has been created and `audio_ready` set to `True`.
+
+You already have a comment:
+
+```python
+# do ASR processing here!
+```
+
+Replace that comment with this logic:
+
+```python
+# 1) Preconditions
+combined = combined_audio_path(outputs_root, item_id, run, seg)
+if not os.path.exists(combined):
+    # No combined audio → nothing to do (leave segment.asr_json_path = None)
+    return result_dict  # whatever you currently return from the task
+
+# 2) Run ASR
+try:
+    # Use your existing service classes. Example signatures—adjust to your code.
+    asr_service = ASRService()             # existing class
+    asr_result: dict = asr_service.transcribe_file(combined)  # returns JSON-serializable dict
+
+    # 3) Persist ASR JSON
+    asr_path = asr_json_path(outputs_root, item_id, run, seg)
+    write_json(asr_path, asr_result)
+
+    # 4) Update Segment (path only; keep it simple)
+    seg_obj = get_segment(item_id, run, seg, redis_client=redis)  # your existing getter
+    seg_obj.asr_json_path = asr_path
+    save_segment(seg_obj, redis_client=redis, outputs_root=outputs_root)
+
+    # 5) Optionally return a flag (not required)
+    result_dict["asr"] = "ok"
+except Exception as e:
+    # Fail ASR silently: keep task success, frontend will show "not ready" gracefully
+    # Log the error if you have logging
+    result_dict["asr"] = "error"
+```
+
+**Notes**
+
+* Do **not** fail the whole task if ASR fails. Just skip and leave `asr_json_path` as `None`.
+* If you also use `AudioProcessor`, you can keep using it internally (e.g., to normalize audio before ASR). Not required here.
+
+---
+
+# 4) API (one small read-only endpoint)
+
+**GET ASR JSON for a segment**
+
+* **Route:** `GET /api/hn/items/{item_id}/runs/{run}/segments/{seg}/asr`
+* **Behavior:**
+
+  1. Load `Segment` from Redis.
+  2. If `segment.asr_json_path` is missing or the file doesn’t exist → return `404 { "detail": "ASR not ready" }`.
+  3. Read the JSON file and return it as:
+
+     ```json
+     { "item_id": 45114175, "run": 1, "seg": 1, "asr": { /* raw ASR JSON */ } }
+     ```
+
+No POST/DELETE endpoints for ASR now. The ASR runs inside `build_segment_audio`.
+
+---
+
+# 5) Frontend changes (segment detail page)
+
+**Page:** `/hn/item/[id]/run-[runId]-seg-[segId]`
+
+1. Below the **Combined Audio** accordion, add a new accordion **“ASR (Word Timestamps)”**.
+2. On server side (or client side if you prefer), **fetch**:
+
+   * `GET /api/hn/items/{id}/runs/{runId}/segments/{segId}` (you already do)
+   * `GET /api/hn/items/{id}/runs/{runId}/segments/{segId}/asr`
+3. Render logic:
+
+   * If the ASR endpoint returns **200**:
+
+     * Show a small toolbar with a **Refresh** button (re-calls the ASR endpoint).
+     * Pretty-print JSON (collapsed by default is fine; or a `<pre>` block).
+   * If the ASR endpoint returns **404**:
+
+     * Show a gray “ASR not ready yet” message.
+     * Show a **Refresh** button to retry.
+
+**Minimal template sketch (pseudocode):**
+
+```vue
+<details class="mb-3">
+  <summary>ASR (Word Timestamps)</summary>
+
+  <div class="mb-2">
+    <button @click="refreshAsr">Refresh</button>
+  </div>
+
+  <div v-if="asrData">
+    <pre>{{ JSON.stringify(asrData.asr, null, 2) }}</pre>
+  </div>
+  <div v-else class="text-gray-500">
+    ASR not ready yet.
+  </div>
+</details>
+```
+
+**Data fetch:**
+
+```ts
+const { data: asrData, refresh: refreshAsr } = await useFetch(
+  `/api/hn/items/${id}/runs/${runId}/segments/${segId}/asr`,
+  { key: `asr-${id}-${runId}-${segId}`, server: true }
+).catch(() => ({ data: null }))
+```
+
+Handle 404 by returning `null` in a `try/catch` or `onResponseError`.
+
+---
+
+# 6) Build order
+
+1. **Model**: add `asr_json_path` to `Segment`.
+2. **Paths**: add `asr_json_path(...)` helper + `write_json(...)`.
+3. **Task**: add ASR block at the end of `build_segment_audio` (both “all” and “one” flows).
+4. **API**: implement `GET /api/hn/items/{item_id}/runs/{run}/segments/{seg}/asr`.
+5. **Frontend**: add “ASR (Word Timestamps)” accordion under Combined Audio with fetch + refresh.
+
+---
+
+# 7) Acceptance checklist
+
+* [ ] After `build_segment_audio` completes (successfully stitching audio), ASR runs and writes `audio/asr.json`.
+* [ ] `Segment.asr_json_path` is set and persisted to Redis and `segment.json`.
+* [ ] `GET /api/.../asr` returns 200 with JSON when available; 404 if not ready.
+* [ ] Segment detail page shows an **ASR** accordion; displays JSON or “not ready yet,” with a working **Refresh** button.
+
+This keeps the change **tiny** and **predictable**, leverages your existing task, and makes the ASR output available immediately for future steps (subtitle generation, alignment views, etc.).

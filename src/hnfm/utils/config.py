@@ -43,11 +43,8 @@ class ConfigManager:
             with open(config_path, "r") as f:
                 config = yaml.safe_load(f)
 
-            logger.info(f"Loaded raw config from {self.config_file}: {config}")
-
             # Replace environment variables
             config = self._replace_env_vars(config)
-            logger.info(f"After env var replacement: {config}")
 
             # Merge with defaults to ensure all required keys exist
             default_config = self._get_default_config()
@@ -99,6 +96,7 @@ class ConfigManager:
             elif isinstance(default, list) and isinstance(user, list):
                 return user  # Use user list if provided
             else:
+                # Use user value if it's not None, otherwise use default
                 return user if user is not None else default
 
         return merge_recursive(default_config, user_config)
@@ -174,12 +172,12 @@ class ConfigManager:
             },
             "asr": {
                 "base_url": "${ASR_BASE_URL}",
-                "model_size": "${ASR_MODEL_SIZE}",
-                "min_speakers": "${ASR_MIN_SPEAKERS}",
-                "max_speakers": "${ASR_MAX_SPEAKERS}",
-                "timeout_seconds": "${ASR_TIMEOUT_SECONDS}",
-                "retry_delay": "${ASR_RETRY_DELAY}",
-                "max_attempts": "${ASR_MAX_ATTEMPTS}",
+                "model_size": "large-v2",
+                "min_speakers": 1,
+                "max_speakers": 2,
+                "timeout_seconds": 300,
+                "retry_delay": 10,
+                "max_attempts": 5,
             },
             "image_generation": {
                 "base_url": "${IMAGE_GENERATION_BASE_URL}",

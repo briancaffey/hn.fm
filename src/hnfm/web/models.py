@@ -140,6 +140,11 @@ class Segment(BaseModel):
         default=False, description="Whether audio is ready for playback"
     )
 
+    # ASR fields
+    asr_json_path: Optional[str] = Field(
+        default=None, description="Path to ASR JSON file with word timestamps"
+    )
+
 
 class SegmentSection(BaseModel):
     """Model for individual audio sections within a segment"""
