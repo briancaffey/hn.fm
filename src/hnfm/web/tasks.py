@@ -49,21 +49,26 @@ from ..audio.asr_service import ASRService
 logger = logging.getLogger(__name__)
 
 
+def get_redis_client(decode_responses=False):
+    """Get Redis client with configuration from environment variables."""
+    redis_host = os.getenv("REDIS_HOST", "localhost")
+    redis_port = int(os.getenv("REDIS_PORT", "6379"))
+    redis_db = int(os.getenv("REDIS_DB", "0"))
+
+    return redis.Redis(
+        host=redis_host,
+        port=redis_port,
+        db=redis_db,
+        decode_responses=decode_responses,
+    )
+
+
 @celery_app.task(name="hnfm.web.tasks.hn_fetch_item")
 def hn_fetch_item(item_id: int) -> Dict[str, any]:
     """Fetch and store a Hacker News item"""
     try:
         # Get Redis client
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_port = int(os.getenv("REDIS_PORT", "6379"))
-        redis_db = int(os.getenv("REDIS_DB", "0"))
-
-        redis_client = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            db=redis_db,
-            decode_responses=False,  # Keep as bytes for JSON compatibility
-        )
+        redis_client = get_redis_client()
 
         # Check if item already exists
         if exists_item(item_id, redis_client=redis_client):
@@ -103,16 +108,7 @@ def process_hn_item_run(item_id: int, run: int) -> Dict[str, any]:
     """
     try:
         # Get Redis client
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_port = int(os.getenv("REDIS_PORT", "6379"))
-        redis_db = int(os.getenv("REDIS_DB", "0"))
-
-        redis_client = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            db=redis_db,
-            decode_responses=False,  # Keep as bytes for JSON compatibility
-        )
+        redis_client = get_redis_client()
 
         # Get outputs directory
         outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
@@ -201,16 +197,7 @@ def generate_segment(item_id: int, run: int, seg: int) -> Dict[str, any]:
     """
     try:
         # Get Redis client
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_port = int(os.getenv("REDIS_PORT", "6379"))
-        redis_db = int(os.getenv("REDIS_DB", "0"))
-
-        redis_client = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            db=redis_db,
-            decode_responses=False,  # Keep as bytes for JSON compatibility
-        )
+        redis_client = get_redis_client()
 
         # Get outputs directory
         outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
@@ -289,16 +276,7 @@ def build_segment_audio(
     """
     try:
         # Get Redis client
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_port = int(os.getenv("REDIS_PORT", "6379"))
-        redis_db = int(os.getenv("REDIS_DB", "0"))
-
-        redis_client = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            db=redis_db,
-            decode_responses=False,  # Keep as bytes for JSON compatibility
-        )
+        redis_client = get_redis_client()
 
         # Get outputs directory
         outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
@@ -589,16 +567,7 @@ def build_segment_images(item_id: int, run: int, seg: int) -> Dict:
         from .models import SegmentImage
 
         # Get Redis client
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_port = int(os.getenv("REDIS_PORT", "6379"))
-        redis_db = int(os.getenv("REDIS_DB", "0"))
-
-        redis_client = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            db=redis_db,
-            decode_responses=False,  # Keep as bytes for JSON compatibility
-        )
+        redis_client = get_redis_client()
 
         # Get outputs directory
         outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
@@ -736,16 +705,7 @@ def rebuild_single_image(
         from .models import SegmentImage
 
         # Get Redis client
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_port = int(os.getenv("REDIS_PORT", "6379"))
-        redis_db = int(os.getenv("REDIS_DB", "0"))
-
-        redis_client = redis.Redis(
-            host=redis_host,
-            port=redis_port,
-            db=redis_db,
-            decode_responses=False,  # Keep as bytes for JSON compatibility
-        )
+        redis_client = get_redis_client()
 
         # Get outputs directory
         outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
@@ -864,11 +824,9 @@ def generate_segment_video(item_id: int, run: int, seg: int) -> Dict:
     try:
         # Get configuration
         outputs_root = os.getenv("OUTPUTS_ROOT", "outputs")
-        redis_host = os.getenv("REDIS_HOST", "localhost")
-        redis_port = int(os.getenv("REDIS_PORT", "6379"))
 
-        # Get Redis client
-        redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+        # Get Redis client (with decode_responses=True for this function)
+        redis_client = get_redis_client(decode_responses=True)
 
         logger.info(f"🎬 Starting video generation for segment {item_id}:{run}:{seg}")
 
