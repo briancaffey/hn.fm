@@ -117,7 +117,7 @@ def list_items(offset: int, limit: int, *, redis_client: redis.Redis) -> List[HN
 
     # Apply pagination
     end_index = min(offset + limit, len(all_ids))
-    paginated_ids = all_ids[offset : end_index]
+    paginated_ids = all_ids[offset:end_index]
 
     # Fetch items using MGET for efficiency
     if paginated_ids:

@@ -1,10 +1,5 @@
 <template>
   <div class="container mx-auto px-4 py-8">
-    <!-- Debug indicator -->
-    <div class="bg-purple-100 border border-purple-300 text-purple-800 px-4 py-2 rounded mb-4">
-      🎬 SEGMENT DETAIL PAGE - Item: {{ itemId }}, Run: {{ runId }}, Segment: {{ segId }}
-    </div>
-
     <div class="mb-6">
       <NuxtLink
         :to="`/hn/item/${itemId}/run/${runId}`"
@@ -235,30 +230,92 @@
               </div>
             </AccordionContent>
           </AccordionItem>
-        </Accordion>
-      </div>
 
-      <!-- Segment Metadata -->
-      <div class="bg-card border rounded-lg p-6">
-        <h3 class="text-xl font-bold mb-4">Segment Metadata</h3>
-        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <div>
-            <label class="text-sm font-medium text-muted-foreground">Segment ID</label>
-            <p class="text-foreground">{{ segment.seg }}</p>
-          </div>
-          <div>
-            <label class="text-sm font-medium text-muted-foreground">Created At</label>
-            <p class="text-foreground">{{ formatDateTime(segment.created_at) }}</p>
-          </div>
-          <div>
-            <label class="text-sm font-medium text-muted-foreground">Script Length</label>
-            <p class="text-foreground">{{ segment.script.length }} characters</p>
-          </div>
-          <div>
-            <label class="text-sm font-medium text-muted-foreground">Processed Run Key</label>
-            <p class="text-foreground font-mono text-sm">{{ segment.processed_run_key }}</p>
-          </div>
-        </div>
+          <!-- Images Accordion Item -->
+          <AccordionItem value="images">
+            <AccordionTrigger class="text-lg font-semibold">
+              Images
+            </AccordionTrigger>
+            <AccordionContent>
+              <div class="mb-4 flex justify-end">
+                <Button
+                  v-if="segment.script && !isGeneratingImages"
+                  size="sm"
+                  @click="generateImages"
+                  class="bg-blue-600 hover:bg-blue-700 text-white"
+                >
+                  Generate Images
+                </Button>
+                <div v-if="isGeneratingImages" class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+              </div>
+
+              <div v-if="images.length > 0" class="space-y-4">
+                <div v-for="image in images" :key="image.index" class="border rounded-lg p-4">
+                  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <!-- Image Preview -->
+                    <div class="space-y-2">
+                      <h4 class="font-medium">Image {{ image.index }}</h4>
+                      <div class="relative">
+                        <img
+                          :src="getImageUrl(image.image_path, image.index)"
+                          :alt="`Image for section ${image.index}`"
+                          class="w-full h-48 object-cover rounded-lg border"
+                          @error="handleImageError"
+                        />
+                      </div>
+                      <div v-if="image.start_ms !== null && image.duration_ms !== null" class="text-sm text-muted-foreground">
+                        Start: {{ (image.start_ms / 1000).toFixed(1) }}s · Duration: {{ (image.duration_ms / 1000).toFixed(1) }}s
+                      </div>
+                    </div>
+
+                    <!-- Text and Prompt -->
+                    <div class="space-y-3">
+                      <div>
+                        <label class="text-sm font-medium text-muted-foreground">Line Text</label>
+                        <textarea
+                          v-model="imageEdits[image.index]"
+                          class="w-full h-16 p-2 border rounded text-sm resize-none"
+                          :placeholder="image.line_text"
+                        ></textarea>
+                      </div>
+
+                      <div>
+                        <details class="group">
+                          <summary class="cursor-pointer text-sm font-medium text-muted-foreground hover:text-foreground">
+                            Prompt
+                          </summary>
+                          <div class="mt-2 p-3 bg-muted/50 rounded text-sm font-mono whitespace-pre-wrap">{{ image.prompt }}</div>
+                        </details>
+                      </div>
+
+                      <div>
+                        <label class="text-sm font-medium text-muted-foreground">Custom Prompt (optional)</label>
+                        <textarea
+                          v-model="promptEdits[image.index]"
+                          class="w-full h-16 p-2 border rounded text-sm resize-none"
+                          placeholder="Override the generated prompt..."
+                        ></textarea>
+                      </div>
+
+                      <Button
+                        size="sm"
+                        @click="regenerateImage(image.index)"
+                        :disabled="isRegenerating[image.index]"
+                        class="w-full bg-green-600 hover:bg-green-700 text-white"
+                      >
+                        <div v-if="isRegenerating[image.index]" class="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                        Regenerate Image
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="text-center py-8 text-muted-foreground">
+                <p>No images yet. Click 'Generate Images' to create them.</p>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+        </Accordion>
       </div>
     </div>
 
@@ -325,6 +382,13 @@ const dirtySections = ref(new Set())
 const asrData = ref(null)
 const isRefreshingAsr = ref(false)
 
+// Image data
+const images = ref([])
+const isGeneratingImages = ref(false)
+const isRegenerating = ref({})
+const imageEdits = ref({})
+const promptEdits = ref({})
+
 // Fetch data
 const { data: itemData, pending: itemLoading, error: itemError } = await useAsyncData(
   `hn-item-${itemId.value}`,
@@ -375,23 +439,25 @@ asrData.value = asrDataResponse.value
 isLoading.value = itemLoading.value || segmentLoading.value
 error.value = itemError.value || segmentError.value
 
-// Watch for data changes
+// Watch for data changes - simplified to prevent multiple renders
 watch([itemData, segmentData], ([newItem, newSegment]) => {
-  item.value = newItem
-  segment.value = newSegment
-})
+  if (newItem !== item.value) item.value = newItem
+  if (newSegment !== segment.value) segment.value = newSegment
+}, { immediate: false })
 
 watch(asrDataResponse, (newAsrData) => {
-  asrData.value = newAsrData
-})
+  if (newAsrData !== asrData.value) asrData.value = newAsrData
+}, { immediate: false })
 
 watch([itemLoading, segmentLoading], ([itemLoad, segmentLoad]) => {
-  isLoading.value = itemLoad || segmentLoad
-})
+  const newLoading = itemLoad || segmentLoad
+  if (newLoading !== isLoading.value) isLoading.value = newLoading
+}, { immediate: false })
 
 watch([itemError, segmentError], ([itemErr, segmentErr]) => {
-  error.value = itemErr || segmentErr
-})
+  const newError = itemErr || segmentErr
+  if (newError !== error.value) error.value = newError
+}, { immediate: false })
 
 function formatDateTime(dateString) {
   if (!dateString) return 'Unknown'
@@ -540,6 +606,23 @@ function getAudioUrl(audioPath) {
   return `${config.public.apiBase}${relativePath}`
 }
 
+function getImageUrl(imagePath, imageIndex) {
+  if (!imagePath) return ''
+
+  // Convert container path to API endpoint
+  // Example: /app/outputs/hn/item/45106314/runs/1/segments/1/images/1/image.png
+  // -> /api/images/45106314/1/1/1/image.png
+
+  const match = imagePath.match(/\/item\/(\d+)\/runs\/(\d+)\/segments\/(\d+)\/images\/\d+\/image\.png/)
+  if (match) {
+    const [, itemId, runId, segId] = match
+    return `${config.public.apiBase}/api/images/${itemId}/${runId}/${segId}/${imageIndex}/image.png`
+  }
+
+  // Fallback to original path if pattern doesn't match
+  return imagePath
+}
+
 async function refreshSegment() {
   try {
     const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments/${segId.value}`)
@@ -563,8 +646,111 @@ async function refreshAsr() {
   }
 }
 
-// Load sections when component mounts
+// Image methods
+async function fetchImages() {
+  try {
+    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments/${segId.value}/images`)
+    images.value = response.images || []
+
+    // Initialize edit objects
+    images.value.forEach(image => {
+      imageEdits.value[image.index] = image.line_text
+      promptEdits.value[image.index] = ''
+    })
+  } catch (err) {
+    console.error('Failed to fetch images:', err)
+  }
+}
+
+async function generateImages() {
+  if (isGeneratingImages.value) return
+
+  isGeneratingImages.value = true
+
+  try {
+    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments/${segId.value}/images`, {
+      method: 'POST'
+    })
+
+    console.log('Image generation queued:', response)
+
+    // Poll for completion
+    await pollForImages()
+  } catch (err) {
+    console.error('Failed to generate images:', err)
+    error.value = 'Failed to generate images'
+  } finally {
+    isGeneratingImages.value = false
+  }
+}
+
+async function pollForImages() {
+  const maxAttempts = 30 // 30 seconds max
+  let attempts = 0
+
+  while (attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, 1000)) // Wait 1 second
+
+    try {
+      await fetchImages()
+
+      // Check if we have images now
+      if (images.value.length > 0) {
+        console.log('Images generated successfully')
+        return
+      }
+    } catch (err) {
+      console.error('Error polling for images:', err)
+    }
+
+    attempts++
+  }
+
+  console.warn('Image generation polling timed out')
+}
+
+async function regenerateImage(index) {
+  if (isRegenerating.value[index]) return
+
+  isRegenerating.value[index] = true
+
+  try {
+    const requestBody = {}
+
+    // Add overrides if they exist
+    if (imageEdits.value[index] && imageEdits.value[index] !== images.value.find(img => img.index === index)?.line_text) {
+      requestBody.line_text = imageEdits.value[index]
+    }
+
+    if (promptEdits.value[index]) {
+      requestBody.prompt = promptEdits.value[index]
+    }
+
+    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments/${segId.value}/images/${index}`, {
+      method: 'POST',
+      body: requestBody
+    })
+
+    console.log('Image regeneration queued:', response)
+
+    // Poll for completion
+    await pollForImages()
+  } catch (err) {
+    console.error('Failed to regenerate image:', err)
+    error.value = 'Failed to regenerate image'
+  } finally {
+    isRegenerating.value[index] = false
+  }
+}
+
+function handleImageError(event) {
+  console.error('Image failed to load:', event.target.src)
+  event.target.style.display = 'none'
+}
+
+// Load sections and images when component mounts
 onMounted(() => {
   fetchSections()
+  fetchImages()
 })
 </script>

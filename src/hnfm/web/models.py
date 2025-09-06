@@ -145,6 +145,14 @@ class Segment(BaseModel):
         default=None, description="Path to ASR JSON file with word timestamps"
     )
 
+    # Image fields
+    images_total: int = Field(
+        default=0, description="Total number of image entries tracked"
+    )
+    images_ready: bool = Field(
+        default=False, description="True when all images are generated"
+    )
+
 
 class SegmentSection(BaseModel):
     """Model for individual audio sections within a segment"""
@@ -168,6 +176,33 @@ class SegmentSection(BaseModel):
     )
     created_at: datetime = Field(..., description="When the section was created")
     updated_at: datetime = Field(..., description="When the section was last updated")
+
+
+class SegmentImage(BaseModel):
+    """Model for individual image entries within a segment"""
+
+    key: str = Field(
+        ..., description="Redis key format: hnfm:seg:{item_id}:{run}:{seg}:img:{index}"
+    )
+    item_id: int = Field(..., description="Hacker News item ID")
+    run: int = Field(..., description="Run number for this item")
+    seg: int = Field(..., description="Segment number within the run")
+    index: int = Field(..., description="Image index within the segment (1-based)")
+    line_text: str = Field(
+        ..., description="The line/section text this image illustrates"
+    )
+    prompt: str = Field(..., description="Generated prompt text")
+    image_path: Optional[str] = Field(
+        default=None, description="Path to generated image file"
+    )
+    start_ms: Optional[int] = Field(
+        default=None, description="Alignment start time in milliseconds"
+    )
+    duration_ms: Optional[int] = Field(
+        default=None, description="Alignment duration in milliseconds"
+    )
+    created_at: datetime = Field(..., description="When the image was created")
+    updated_at: datetime = Field(..., description="When the image was last updated")
 
 
 class SegmentSummary(BaseModel):

@@ -142,6 +142,12 @@ const isLoading = ref(true)
 const error = ref(null)
 const isQueueing = ref(false)
 
+// Ensure config is available
+if (!config.public?.apiBase) {
+  console.error('API base URL not configured')
+  error.value = 'Configuration error: API base URL not found'
+}
+
 // Initialize pagination
 const pagination = usePagination({
   initialPage: 1,
@@ -157,6 +163,11 @@ async function fetchItems(page = 1) {
   try {
     isLoading.value = true
     error.value = null
+
+    // Check if API base is available
+    if (!config.public?.apiBase) {
+      throw new Error('API base URL not configured')
+    }
 
     const limit = pagination.limit.value
     const offset = pagination.offset.value
@@ -174,7 +185,8 @@ async function fetchItems(page = 1) {
     }
   } catch (err) {
     console.error('API error:', err)
-    error.value = 'Failed to fetch items: ' + err.message
+    error.value = 'Failed to fetch items: ' + (err.message || 'Unknown error')
+    items.value = [] // Ensure items is always an array
   } finally {
     isLoading.value = false
   }
@@ -223,7 +235,12 @@ function navigateToItem(itemId) {
 }
 
 // Fetch data on mount
-onMounted(() => {
-  fetchItems(1)
+onMounted(async () => {
+  try {
+    await fetchItems(1)
+  } catch (err) {
+    console.error('Failed to fetch items on mount:', err)
+    error.value = 'Failed to load items. Please try refreshing the page.'
+  }
 })
 </script>

@@ -1457,3 +1457,302 @@ Handle 404 by returning `null` in a `try/catch` or `onResponseError`.
 * [ ] Segment detail page shows an **ASR** accordion; displays JSON or “not ready yet,” with a working **Refresh** button.
 
 This keeps the change **tiny** and **predictable**, leverages your existing task, and makes the ASR output available immediately for future steps (subtitle generation, alignment views, etc.).
+
+
+---
+
+Here’s a **tight, unambiguous plan** to add **Image Prompts & Image Generation** for each spoken line/section of a Segment. It keeps the same patterns you already use for runs, segments, and audio sections.
+
+# 1) Data models
+
+### 1.1 Update `Segment` (add image status)
+
+```python
+class Segment(BaseModel):
+    key: str
+    item_id: int
+    run: int
+    seg: int
+    created_at: datetime
+    processed_run_key: str
+    script: str
+
+    sections_total: int = 0
+    audio_combined_path: Optional[str] = None
+    audio_ready: bool = False
+    asr_json_path: Optional[str] = None
+
+    # NEW
+    images_total: int = 0           # number of image entries tracked
+    images_ready: bool = False      # True when all images are generated
+```
+
+### 1.2 Image item (one per section index)
+
+```python
+class SegmentImage(BaseModel):
+    key: str                               # "hnfm:seg:{item_id}:{run}:{seg}:img:{index}"
+    item_id: int
+    run: int
+    seg: int
+    index: int                              # 1-based, matches section number
+    line_text: str                          # the line/section text this image illustrates
+    prompt: str                             # generated prompt text
+    image_path: Optional[str] = None        # outputs/.../images/{index}/image.png
+    start_ms: Optional[int] = None          # alignment start (from audio sections if available)
+    duration_ms: Optional[int] = None       # alignment duration (from audio sections if available)
+    created_at: datetime
+    updated_at: datetime
+```
+
+---
+
+# 2) Redis keys & disk layout
+
+### 2.1 Redis
+
+* Per-image JSON: `hnfm:seg:{item_id}:{run}:{seg}:img:{index}` → `SegmentImage` JSON
+* Per-segment image list (ordered): `hnfm:seg:{item_id}:{run}:{seg}:img:list`
+
+  * Use **RPUSH** with `"1"`, `"2"`, … once (preserves order).
+  * Read with `LRANGE 0 -1` for sequential display.
+
+### 2.2 Disk
+
+```
+outputs/hn/item/{item_id}/runs/{run}/segments/{seg}/
+  segment.json
+  images/
+    {index}/
+      image.png
+      meta.json           # serialized SegmentImage
+```
+
+---
+
+# 3) Helpers (signatures only; keep synchronous; create parent folders before writing)
+
+### 3.1 Key/path helpers
+
+```python
+def k_img(item_id:int, run:int, seg:int, index:int) -> str: ...
+def k_img_list(item_id:int, run:int, seg:int) -> str: ...
+
+def seg_root(outputs_root:str, item_id:int, run:int, seg:int) -> str: ...
+def img_dir(outputs_root:str, item_id:int, run:int, seg:int, index:int) -> str: ...
+def img_path(outputs_root:str, item_id:int, run:int, seg:int, index:int) -> str:  # .../image.png
+def img_meta_path(outputs_root:str, item_id:int, run:int, seg:int, index:int) -> str:  # .../meta.json
+```
+
+### 3.2 Script → sections (reuse your existing splitter)
+
+Use the **same** `split_script_into_sections(script)` you used for audio (2 lines per section, last may be 1).
+
+### 3.3 Alignment from audio sections (optional if available)
+
+```python
+def alignment_from_sections(item_id:int, run:int, seg:int, *, redis_client) -> list[tuple[int,int]] | None:
+    """
+    If narration sections exist: compute [(start_ms, duration_ms), ...] in index order.
+    start_ms is cumulative sum of previous durations.
+    Return None if sections missing.
+    """
+```
+
+### 3.4 Prompt generation (Reasoning: high)
+
+```python
+def generate_image_prompt_v1(line_text:str, run_summary:str) -> str:
+    """
+    Call image_prompt_generator.py / LLM endpoint.
+    System message (exact):
+      "You are an expert visual prompt writer for generative images.
+       Reasoning: high. Think carefully and pick concrete nouns, vivid setting,
+       era/lighting/camera, and a single clear subject that best illustrates the text."
+    User content template:
+      "Context summary:\n{run_summary}\n\nLine to illustrate:\n{line_text}\n\n
+       Write ONE image prompt (no preamble). Use: subject, setting, key props,
+       mood, era/time of day, composition, camera/lens, lighting."
+    Return plain string. Raise on error/empty.
+    """
+```
+
+### 3.5 Image generation
+
+```python
+def generate_image_from_prompt(prompt:str, out_path:str) -> None:
+    """
+    Use video/image scripts you have (image_generator.py) or service.
+    Must write a PNG to out_path. Overwrite if exists.
+    """
+```
+
+### 3.6 Save / list / get
+
+```python
+def save_segment_image(si: SegmentImage, *, redis_client, outputs_root:str) -> None:
+    # SET Redis
+    # Ensure list contains index (RPUSH once if not present)
+    # Write meta.json
+
+def get_segment_image(item_id:int, run:int, seg:int, index:int, *, redis_client) -> SegmentImage | None: ...
+
+def list_segment_images(item_id:int, run:int, seg:int, *, redis_client) -> list[int]:
+    # LRANGE img:list 0 -1 -> [1,2,...] as ints
+```
+
+### 3.7 Update Segment image status
+
+```python
+def update_segment_images_status(item_id:int, run:int, seg:int, total:int, ready:bool, *, redis_client) -> None:
+    # Load Segment, set images_total and images_ready, re-save to Redis and segment.json
+```
+
+---
+
+# 4) Celery task (single orchestrator + single-item regen)
+
+### 4.1 Build all prompts & images
+
+```python
+def build_segment_images(item_id:int, run:int, seg:int) -> dict:
+    """
+    1) Load Segment; require non-empty script. If empty → raise.
+    2) Determine text chunks:
+         sections = split_script_into_sections(segment.script)  # [str]
+    3) Determine alignment (optional):
+         align = alignment_from_sections(...) or None
+    4) Load ProcessedRun summary via segment.processed_run_key; use as context.
+    5) Loop i, text in enumerate(sections, start=1):
+         prompt = generate_image_prompt_v1(text, run_summary)
+         out = img_path(..., index=i)
+         generate_image_from_prompt(prompt, out)
+         start_ms, duration_ms = align[i-1] if align else (None, None)
+         si = SegmentImage(
+             key=k_img(...), item_id=item_id, run=run, seg=seg, index=i,
+             line_text=text, prompt=prompt, image_path=out,
+             start_ms=start_ms, duration_ms=duration_ms,
+             created_at=utcnow(), updated_at=utcnow())
+         save_segment_image(si, ...)
+    6) update_segment_images_status(..., total=len(sections), ready=True)
+    7) return {"status":"ok","item_id":item_id,"run":run,"seg":seg,"images":len(sections)}
+    """
+```
+
+### 4.2 Regenerate a single image (with optional prompt/line override)
+
+```python
+def rebuild_single_image(item_id:int, run:int, seg:int, index:int,
+                         prompt_override:str|None=None, line_override:str|None=None) -> dict:
+    """
+    1) Load existing SegmentImage if present; else create shell using current script chunk at index.
+    2) Decide line_text: line_override or existing or split_script index text.
+    3) Decide prompt: prompt_override or generate_image_prompt_v1(line_text, run_summary).
+    4) out = img_path(..., index)
+       generate_image_from_prompt(prompt, out)  # overwrite
+    5) Compute alignment if available; set start_ms/duration_ms.
+    6) Save SegmentImage with updated prompt/line_text/image_path/updated_at.
+    7) return {"status":"ok","item_id":...,"run":...,"seg":...,"index":index}
+    """
+```
+
+> Enqueue with `apply_async` from API.
+
+---
+
+# 5) API (FastAPI)
+
+### 5.1 Trigger prompts+images for a segment (all)
+
+* **POST** `/api/hn/items/{item_id}/runs/{run}/segments/{seg}/images`
+* **Precheck:** load Segment; if `script` empty → 400 `{ "detail": "Script not ready" }`.
+* **Action:** `build_segment_images.apply_async(args=[item_id, run, seg])`
+* **Response:** `{"status":"queued","item_id":...,"run":...,"seg":...,"mode":"all"}`
+
+### 5.2 List images for a segment (ordered)
+
+* **GET** `/api/hn/items/{item_id}/runs/{run}/segments/{seg}/images`
+* **Response:**
+
+```json
+{
+  "item_id": 45114175,
+  "run": 1,
+  "seg": 1,
+  "images": [
+    {
+      "index": 1,
+      "line_text": "line or 2-line chunk",
+      "prompt": "full prompt string",
+      "image_path": "/abs/.../image.png",
+      "start_ms": 0,
+      "duration_ms": 3456
+    },
+    ...
+  ]
+}
+```
+
+### 5.3 Regenerate a single image (optional overrides)
+
+* **POST** `/api/hn/items/{item_id}/runs/{run}/segments/{seg}/images/{index}`
+* **Body (optional):** `{ "prompt": "...", "line_text": "..." }`
+* **Action:** call `rebuild_single_image.apply_async(args=[item_id, run, seg, index], kwargs={...overrides...})`
+* **Response:** `{"status":"queued","item_id":...,"run":...,"seg":...,"index":index,"mode":"one"}`
+
+---
+
+# 6) Frontend (segment detail page `/hn/item/[id]/run-[runId]-seg-[segId]`)
+
+Add a new **Images** accordion **at the bottom**.
+
+### 6.1 Data fetch
+
+* Already fetch Segment.
+* Fetch list: `GET /api/hn/items/{id}/runs/{runId}/segments/{segId}/images`.
+
+### 6.2 UI layout
+
+* **Accordion: “Images”**
+
+  * **Top-right button:** “Generate Images”
+
+    * Calls `POST /api/.../segments/{segId}/images`, then refetch list.
+  * **Grid/List (ordered by index):** for each image:
+
+    * **Index** (e.g., “1”)
+    * **Preview**: `<img :src="image.image_path" alt="...">` (ensure path is accessible by your file server)
+    * **Line text**: show in a readonly `<textarea>` (2 lines tall). Allow editing when regenerating:
+
+      * Provide a small “Edit & Regenerate” flow:
+
+        * Editable `<textarea v-model="lineEdits[index]">`
+        * Prompt `<textarea v-model="promptEdits[index]">`
+        * **Regenerate** button → `POST /api/.../images/{index}` with body including only fields that changed.
+        * After success, refetch images.
+    * **Prompt**: show in collapsed `<details><summary>Prompt</summary><pre>{{ prompt }}</pre></details>`
+    * **Timing**: if `start_ms` present, show `Start: Xs · Dur: Ys`.
+
+* If images list is empty, show “No images yet. Click ‘Generate Images’.”
+
+---
+
+# 7) Build order
+
+1. **Models**: update `Segment`, add `SegmentImage`.
+2. **Keys/paths**: `k_img`, `k_img_list`, `img_dir`, `img_path`, `img_meta_path`.
+3. **Helpers**: alignment\_from\_sections, generate\_image\_prompt\_v1, generate\_image\_from\_prompt, save/get/list image, update\_segment\_images\_status.
+4. **Tasks**: `build_segment_images`, `rebuild_single_image`.
+5. **API**: POST (all), GET (list), POST (single).
+6. **Frontend**: Images accordion with “Generate Images”, gallery list, and per-image “Edit & Regenerate”.
+
+---
+
+# 8) Acceptance checklist
+
+* [ ] POST **/images** queues a job only if `segment.script` is present.
+* [ ] Task generates **one image per section** in order, writes `image.png` and `meta.json`, and saves `SegmentImage` in Redis.
+* [ ] Listing endpoint returns images in order with line text, prompt, image path, and timing if available.
+* [ ] Single-image POST regenerates and overwrites image + meta with optional text/prompt overrides.
+* [ ] Segment status reflects `images_total` and `images_ready` when done.
+* [ ] Segment page shows images, text, prompt, and has working “Generate Images” + “Edit & Regenerate” actions.

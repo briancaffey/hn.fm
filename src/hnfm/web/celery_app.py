@@ -52,6 +52,12 @@ celery_app.conf.update(
         "hnfm.web.tasks.process_hn_item_run": {"queue": "hnfm_tasks"},
         "src.hnfm.web.tasks.generate_segment": {"queue": "hnfm_tasks"},
         "hnfm.web.tasks.generate_segment": {"queue": "hnfm_tasks"},
+        "src.hnfm.web.tasks.build_segment_audio": {"queue": "hnfm_tasks"},
+        "hnfm.web.tasks.build_segment_audio": {"queue": "hnfm_tasks"},
+        "src.hnfm.web.tasks.build_segment_images": {"queue": "hnfm_tasks"},
+        "hnfm.web.tasks.build_segment_images": {"queue": "hnfm_tasks"},
+        "src.hnfm.web.tasks.rebuild_single_image": {"queue": "hnfm_tasks"},
+        "hnfm.web.tasks.rebuild_single_image": {"queue": "hnfm_tasks"},
     },
     # Task serialization
     task_serializer="json",

@@ -26,6 +26,16 @@ def k_seg_list(item_id: int, run: int) -> str:
     return f"hnfm:seg:list:{item_id}:{run}"
 
 
+def k_img(item_id: int, run: int, seg: int, index: int) -> str:
+    """Generate Redis key for a segment image"""
+    return f"hnfm:seg:{item_id}:{run}:{seg}:img:{index}"
+
+
+def k_img_list(item_id: int, run: int, seg: int) -> str:
+    """Generate Redis key for segment image list (ordered)"""
+    return f"hnfm:seg:{item_id}:{run}:{seg}:img:list"
+
+
 def seg_dir(outputs_root: str, item_id: int, run: int, seg: int) -> str:
     """Generate disk directory path for a segment"""
     return f"{outputs_root}/hn/item/{item_id}/runs/{run}/segments/{seg}"
@@ -34,6 +44,28 @@ def seg_dir(outputs_root: str, item_id: int, run: int, seg: int) -> str:
 def asr_json_path(outputs_root: str, item_id: int, run: int, seg: int) -> str:
     """Generate path for ASR JSON file"""
     return f"{outputs_root}/hn/item/{item_id}/runs/{run}/segments/{seg}/audio/asr.json"
+
+
+def seg_root(outputs_root: str, item_id: int, run: int, seg: int) -> str:
+    """Generate root directory path for a segment (same as seg_dir)"""
+    return seg_dir(outputs_root, item_id, run, seg)
+
+
+def img_dir(outputs_root: str, item_id: int, run: int, seg: int, index: int) -> str:
+    """Generate directory path for a segment image"""
+    return f"{outputs_root}/hn/item/{item_id}/runs/{run}/segments/{seg}/images/{index}"
+
+
+def img_path(outputs_root: str, item_id: int, run: int, seg: int, index: int) -> str:
+    """Generate path for segment image file"""
+    return f"{img_dir(outputs_root, item_id, run, seg, index)}/image.png"
+
+
+def img_meta_path(
+    outputs_root: str, item_id: int, run: int, seg: int, index: int
+) -> str:
+    """Generate path for segment image metadata file"""
+    return f"{img_dir(outputs_root, item_id, run, seg, index)}/meta.json"
 
 
 def write_json(path: str, data: dict) -> None:
@@ -266,3 +298,202 @@ def delete_segment(
         shutil.rmtree(seg_path)
 
     return True
+
+
+def alignment_from_sections(
+    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
+) -> Optional[List[tuple[int, int]]]:
+    """
+    If narration sections exist: compute [(start_ms, duration_ms), ...] in index order.
+    start_ms is cumulative sum of previous durations.
+    Return None if sections missing.
+    """
+    try:
+        from .audio_utils import k_sec_list
+
+        # Get all section keys for this segment
+        list_key = k_sec_list(item_id, run, seg)
+        section_keys = redis_client.lrange(list_key, 0, -1)
+
+        if not section_keys:
+            return None
+
+        alignments = []
+        cumulative_start = 0
+
+        for section_key in section_keys:
+            section_data = redis_client.get(section_key)
+            if not section_data:
+                continue
+
+            try:
+                from ..web.models import SegmentSection
+
+                section = SegmentSection.model_validate_json(section_data)
+
+                if section.duration_ms is not None:
+                    alignments.append((cumulative_start, section.duration_ms))
+                    cumulative_start += section.duration_ms
+                else:
+                    # If duration is missing, skip this section
+                    continue
+
+            except Exception:
+                continue
+
+        return alignments if alignments else None
+
+    except Exception:
+        return None
+
+
+def generate_image_prompt_v1(line_text: str, run_summary: str) -> str:
+    """
+    Call image_prompt_generator.py / LLM endpoint.
+    System message (exact):
+      "You are an expert visual prompt writer for generative images.
+       Reasoning: high. Think carefully and pick concrete nouns, vivid setting,
+       era/lighting/camera, and a single clear subject that best illustrates the text."
+    User content template:
+      "Context summary:\n{run_summary}\n\nLine to illustrate:\n{line_text}\n\n
+       Write ONE image prompt (no preamble). Use: subject, setting, key props,
+       mood, era/time of day, composition, camera/lens, lighting."
+    Return plain string. Raise on error/empty.
+    """
+    try:
+        from ..content.llm_service import LLMService
+        from ..utils.config import config_manager
+
+        # Get LLM configuration
+        llm_config = config_manager.get("llm", {})
+
+        # Initialize LLM service
+        if llm_config.get("enabled", False):
+            base_url = llm_config.get("base_url")
+            model = llm_config.get("model", "gpt-oss")
+            llm_service = LLMService(base_url=base_url, model=model)
+        else:
+            llm_service = LLMService()
+
+        system_prompt = """You are an expert visual prompt writer for generative images.
+Reasoning: high. Think carefully and pick concrete nouns, vivid setting,
+era/lighting/camera, and a single clear subject that best illustrates the text."""
+
+        user_prompt = f"""Context summary:
+{run_summary}
+
+Line to illustrate:
+{line_text}
+
+Write ONE image prompt (no preamble). Use: subject, setting, key props,
+mood, era/time of day, composition, camera/lens, lighting."""
+
+        # Generate the prompt using LLM
+        combined_prompt = f"{system_prompt}\n\n{user_prompt}"
+        response = llm_service.generate_content(combined_prompt)
+
+        if not response:
+            raise RuntimeError("LLM returned empty response")
+
+        # Clean up the response
+        prompt = response.strip()
+        if prompt.startswith('"') and prompt.endswith('"'):
+            prompt = prompt[1:-1]
+
+        return prompt
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate image prompt: {e}")
+
+
+def generate_image_from_prompt(prompt: str, out_path: str) -> None:
+    """
+    Use video/image scripts you have (image_generator.py) or service.
+    Must write a PNG to out_path. Overwrite if exists.
+    """
+    try:
+        from ..video.image_generator import ImageGenerationService
+
+        # Create output directory if it doesn't exist
+        Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+
+        # Generate and save image
+        service = ImageGenerationService()
+        service.generate_and_save_image(prompt, out_path, "image.png")
+
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate image: {e}")
+
+
+def save_segment_image(
+    si: "SegmentImage", *, redis_client: redis.Redis, outputs_root: str
+) -> None:
+    """Save segment image to Redis and disk"""
+    from ..web.models import SegmentImage
+
+    # Save to Redis
+    redis_client.set(si.key, si.model_dump_json())
+
+    # Add to image list if not already present
+    list_key = k_img_list(si.item_id, si.run, si.seg)
+    if not redis_client.lrange(list_key, 0, -1) or str(si.index) not in [
+        x.decode() for x in redis_client.lrange(list_key, 0, -1)
+    ]:
+        redis_client.rpush(list_key, str(si.index))
+
+    # Write meta.json
+    meta_path = img_meta_path(outputs_root, si.item_id, si.run, si.seg, si.index)
+    # Use model_dump_json() to handle datetime serialization properly
+    with open(meta_path, 'w', encoding='utf-8') as f:
+        f.write(si.model_dump_json())
+
+
+def get_segment_image(
+    item_id: int, run: int, seg: int, index: int, *, redis_client: redis.Redis
+) -> Optional["SegmentImage"]:
+    """Get segment image from Redis"""
+    from ..web.models import SegmentImage
+
+    key = k_img(item_id, run, seg, index)
+    data = redis_client.get(key)
+
+    if not data:
+        return None
+
+    try:
+        return SegmentImage.model_validate_json(data)
+    except Exception:
+        return None
+
+
+def list_segment_images(
+    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
+) -> List[int]:
+    """List segment image indexes in order"""
+    list_key = k_img_list(item_id, run, seg)
+    indexes = redis_client.lrange(list_key, 0, -1)
+    return [int(idx) for idx in indexes]
+
+
+def update_segment_images_status(
+    item_id: int,
+    run: int,
+    seg: int,
+    total: int,
+    ready: bool,
+    *,
+    redis_client: redis.Redis,
+    outputs_root: str,
+) -> None:
+    """Update segment image status"""
+    # Load Segment
+    segment = get_segment(item_id, run, seg, redis_client=redis_client)
+    if not segment:
+        raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
+
+    # Update image fields
+    segment.images_total = total
+    segment.images_ready = ready
+
+    # Re-save to Redis and disk
+    save_segment(segment, redis_client=redis_client, outputs_root=outputs_root)

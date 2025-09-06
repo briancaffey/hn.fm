@@ -4,8 +4,8 @@ import json
 import logging
 import os
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI, HTTPException, Depends, Body
+from fastapi.responses import JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import redis
 
@@ -195,7 +195,12 @@ async def list_downloaded_items(
 
         return {
             "items": [item.model_dump() for item in items],
-            "pagination": {"offset": offset, "limit": limit, "count": len(items), "total": existing_count},
+            "pagination": {
+                "offset": offset,
+                "limit": limit,
+                "count": len(items),
+                "total": existing_count,
+            },
         }
 
     except Exception as e:
@@ -606,12 +611,7 @@ async def get_segment_asr(
         with open(segment.asr_json_path, "r", encoding="utf-8") as f:
             asr_data = json.load(f)
 
-        return {
-            "item_id": item_id,
-            "run": run,
-            "seg": seg,
-            "asr": asr_data
-        }
+        return {"item_id": item_id, "run": run, "seg": seg, "asr": asr_data}
 
     except HTTPException:
         raise
@@ -678,3 +678,189 @@ async def serve_audio_file(item_id: int, run: int, seg: int, filename: str):
             f"Failed to serve audio file {filename} for segment {item_id}:{run}:{seg}: {e}"
         )
         raise HTTPException(status_code=500, detail="Failed to serve audio file")
+
+
+@app.get("/api/images/{item_id}/{run}/{seg}/{index}/{filename}")
+async def serve_image_file(item_id: int, run: int, seg: int, index: int, filename: str):
+    """Serve image files for segments"""
+    try:
+        from fastapi.responses import FileResponse
+
+        # Get outputs directory
+        outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
+
+        # Construct the file path
+        if filename == "image.png":
+            # Segment image
+            image_path = os.path.join(
+                outputs_dir,
+                "hn",
+                "item",
+                str(item_id),
+                "runs",
+                str(run),
+                "segments",
+                str(seg),
+                "images",
+                str(index),
+                "image.png",
+            )
+        else:
+            raise HTTPException(status_code=400, detail="Invalid filename")
+
+        # Check if file exists
+        if not os.path.exists(image_path):
+            raise HTTPException(status_code=404, detail="Image file not found")
+
+        # Return the file
+        return FileResponse(path=image_path, media_type="image/png", filename=filename)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to serve image file {filename} for segment {item_id}:{run}:{seg}:{index}: {e}"
+        )
+        raise HTTPException(status_code=500, detail="Failed to serve image file")
+
+
+# Image endpoints
+
+
+@app.post(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/images",
+    response_model=dict,
+    tags=["images"],
+)
+async def build_segment_images_endpoint(
+    item_id: int,
+    run: int,
+    seg: int,
+    redis_client: redis.Redis = Depends(get_redis_client),
+):
+    """Trigger prompts+images for a segment (all)"""
+    try:
+        from .tasks import build_segment_images
+        from ..utils.segment_utils import get_segment
+
+        # Precheck: load Segment; if script empty → 400
+        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        if not segment:
+            raise HTTPException(status_code=404, detail="Segment not found")
+
+        if not segment.script.strip():
+            raise HTTPException(status_code=400, detail="Script not ready")
+
+        # Action: queue the task
+        task = build_segment_images.apply_async(args=[item_id, run, seg])
+
+        # Response
+        return {
+            "status": "queued",
+            "item_id": item_id,
+            "run": run,
+            "seg": seg,
+            "mode": "all",
+            "task_id": task.id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to queue image generation for segment {item_id}:{run}:{seg}: {e}"
+        )
+        raise HTTPException(status_code=500, detail="Failed to queue image generation")
+
+
+@app.get(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/images",
+    response_model=dict,
+    tags=["images"],
+)
+async def list_segment_images_endpoint(
+    item_id: int,
+    run: int,
+    seg: int,
+    redis_client: redis.Redis = Depends(get_redis_client),
+):
+    """List images for a segment (ordered)"""
+    try:
+        from ..utils.segment_utils import list_segment_images, get_segment_image
+
+        # Get list of image indexes
+        indexes = list_segment_images(item_id, run, seg, redis_client=redis_client)
+
+        # Get each image
+        images = []
+        for index in indexes:
+            image = get_segment_image(
+                item_id, run, seg, index, redis_client=redis_client
+            )
+            if image:
+                images.append(
+                    {
+                        "index": image.index,
+                        "line_text": image.line_text,
+                        "prompt": image.prompt,
+                        "image_path": image.image_path,
+                        "start_ms": image.start_ms,
+                        "duration_ms": image.duration_ms,
+                    }
+                )
+
+        return {"item_id": item_id, "run": run, "seg": seg, "images": images}
+
+    except Exception as e:
+        logger.error(f"Failed to list images for segment {item_id}:{run}:{seg}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list images")
+
+
+@app.post(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/images/{index}",
+    response_model=dict,
+    tags=["images"],
+)
+async def rebuild_single_image_endpoint(
+    item_id: int,
+    run: int,
+    seg: int,
+    index: int,
+    request_data: dict = Body(None),
+    redis_client: redis.Redis = Depends(get_redis_client),
+):
+    """Regenerate a single image (optional overrides)"""
+    try:
+        from .tasks import rebuild_single_image
+
+        # Extract optional overrides from request body
+        prompt_override = None
+        line_override = None
+        if request_data:
+            prompt_override = request_data.get("prompt")
+            line_override = request_data.get("line_text")
+
+        # Action: queue the task
+        task = rebuild_single_image.apply_async(
+            args=[item_id, run, seg, index],
+            kwargs={"prompt_override": prompt_override, "line_override": line_override},
+        )
+
+        # Response
+        return {
+            "status": "queued",
+            "item_id": item_id,
+            "run": run,
+            "seg": seg,
+            "index": index,
+            "mode": "one",
+            "task_id": task.id,
+        }
+
+    except Exception as e:
+        logger.error(
+            f"Failed to queue image regeneration for segment {item_id}:{run}:{seg}:{index}: {e}"
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to queue image regeneration"
+        )

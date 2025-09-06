@@ -407,13 +407,19 @@ def build_segment_audio(
                     seg_obj = get_segment(item_id, run, seg, redis_client=redis_client)
                     if seg_obj:
                         seg_obj.asr_json_path = asr_path
-                        save_segment(seg_obj, redis_client=redis_client, outputs_root=outputs_dir)
+                        save_segment(
+                            seg_obj, redis_client=redis_client, outputs_root=outputs_dir
+                        )
 
                     result_dict["asr"] = "ok"
-                    logger.info(f"ASR processing completed for segment {item_id}:{run}:{seg}")
+                    logger.info(
+                        f"ASR processing completed for segment {item_id}:{run}:{seg}"
+                    )
                 except Exception as e:
                     # Fail ASR silently: keep task success, frontend will show "not ready" gracefully
-                    logger.warning(f"ASR processing failed for segment {item_id}:{run}:{seg}: {e}")
+                    logger.warning(
+                        f"ASR processing failed for segment {item_id}:{run}:{seg}: {e}"
+                    )
                     result_dict["asr"] = "error"
             else:
                 logger.warning(f"Combined audio not found for ASR: {combined_path}")
@@ -520,13 +526,19 @@ def build_segment_audio(
                     seg_obj = get_segment(item_id, run, seg, redis_client=redis_client)
                     if seg_obj:
                         seg_obj.asr_json_path = asr_path
-                        save_segment(seg_obj, redis_client=redis_client, outputs_root=outputs_dir)
+                        save_segment(
+                            seg_obj, redis_client=redis_client, outputs_root=outputs_dir
+                        )
 
                     result_dict["asr"] = "ok"
-                    logger.info(f"ASR processing completed for segment {item_id}:{run}:{seg}")
+                    logger.info(
+                        f"ASR processing completed for segment {item_id}:{run}:{seg}"
+                    )
                 except Exception as e:
                     # Fail ASR silently: keep task success, frontend will show "not ready" gracefully
-                    logger.warning(f"ASR processing failed for segment {item_id}:{run}:{seg}: {e}")
+                    logger.warning(
+                        f"ASR processing failed for segment {item_id}:{run}:{seg}: {e}"
+                    )
                     result_dict["asr"] = "error"
             else:
                 logger.warning(f"Combined audio not found for ASR: {combined_path}")
@@ -539,4 +551,289 @@ def build_segment_audio(
 
     except Exception as e:
         logger.error(f"Failed to build audio for segment {item_id}:{run}:{seg}: {e}")
+        raise
+
+
+@celery_app.task(name="hnfm.web.tasks.build_segment_images")
+def build_segment_images(item_id: int, run: int, seg: int) -> Dict:
+    """
+    Build all prompts & images for a segment.
+
+    1) Load Segment; require non-empty script. If empty → raise.
+    2) Determine text chunks: sections = split_script_into_sections(segment.script)
+    3) Determine alignment (optional): align = alignment_from_sections(...) or None
+    4) Load ProcessedRun summary via segment.processed_run_key; use as context.
+    5) Loop i, text in enumerate(sections, start=1):
+        prompt = generate_image_prompt_v1(text, run_summary)
+        out = img_path(..., index=i)
+        generate_image_from_prompt(prompt, out)
+        start_ms, duration_ms = align[i-1] if align else (None, None)
+        si = SegmentImage(...)
+        save_segment_image(si, ...)
+    6) update_segment_images_status(..., total=len(sections), ready=True)
+    7) return {"status":"ok","item_id":item_id,"run":run,"seg":seg,"images":len(sections)}
+    """
+    try:
+        from ..utils.segment_utils import (
+            get_segment,
+            alignment_from_sections,
+            generate_image_prompt_v1,
+            generate_image_from_prompt,
+            img_path,
+            k_img,
+            save_segment_image,
+            update_segment_images_status,
+        )
+        from ..audio.audio_utils import split_script_into_sections
+        from ..utils.run_utils import get_run
+        from .models import SegmentImage
+
+        # Get Redis client
+        redis_host = os.getenv("REDIS_HOST", "localhost")
+        redis_port = int(os.getenv("REDIS_PORT", "6379"))
+        redis_db = int(os.getenv("REDIS_DB", "0"))
+
+        redis_client = redis.Redis(
+            host=redis_host,
+            port=redis_port,
+            db=redis_db,
+            decode_responses=False,  # Keep as bytes for JSON compatibility
+        )
+
+        # Get outputs directory
+        outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
+
+        # 1) Load Segment; require non-empty script
+        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        if not segment:
+            raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
+
+        if not segment.script.strip():
+            raise RuntimeError("Script not ready")
+
+        # 2) Determine text chunks
+        sections = split_script_into_sections(segment.script)
+        logger.info(f"Split script into {len(sections)} sections for images")
+
+        # 3) Determine alignment (optional)
+        align = alignment_from_sections(item_id, run, seg, redis_client=redis_client)
+        if align:
+            logger.info(f"Found alignment data: {len(align)} sections")
+        else:
+            logger.info("No alignment data available")
+
+        # 4) Load ProcessedRun summary
+        processed_run = get_run(segment.item_id, segment.run, redis_client=redis_client)
+        if not processed_run:
+            raise RuntimeError(
+                f"ProcessedRun not found: {segment.item_id}:{segment.run}"
+            )
+
+        run_summary = processed_run.summary
+        logger.info(f"Using run summary: {run_summary[:100]}...")
+
+        # 5) Loop through sections and generate images
+        for i, text in enumerate(sections, start=1):
+            logger.info(f"Processing section {i}/{len(sections)}: {text[:50]}...")
+
+            # Generate prompt
+            prompt = generate_image_prompt_v1(text, run_summary)
+            logger.info(f"Generated prompt: {prompt[:100]}...")
+
+            # Generate image
+            out = img_path(outputs_root, item_id, run, seg, i)
+            generate_image_from_prompt(prompt, out)
+            logger.info(f"Generated image: {out}")
+
+            # Get alignment data if available
+            start_ms, duration_ms = (
+                align[i - 1] if align and i <= len(align) else (None, None)
+            )
+
+            # Create SegmentImage
+            si = SegmentImage(
+                key=k_img(item_id, run, seg, i),
+                item_id=item_id,
+                run=run,
+                seg=seg,
+                index=i,
+                line_text=text,
+                prompt=prompt,
+                image_path=out,
+                start_ms=start_ms,
+                duration_ms=duration_ms,
+                created_at=datetime.utcnow(),
+                updated_at=datetime.utcnow(),
+            )
+
+            # Save to Redis and disk
+            save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
+            logger.info(f"Saved image {i} metadata")
+
+        # 6) Update segment image status
+        update_segment_images_status(
+            item_id,
+            run,
+            seg,
+            total=len(sections),
+            ready=True,
+            redis_client=redis_client,
+            outputs_root=outputs_root,
+        )
+
+        logger.info(
+            f"Successfully generated {len(sections)} images for segment {item_id}:{run}:{seg}"
+        )
+
+        # 7) Return result
+        return {
+            "status": "ok",
+            "item_id": item_id,
+            "run": run,
+            "seg": seg,
+            "images": len(sections),
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to build images for segment {item_id}:{run}:{seg}: {e}")
+        raise
+
+
+@celery_app.task(name="hnfm.web.tasks.rebuild_single_image")
+def rebuild_single_image(
+    item_id: int,
+    run: int,
+    seg: int,
+    index: int,
+    prompt_override: str = None,
+    line_override: str = None,
+) -> Dict:
+    """
+    Regenerate a single image (with optional prompt/line override).
+
+    1) Load existing SegmentImage if present; else create shell using current script chunk at index.
+    2) Decide line_text: line_override or existing or split_script index text.
+    3) Decide prompt: prompt_override or generate_image_prompt_v1(line_text, run_summary).
+    4) out = img_path(..., index)
+       generate_image_from_prompt(prompt, out)  # overwrite
+    5) Compute alignment if available; set start_ms/duration_ms.
+    6) Save SegmentImage with updated prompt/line_text/image_path/updated_at.
+    7) return {"status":"ok","item_id":...,"run":...,"seg":...,"index":index}
+    """
+    try:
+        from ..utils.segment_utils import (
+            get_segment,
+            get_segment_image,
+            alignment_from_sections,
+            generate_image_prompt_v1,
+            generate_image_from_prompt,
+            img_path,
+            k_img,
+            save_segment_image,
+        )
+        from ..audio.audio_utils import split_script_into_sections
+        from ..utils.run_utils import get_run
+        from .models import SegmentImage
+
+        # Get Redis client
+        redis_host = os.getenv("REDIS_HOST", "localhost")
+        redis_port = int(os.getenv("REDIS_PORT", "6379"))
+        redis_db = int(os.getenv("REDIS_DB", "0"))
+
+        redis_client = redis.Redis(
+            host=redis_host,
+            port=redis_port,
+            db=redis_db,
+            decode_responses=False,  # Keep as bytes for JSON compatibility
+        )
+
+        # Get outputs directory
+        outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
+
+        # 1) Load existing SegmentImage or create shell
+        existing_image = get_segment_image(
+            item_id, run, seg, index, redis_client=redis_client
+        )
+
+        # Load segment for script access
+        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        if not segment:
+            raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
+
+        # 2) Decide line_text
+        if line_override:
+            line_text = line_override
+        elif existing_image:
+            line_text = existing_image.line_text
+        else:
+            # Get from script sections
+            sections = split_script_into_sections(segment.script)
+            if index <= len(sections):
+                line_text = sections[index - 1]
+            else:
+                raise RuntimeError(
+                    f"Index {index} out of range for {len(sections)} sections"
+                )
+
+        # 3) Decide prompt
+        if prompt_override:
+            prompt = prompt_override
+        else:
+            # Load ProcessedRun summary for context
+            processed_run = get_run(
+                segment.item_id, segment.run, redis_client=redis_client
+            )
+            if not processed_run:
+                raise RuntimeError(
+                    f"ProcessedRun not found: {segment.item_id}:{segment.run}"
+                )
+
+            run_summary = processed_run.summary
+            prompt = generate_image_prompt_v1(line_text, run_summary)
+
+        # 4) Generate image
+        out = img_path(outputs_root, item_id, run, seg, index)
+        generate_image_from_prompt(prompt, out)
+        logger.info(f"Regenerated image: {out}")
+
+        # 5) Compute alignment if available
+        align = alignment_from_sections(item_id, run, seg, redis_client=redis_client)
+        start_ms, duration_ms = (
+            align[index - 1] if align and index <= len(align) else (None, None)
+        )
+
+        # 6) Save SegmentImage
+        si = SegmentImage(
+            key=k_img(item_id, run, seg, index),
+            item_id=item_id,
+            run=run,
+            seg=seg,
+            index=index,
+            line_text=line_text,
+            prompt=prompt,
+            image_path=out,
+            start_ms=start_ms,
+            duration_ms=duration_ms,
+            created_at=(
+                existing_image.created_at if existing_image else datetime.utcnow()
+            ),
+            updated_at=datetime.utcnow(),
+        )
+
+        save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
+        logger.info(f"Saved regenerated image {index} metadata")
+
+        # 7) Return result
+        return {
+            "status": "ok",
+            "item_id": item_id,
+            "run": run,
+            "seg": seg,
+            "index": index,
+        }
+
+    except Exception as e:
+        logger.error(
+            f"Failed to rebuild image {index} for segment {item_id}:{run}:{seg}: {e}"
+        )
         raise
