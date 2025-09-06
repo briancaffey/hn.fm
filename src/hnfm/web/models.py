@@ -153,6 +153,17 @@ class Segment(BaseModel):
         default=False, description="True when all images are generated"
     )
 
+    # Video fields
+    video_path: Optional[str] = Field(
+        default=None, description="Path to generated video file"
+    )
+    subtitles_path: Optional[str] = Field(
+        default=None, description="Path to subtitles VTT file"
+    )
+    video_ready: bool = Field(
+        default=False, description="True when video is generated and ready"
+    )
+
 
 class SegmentSection(BaseModel):
     """Model for individual audio sections within a segment"""

@@ -1756,3 +1756,291 @@ Add a new **Images** accordion **at the bottom**.
 * [ ] Single-image POST regenerates and overwrites image + meta with optional text/prompt overrides.
 * [ ] Segment status reflects `images_total` and `images_ready` when done.
 * [ ] Segment page shows images, text, prompt, and has working “Generate Images” + “Edit & Regenerate” actions.
+
+---
+
+Perfect — here’s a **clean, end-to-end plan** to add **Video Creation** for a segment. It assumes you already have: audio sections (with `duration_ms`), combined audio, ASR JSON (optional), and one image per section.
+
+---
+
+# 1) Data model updates
+
+Extend your existing `Segment` model:
+
+```python
+class Segment(BaseModel):
+    # ...existing fields...
+    images_total: int = 0
+    images_ready: bool = False
+    asr_json_path: Optional[str] = None
+
+    # NEW (video)
+    video_path: Optional[str] = None          # outputs/.../video/segment.mp4
+    subtitles_path: Optional[str] = None      # outputs/.../video/captions.vtt
+    video_ready: bool = False
+```
+
+No new Pydantic models are required.
+
+---
+
+# 2) Disk layout (per segment)
+
+```
+outputs/hn/item/{item_id}/runs/{run}/segments/{seg}/
+  segment.json
+  audio/
+    sections/{n}/audio.wav
+    segment.wav
+    asr.json
+  images/
+    {n}/image.png
+    {n}/meta.json
+  video/
+    segment.mp4
+    captions.vtt
+    timeline.json      # (simple debug artifact: what we fed the generator)
+```
+
+---
+
+# 3) Redis keys
+
+No new keys. You will **update** the segment JSON stored at:
+
+* `hnfm:seg:{item_id}:{run}:{seg}` with `video_path`, `subtitles_path`, `video_ready`.
+
+Section and image metadata remain where they are:
+
+* Sections: `hnfm:seg:{item}:{run}:{seg}:sec:{n}` (contains `duration_ms`).
+* Images:   `hnfm:seg:{item}:{run}:{seg}:img:{n}` (contains `image_path`, `line_text`).
+
+---
+
+# 4) Helpers (simple, synchronous)
+
+Add these utility functions; they keep the task small and readable.
+
+### 4.1 Paths
+
+```python
+def video_dir(outputs_root:str, item_id:int, run:int, seg:int) -> str: ...
+def video_path(outputs_root:str, item_id:int, run:int, seg:int) -> str:         # .../video/segment.mp4
+def subtitles_path(outputs_root:str, item_id:int, run:int, seg:int) -> str:     # .../video/captions.vtt
+def timeline_path(outputs_root:str, item_id:int, run:int, seg:int) -> str:      # .../video/timeline.json
+```
+
+### 4.2 Gather ordered section indices
+
+```python
+def list_section_numbers(item_id:int, run:int, seg:int, *, redis_client) -> list[int]
+# (you already have this for audio; reuse it)
+```
+
+### 4.3 Load per-index data (strict)
+
+```python
+def load_section_and_image(item_id:int, run:int, seg:int, index:int, *, redis_client) -> dict:
+    """
+    Returns:
+      {
+        "index": index,
+        "duration_ms": int,             # from SegmentSection.duration_ms (REQUIRED)
+        "image_path": str,              # from SegmentImage.image_path (REQUIRED)
+        "text": str                     # from SegmentImage.line_text (for subtitles)
+      }
+    Raises if any required field is missing or empty.
+    """
+```
+
+### 4.4 Build timeline (ordered)
+
+```python
+def build_timeline(item_id:int, run:int, seg:int, *, redis_client) -> list[dict]:
+    """
+    For each index in list_section_numbers(...):
+      d = load_section_and_image(...)
+      Append:
+        {
+          "index": d["index"],
+          "image_path": d["image_path"],
+          "start_ms": sum(previous durations),
+          "duration_ms": d["duration_ms"],
+          "text": d["text"]
+        }
+    Return the list (strictly ascending by index).
+    """
+```
+
+### 4.5 Subtitles (section-level WebVTT)
+
+```python
+def write_vtt_from_timeline(timeline:list[dict], out_path:str) -> None:
+    """
+    Create WebVTT with one cue per section:
+      cue i:
+        start = start_ms
+        end   = start_ms + duration_ms
+        text  = timeline[i]["text"]
+    Save as UTF-8 VTT. (Keep it simple: no word-level captions yet.)
+    """
+```
+
+*(We will not parse word timestamps now; this is intentionally simple and reliable.)*
+
+### 4.6 Persist segment updates
+
+```python
+def update_segment_video_fields(item_id:int, run:int, seg:int, *,
+                                redis_client,
+                                video_path_str:str|None,
+                                subtitles_path_str:str|None,
+                                video_ready:bool) -> None:
+    """
+    Load segment → set fields → SET Redis → overwrite segment.json on disk.
+    """
+```
+
+---
+
+# 5) VideoGenerator integration contract
+
+Adjust (or wrap) your `VideoGenerator` so it can be called **exactly** like this:
+
+```python
+vg = VideoGenerator()
+vg.create_video(
+    audio_path=segment.audio_combined_path,         # absolute path to segment.wav
+    timeline=[                                      # list of dicts in order
+      {"image_path": ".../images/1/image.png", "start_ms": 0,     "duration_ms": 2345},
+      {"image_path": ".../images/2/image.png", "start_ms": 2345,  "duration_ms": 3210},
+      # ...
+    ],
+    subtitles_path=".../video/captions.vtt",       # optional (file may or may not exist)
+    output_path=".../video/segment.mp4",           # final MP4 path
+    size=(1920,1080),                              # fixed for now
+    fps=30                                         # fixed for now
+)
+```
+
+Implementation notes (keep it simple):
+
+* The generator must **hold each image** on screen for its `duration_ms` (no transitions) and produce a stream that exactly matches the combined audio duration (allow the audio to dictate final length).
+* If `subtitles_path` exists, mux it as a sidecar (or burn-in if that’s what your class does). Sidecar is fine for the web player: return the path so the frontend can add a `<track>` element.
+* Accept **absolute paths** only.
+
+---
+
+# 6) Celery task
+
+A single task that (re)builds the video from the current segment state.
+
+```python
+def generate_segment_video(item_id:int, run:int, seg:int) -> dict:
+    """
+    1) Load Segment:
+         - require segment.audio_ready == True
+         - require segment.audio_combined_path exists
+         - require images_ready == True
+    2) Build timeline = build_timeline(...).  # raises if any image or duration missing
+    3) Ensure video dir exists.
+    4) Write subtitles:
+         vtt = subtitles_path(...)
+         write_vtt_from_timeline(timeline, vtt)
+    5) Save timeline debug JSON to timeline.json (optional but helpful).
+    6) Call VideoGenerator().create_video(
+         audio_path=segment.audio_combined_path,
+         timeline=timeline,
+         subtitles_path=vtt,
+         output_path=video_path(...),
+         size=(1920,1080), fps=30
+       )
+    7) update_segment_video_fields(..., video_path_str=video_path(...),
+                                   subtitles_path_str=vtt, video_ready=True)
+    8) return {"status":"ok","item_id":item_id,"run":run,"seg":seg}
+    """
+```
+
+If anything is missing, raise an exception (so you notice and fix inputs). We are intentionally strict here.
+
+---
+
+# 7) API endpoints
+
+### 7.1 Trigger (re)generation
+
+* **POST** `/api/hn/items/{item_id}/runs/{run}/segments/{seg}/video`
+* **Flow:**
+
+  1. Load Segment and check:
+
+     * `segment.script` present
+     * `segment.audio_ready` is true and file exists
+     * `segment.images_ready` is true
+  2. Enqueue: `generate_segment_video.apply_async(args=[item_id, run, seg])`
+  3. Response:
+
+     ```json
+     {"status":"queued","item_id":..., "run":..., "seg":...}
+     ```
+
+*(Same endpoint is used for regeneration after you’ve manually tweaked audio/images.)*
+
+### 7.2 You do **not** need a separate GET video endpoint.
+
+The existing `GET /api/hn/items/{item_id}/runs/{run}/segments/{seg}` already returns the segment JSON which will include:
+
+* `video_path`
+* `subtitles_path`
+* `video_ready`
+
+---
+
+# 8) Frontend (segment detail page: `/hn/item/[id]/run-[runId]-seg-[segId]`)
+
+Add a **final accordion** below the Images section.
+
+### 8.1 Accordion: “Video”
+
+* **Top-right button:** “Generate Video”
+
+  * `POST /api/.../video`, then refetch the segment JSON.
+* **If** `segment.video_ready` and `segment.video_path` exist:
+
+  * Render:
+
+    ```html
+    <video controls width="100%" :src="segment.video_path">
+      <track v-if="segment.subtitles_path" kind="subtitles" srclang="en" label="English"
+             :src="segment.subtitles_path" default>
+    </video>
+    ```
+  * Add a **Refresh** button to re-fetch the segment JSON (in case the task just finished).
+* **Else:**
+
+  * Show gray text: “Video not generated yet.” and the **Generate Video** button.
+
+**Make sure** your backend (or dev server) serves files from `outputs/` so `<video>` and `<track>` can load them (e.g., static file route or Nginx alias).
+
+---
+
+# 9) Build order
+
+1. **Model**: extend `Segment` with video fields.
+2. **Paths**: add `video_dir`, `video_path`, `subtitles_path`, `timeline_path`.
+3. **Helpers**: `load_section_and_image`, `build_timeline`, `write_vtt_from_timeline`, `update_segment_video_fields`.
+4. **VideoGenerator**: confirm it accepts `(audio_path, timeline, subtitles_path, output_path, size, fps)` as above; adjust/wrap if needed.
+5. **Task**: `generate_segment_video(...)`.
+6. **API**: POST `/video` (prechecks + `apply_async`).
+7. **Frontend**: “Video” accordion, button, `<video>` tag with optional `<track>`, refresh.
+
+---
+
+# 10) Acceptance checklist
+
+* [ ] `POST /api/.../video` queues exactly one task when script, audio, and images are ready.
+* [ ] Task writes `captions.vtt`, `segment.mp4`, and `timeline.json` to the segment’s `video/` folder.
+* [ ] Segment JSON in Redis and on disk contains `video_path`, `subtitles_path`, `video_ready:true`.
+* [ ] Segment page displays the video and subtitles when available; otherwise shows a clear “not generated yet” message with a working “Generate Video” button.
+
+This gives you a **simple, deterministic** video pipeline: current images + current durations + current audio → one MP4 with a matching VTT, regenerable on demand.

@@ -259,7 +259,7 @@
                         <img
                           :src="getImageUrl(image.image_path, image.index)"
                           :alt="`Image for section ${image.index}`"
-                          class="w-full h-48 object-cover rounded-lg border"
+                          class="w-full max-w-sm mx-auto object-contain rounded-lg border bg-gray-50"
                           @error="handleImageError"
                         />
                       </div>
@@ -312,6 +312,92 @@
               </div>
               <div v-else class="text-center py-8 text-muted-foreground">
                 <p>No images yet. Click 'Generate Images' to create them.</p>
+              </div>
+            </AccordionContent>
+          </AccordionItem>
+
+          <AccordionItem value="video">
+            <AccordionTrigger class="text-lg font-semibold">
+              <div class="flex items-center justify-between w-full">
+                <span>Video</span>
+                <div class="flex items-center gap-2">
+                  <Badge v-if="segment.video_ready" class="bg-green-500 text-white border-green-500 text-xs">
+                    Video Ready
+                  </Badge>
+                  <Badge v-else class="bg-yellow-500 text-white border-yellow-500 text-xs">
+                    No Video
+                  </Badge>
+                </div>
+              </div>
+            </AccordionTrigger>
+            <AccordionContent>
+              <div class="mb-4 flex justify-end">
+                <Button
+                  v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
+                  size="sm"
+                  @click="generateVideo"
+                  class="bg-purple-600 hover:bg-purple-700 text-white"
+                >
+                  Generate Video
+                </Button>
+                <div v-if="isGeneratingVideo" class="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
+              </div>
+
+              <div v-if="segment.video_ready && segment.video_path" class="space-y-4">
+                <div class="border rounded-lg p-4">
+                  <h4 class="font-medium mb-4">Generated Video</h4>
+                  <div class="space-y-4">
+                    <!-- Video Player -->
+                    <div class="relative">
+                      <video
+                        controls
+                        width="100%"
+                        class="w-full max-w-4xl mx-auto rounded-lg border bg-black"
+                        :src="getVideoUrl(segment.video_path)"
+                      >
+                        <track
+                          v-if="segment.subtitles_path"
+                          kind="subtitles"
+                          srclang="en"
+                          label="English"
+                          :src="getVideoUrl(segment.subtitles_path)"
+                          default
+                        />
+                        Your browser does not support the video tag.
+                      </video>
+                    </div>
+
+                    <!-- Video Info -->
+                    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+                      <div>
+                        <label class="font-medium text-muted-foreground">Video File</label>
+                        <p class="break-all">{{ segment.video_path }}</p>
+                      </div>
+                      <div v-if="segment.subtitles_path">
+                        <label class="font-medium text-muted-foreground">Subtitles</label>
+                        <p class="break-all">{{ segment.subtitles_path }}</p>
+                      </div>
+                    </div>
+
+                    <!-- Refresh Button -->
+                    <div class="flex justify-end">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        @click="refreshSegment"
+                        class="text-sm"
+                      >
+                        🔄 Refresh
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+              <div v-else class="text-center py-8 text-muted-foreground">
+                <p v-if="!segment.script">Generate script first to create video.</p>
+                <p v-else-if="!segment.audio_ready">Generate audio first to create video.</p>
+                <p v-else-if="!segment.images_ready">Generate images first to create video.</p>
+                <p v-else>Video not generated yet. Click 'Generate Video' to create it.</p>
               </div>
             </AccordionContent>
           </AccordionItem>
@@ -388,6 +474,9 @@ const isGeneratingImages = ref(false)
 const isRegenerating = ref({})
 const imageEdits = ref({})
 const promptEdits = ref({})
+
+// Video data
+const isGeneratingVideo = ref(false)
 
 // Fetch data
 const { data: itemData, pending: itemLoading, error: itemError } = await useAsyncData(
@@ -746,6 +835,71 @@ async function regenerateImage(index) {
 function handleImageError(event) {
   console.error('Image failed to load:', event.target.src)
   event.target.style.display = 'none'
+}
+
+// Video methods
+function getVideoUrl(videoPath) {
+  if (!videoPath) return ''
+
+  // Convert absolute path to API URL
+  // Example: outputs/hn/item/45106314/runs/1/segments/1/video/segment.mp4
+  // -> /api/video/45106314/1/1/segment.mp4
+
+  const match = videoPath.match(/\/item\/(\d+)\/runs\/(\d+)\/segments\/(\d+)\/video\/(.+)$/)
+  if (match) {
+    const [, itemId, runId, segId, filename] = match
+    return `${config.public.apiBase}/api/video/${itemId}/${runId}/${segId}/${filename}`
+  }
+
+  // Fallback to original path if pattern doesn't match
+  return videoPath
+}
+
+async function generateVideo() {
+  if (isGeneratingVideo.value) return
+
+  isGeneratingVideo.value = true
+
+  try {
+    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments/${segId.value}/video`, {
+      method: 'POST'
+    })
+
+    console.log('Video generation queued:', response)
+
+    // Poll for completion
+    await pollForVideo()
+  } catch (err) {
+    console.error('Failed to generate video:', err)
+    error.value = 'Failed to generate video'
+  } finally {
+    isGeneratingVideo.value = false
+  }
+}
+
+async function pollForVideo() {
+  const maxAttempts = 60 // 60 seconds max (video generation takes longer)
+  let attempts = 0
+
+  while (attempts < maxAttempts) {
+    await new Promise(resolve => setTimeout(resolve, 2000)) // Wait 2 seconds
+
+    try {
+      await refreshSegment()
+
+      // Check if video is ready now
+      if (segment.value?.video_ready) {
+        console.log('Video generated successfully')
+        return
+      }
+    } catch (err) {
+      console.error('Error polling for video:', err)
+    }
+
+    attempts++
+  }
+
+  console.warn('Video generation polling timed out')
 }
 
 // Load sections and images when component mounts

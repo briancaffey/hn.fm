@@ -49,7 +49,7 @@ from ..audio.asr_service import ASRService
 logger = logging.getLogger(__name__)
 
 
-@celery_app.task(name="src.hnfm.web.tasks.hn_fetch_item")
+@celery_app.task(name="hnfm.web.tasks.hn_fetch_item")
 def hn_fetch_item(item_id: int) -> Dict[str, any]:
     """Fetch and store a Hacker News item"""
     try:
@@ -184,7 +184,7 @@ def process_hn_item_run(item_id: int, run: int) -> Dict[str, any]:
         raise
 
 
-@celery_app.task(name="src.hnfm.web.tasks.generate_segment")
+@celery_app.task(name="hnfm.web.tasks.generate_segment")
 def generate_segment(item_id: int, run: int, seg: int) -> Dict[str, any]:
     """
     Generate a script segment for a specific run.
@@ -264,7 +264,7 @@ def generate_segment(item_id: int, run: int, seg: int) -> Dict[str, any]:
         raise
 
 
-@celery_app.task(name="src.hnfm.web.tasks.build_segment_audio")
+@celery_app.task(name="hnfm.web.tasks.build_segment_audio")
 def build_segment_audio(
     item_id: int,
     run: int,
@@ -836,4 +836,131 @@ def rebuild_single_image(
         logger.error(
             f"Failed to rebuild image {index} for segment {item_id}:{run}:{seg}: {e}"
         )
+        raise
+
+
+@celery_app.task(name="hnfm.web.tasks.generate_segment_video")
+def generate_segment_video(item_id: int, run: int, seg: int) -> Dict:
+    """
+    Generate video for a segment from audio, images, and timeline.
+
+    Steps:
+    1) Load Segment and validate prerequisites
+    2) Build timeline from sections and images
+    3) Create video directory
+    4) Write subtitles VTT file
+    5) Save timeline debug JSON
+    6) Call VideoGenerator to create video
+    7) Update segment video fields
+
+    Args:
+        item_id: Item ID
+        run: Run number
+        seg: Segment number
+
+    Returns:
+        Dict with status and metadata
+    """
+    try:
+        # Get configuration
+        outputs_root = os.getenv("OUTPUTS_ROOT", "outputs")
+        redis_host = os.getenv("REDIS_HOST", "localhost")
+        redis_port = int(os.getenv("REDIS_PORT", "6379"))
+
+        # Get Redis client
+        redis_client = redis.Redis(host=redis_host, port=redis_port, decode_responses=True)
+
+        logger.info(f"🎬 Starting video generation for segment {item_id}:{run}:{seg}")
+
+        # 1) Load Segment and validate prerequisites
+        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        if not segment:
+            raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
+
+        if not segment.script:
+            raise RuntimeError(f"Segment script is empty: {item_id}:{run}:{seg}")
+
+        if not segment.audio_ready or not segment.audio_combined_path:
+            raise RuntimeError(f"Segment audio not ready: {item_id}:{run}:{seg}")
+
+        if not segment.images_ready:
+            raise RuntimeError(f"Segment images not ready: {item_id}:{run}:{seg}")
+
+        if not os.path.exists(segment.audio_combined_path):
+            raise RuntimeError(f"Audio file not found: {segment.audio_combined_path}")
+
+        logger.info(f"✅ Prerequisites validated for segment {item_id}:{run}:{seg}")
+
+        # 2) Build timeline from sections and images
+        from ..utils.segment_utils import build_timeline
+        timeline = build_timeline(item_id, run, seg, redis_client=redis_client)
+
+        if not timeline:
+            raise RuntimeError(f"No timeline data generated for segment {item_id}:{run}:{seg}")
+
+        logger.info(f"📊 Built timeline with {len(timeline)} items")
+
+        # 3) Create video directory
+        from ..utils.segment_utils import video_dir, video_path, subtitles_path, timeline_path
+        video_dir_path = video_dir(outputs_root, item_id, run, seg)
+        os.makedirs(video_dir_path, exist_ok=True)
+
+        # 4) Write subtitles VTT file
+        vtt_path = subtitles_path(outputs_root, item_id, run, seg)
+        from ..utils.segment_utils import write_vtt_from_timeline
+        write_vtt_from_timeline(timeline, vtt_path)
+        logger.info(f"📝 Created subtitles: {vtt_path}")
+
+        # 5) Save timeline debug JSON
+        timeline_debug_path = timeline_path(outputs_root, item_id, run, seg)
+        write_json(timeline_debug_path, {"timeline": timeline})
+        logger.info(f"📋 Saved timeline debug: {timeline_debug_path}")
+
+        # 6) Call VideoGenerator to create video
+        from ..video.video_generator import VideoGenerator
+        video_generator = VideoGenerator()
+
+        output_video_path = video_path(outputs_root, item_id, run, seg)
+
+        result = video_generator.create_video(
+            audio_path=segment.audio_combined_path,
+            timeline=timeline,
+            subtitles_path=vtt_path,
+            output_path=output_video_path,
+            size=(1920, 1080),
+            fps=30
+        )
+
+        if not result.get("success"):
+            raise RuntimeError(f"Video generation failed: {result}")
+
+        logger.info(f"🎥 Video generated successfully: {output_video_path}")
+
+        # 7) Update segment video fields
+        from ..utils.segment_utils import update_segment_video_fields
+        update_segment_video_fields(
+            item_id=item_id,
+            run=run,
+            seg=seg,
+            redis_client=redis_client,
+            outputs_root=outputs_root,
+            video_path_str=output_video_path,
+            subtitles_path_str=vtt_path,
+            video_ready=True
+        )
+
+        logger.info(f"✅ Video generation completed for segment {item_id}:{run}:{seg}")
+
+        return {
+            "status": "ok",
+            "item_id": item_id,
+            "run": run,
+            "seg": seg,
+            "video_path": output_video_path,
+            "subtitles_path": vtt_path,
+            "timeline_items": len(timeline)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Video generation failed for segment {item_id}:{run}:{seg}: {e}")
         raise

@@ -864,3 +864,114 @@ async def rebuild_single_image_endpoint(
         raise HTTPException(
             status_code=500, detail="Failed to queue image regeneration"
         )
+
+
+# Video API Endpoints
+@app.post(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/video",
+    response_model=dict,
+    tags=["video"],
+)
+async def generate_segment_video_endpoint(
+    item_id: int,
+    run: int,
+    seg: int,
+    redis_client: redis.Redis = Depends(get_redis_client),
+):
+    """Generate video for a segment from audio, images, and timeline"""
+    try:
+        # Load segment and validate prerequisites
+        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        if not segment:
+            raise HTTPException(status_code=404, detail="Segment not found")
+
+        if not segment.script:
+            raise HTTPException(
+                status_code=400, detail="Segment script is empty - generate script first"
+            )
+
+        if not segment.audio_ready or not segment.audio_combined_path:
+            raise HTTPException(
+                status_code=400, detail="Segment audio not ready - generate audio first"
+            )
+
+        if not segment.images_ready:
+            raise HTTPException(
+                status_code=400, detail="Segment images not ready - generate images first"
+            )
+
+        # Import the task
+        from .tasks import generate_segment_video
+
+        # Queue the video generation task
+        task = generate_segment_video.apply_async(args=[item_id, run, seg])
+
+        logger.info(f"Queued video generation for segment {item_id}:{run}:{seg}")
+
+        return {
+            "status": "queued",
+            "item_id": item_id,
+            "run": run,
+            "seg": seg,
+            "task_id": task.id,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(
+            f"Failed to queue video generation for segment {item_id}:{run}:{seg}: {e}"
+        )
+        raise HTTPException(
+            status_code=500, detail="Failed to queue video generation"
+        )
+
+
+@app.get("/api/video/{item_id}/{run}/{seg}/{filename}")
+async def serve_video_file(item_id: int, run: int, seg: int, filename: str):
+    """Serve video files for segments"""
+    try:
+        from fastapi.responses import FileResponse
+
+        # Get outputs directory
+        outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
+
+        if filename == "segment.mp4":
+            file_path = os.path.join(
+                outputs_dir,
+                "hn",
+                "item",
+                str(item_id),
+                "runs",
+                str(run),
+                "segments",
+                str(seg),
+                "video",
+                "segment.mp4",
+            )
+        elif filename == "captions.vtt":
+            file_path = os.path.join(
+                outputs_dir,
+                "hn",
+                "item",
+                str(item_id),
+                "runs",
+                str(run),
+                "segments",
+                str(seg),
+                "video",
+                "captions.vtt",
+            )
+        else:
+            raise HTTPException(status_code=404, detail="File not found")
+
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail="File not found")
+
+        return FileResponse(file_path)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to serve video file {filename}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to serve video file")

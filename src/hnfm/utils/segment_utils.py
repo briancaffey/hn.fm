@@ -68,6 +68,26 @@ def img_meta_path(
     return f"{img_dir(outputs_root, item_id, run, seg, index)}/meta.json"
 
 
+def video_dir(outputs_root: str, item_id: int, run: int, seg: int) -> str:
+    """Generate directory path for segment video files"""
+    return f"{outputs_root}/hn/item/{item_id}/runs/{run}/segments/{seg}/video"
+
+
+def video_path(outputs_root: str, item_id: int, run: int, seg: int) -> str:
+    """Generate path for segment video file"""
+    return f"{video_dir(outputs_root, item_id, run, seg)}/segment.mp4"
+
+
+def subtitles_path(outputs_root: str, item_id: int, run: int, seg: int) -> str:
+    """Generate path for segment subtitles VTT file"""
+    return f"{video_dir(outputs_root, item_id, run, seg)}/captions.vtt"
+
+
+def timeline_path(outputs_root: str, item_id: int, run: int, seg: int) -> str:
+    """Generate path for segment timeline debug JSON file"""
+    return f"{video_dir(outputs_root, item_id, run, seg)}/timeline.json"
+
+
 def write_json(path: str, data: dict) -> None:
     """Write JSON data to file with proper directory creation"""
     path_obj = Path(path)
@@ -309,7 +329,7 @@ def alignment_from_sections(
     Return None if sections missing.
     """
     try:
-        from .audio_utils import k_sec_list
+        from ..audio.audio_utils import k_sec_list
 
         # Get all section keys for this segment
         list_key = k_sec_list(item_id, run, seg)
@@ -494,6 +514,162 @@ def update_segment_images_status(
     # Update image fields
     segment.images_total = total
     segment.images_ready = ready
+
+    # Re-save to Redis and disk
+    save_segment(segment, redis_client=redis_client, outputs_root=outputs_root)
+
+
+def list_section_numbers(item_id: int, run: int, seg: int, *, redis_client: redis.Redis) -> List[int]:
+    """Get ordered section indices for a segment"""
+    from ..audio.audio_utils import k_sec_list
+
+    list_key = k_sec_list(item_id, run, seg)
+    section_strings = redis_client.lrange(list_key, 0, -1)
+    return [int(section_str) for section_str in section_strings]
+
+
+def load_section_and_image(item_id: int, run: int, seg: int, index: int, *, redis_client: redis.Redis) -> dict:
+    """
+    Load section and image data for a specific index.
+
+    Returns:
+        {
+            "index": index,
+            "duration_ms": int,             # from SegmentSection.duration_ms (REQUIRED)
+            "image_path": str,              # from SegmentImage.image_path (REQUIRED)
+            "text": str                     # from SegmentImage.line_text (for subtitles)
+        }
+    Raises if any required field is missing or empty.
+    """
+    from ..audio.audio_utils import get_section_meta
+
+    # Load section data
+    section = get_section_meta(item_id, run, seg, index, redis_client=redis_client)
+    if not section or section.duration_ms is None:
+        raise RuntimeError(f"Section {index} missing or duration_ms is None")
+
+    # Load image data
+    image = get_segment_image(item_id, run, seg, index, redis_client=redis_client)
+    if not image or not image.image_path:
+        raise RuntimeError(f"Image {index} missing or image_path is None")
+
+    return {
+        "index": index,
+        "duration_ms": section.duration_ms,
+        "image_path": image.image_path,
+        "text": image.line_text
+    }
+
+
+def build_timeline(item_id: int, run: int, seg: int, *, redis_client: redis.Redis) -> List[dict]:
+    """
+    Build timeline for video generation from sections and images.
+
+    Returns:
+        List of dicts with:
+        {
+            "index": int,
+            "image_path": str,
+            "start_ms": int,
+            "duration_ms": int,
+            "text": str
+        }
+    """
+    section_numbers = list_section_numbers(item_id, run, seg, redis_client=redis_client)
+    timeline = []
+    cumulative_start = 0
+
+    for index in section_numbers:
+        data = load_section_and_image(item_id, run, seg, index, redis_client=redis_client)
+
+        timeline.append({
+            "index": data["index"],
+            "image_path": data["image_path"],
+            "start_ms": cumulative_start,
+            "duration_ms": data["duration_ms"],
+            "text": data["text"]
+        })
+
+        cumulative_start += data["duration_ms"]
+
+    return timeline
+
+
+def write_vtt_from_timeline(timeline: List[dict], out_path: str) -> None:
+    """
+    Create WebVTT subtitles from timeline data.
+
+    Args:
+        timeline: List of dicts with start_ms, duration_ms, text
+        out_path: Output VTT file path
+    """
+    from pathlib import Path
+
+    # Ensure output directory exists
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+
+    with open(out_path, 'w', encoding='utf-8') as f:
+        f.write("WEBVTT\n\n")
+
+        for item in timeline:
+            start_ms = item["start_ms"]
+            duration_ms = item["duration_ms"]
+            end_ms = start_ms + duration_ms
+            text = item["text"]
+
+            # Convert to VTT time format (HH:MM:SS.mmm)
+            start_time = _ms_to_vtt_time(start_ms)
+            end_time = _ms_to_vtt_time(end_ms)
+
+            f.write(f"{start_time} --> {end_time}\n")
+            f.write(f"{text}\n\n")
+
+
+def _ms_to_vtt_time(ms: int) -> str:
+    """Convert milliseconds to VTT time format (HH:MM:SS.mmm)"""
+    seconds = ms // 1000
+    milliseconds = ms % 1000
+    minutes = seconds // 60
+    seconds = seconds % 60
+    hours = minutes // 60
+    minutes = minutes % 60
+
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}.{milliseconds:03d}"
+
+
+def update_segment_video_fields(
+    item_id: int,
+    run: int,
+    seg: int,
+    *,
+    redis_client: redis.Redis,
+    outputs_root: str,
+    video_path_str: str | None,
+    subtitles_path_str: str | None,
+    video_ready: bool
+) -> None:
+    """
+    Update segment video fields in Redis and on disk.
+
+    Args:
+        item_id: Item ID
+        run: Run number
+        seg: Segment number
+        redis_client: Redis client
+        outputs_root: Root outputs directory
+        video_path_str: Path to video file (optional)
+        subtitles_path_str: Path to subtitles file (optional)
+        video_ready: Whether video is ready
+    """
+    # Load existing segment
+    segment = get_segment(item_id, run, seg, redis_client=redis_client)
+    if not segment:
+        raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
+
+    # Update video fields
+    segment.video_path = video_path_str
+    segment.subtitles_path = subtitles_path_str
+    segment.video_ready = video_ready
 
     # Re-save to Redis and disk
     save_segment(segment, redis_client=redis_client, outputs_root=outputs_root)

@@ -567,3 +567,241 @@ class VideoGenerator:
         return self.generate_video(
             asr_file_path, audio_file_path, main_yaml_path, output_path
         )
+
+    def create_video(
+        self,
+        audio_path: str,
+        timeline: List[Dict[str, Any]],
+        subtitles_path: str,
+        output_path: str,
+        size: Tuple[int, int] = (1920, 1080),
+        fps: int = 30,
+    ) -> Dict[str, Any]:
+        """Create video from audio, timeline, and optional subtitles.
+
+        This method implements the interface required by the segment video generation.
+
+        Args:
+            audio_path: Path to the audio file
+            timeline: List of dicts with image_path, start_ms, duration_ms, text
+            subtitles_path: Path to VTT subtitles file (optional)
+            output_path: Path where the output video should be saved
+            size: Video resolution (width, height)
+            fps: Video frame rate
+
+        Returns:
+            Dictionary containing video generation results
+        """
+        try:
+            logger.info(f"🎬 Starting segment video generation...")
+            logger.info(f"🎵 Audio: {audio_path}")
+            logger.info(f"📊 Timeline: {len(timeline)} items")
+            logger.info(f"📝 Subtitles: {subtitles_path}")
+            logger.info(f"🎥 Output: {output_path}")
+
+            # Ensure output directory exists
+            output_dir = Path(output_path).parent
+            output_dir.mkdir(parents=True, exist_ok=True)
+
+            # Get audio duration
+            audio_duration = self._get_audio_duration(audio_path)
+            if not audio_duration:
+                raise RuntimeError("Failed to get audio duration")
+
+            logger.info(f"⏱️ Audio duration: {audio_duration:.2f} seconds")
+
+            # Create video with images from timeline
+            video_path = self._create_video_from_timeline(
+                audio_path,
+                timeline,
+                subtitles_path,
+                output_path,
+                audio_duration,
+                size,
+                fps,
+            )
+
+            logger.info(f"✅ Segment video generation completed successfully")
+            logger.info(f"🎥 Video saved to: {video_path}")
+
+            return {
+                "success": True,
+                "video_path": video_path,
+                "duration": audio_duration,
+                "resolution": f"{size[0]}x{size[1]}",
+                "fps": fps,
+            }
+
+        except Exception as e:
+            logger.error(f"❌ Segment video generation failed: {e}")
+            raise RuntimeError(f"Segment video generation failed: {e}")
+
+    def _create_video_from_timeline(
+        self,
+        audio_file: str,
+        timeline: List[Dict[str, Any]],
+        subtitle_file: str,
+        output_path: str,
+        audio_duration: float,
+        size: Tuple[int, int],
+        fps: int,
+    ) -> str:
+        """Create video using ffmpeg with timeline data."""
+        try:
+            width, height = size
+
+            if not timeline:
+                raise RuntimeError("No timeline items provided")
+
+            logger.info(f"🎨 Processing {len(timeline)} timeline items for video generation")
+
+            # Create a temporary directory for intermediate files
+            with tempfile.TemporaryDirectory() as temp_dir:
+                temp_dir_path = Path(temp_dir)
+
+                # Create individual video segments for each timeline item
+                video_segments = []
+                for i, item in enumerate(timeline):
+                    image_path = item.get("image_path")
+                    duration_ms = item.get("duration_ms", 0)
+                    duration_seconds = duration_ms / 1000.0
+
+                    if not image_path or not Path(image_path).exists():
+                        logger.warning(f"⚠️ Image file not found: {image_path}")
+                        continue
+
+                    if duration_seconds <= 0:
+                        logger.warning(f"⚠️ Invalid duration for item {i}: {duration_ms}ms")
+                        continue
+
+                    # Log which image we're processing
+                    image_name = Path(image_path).name
+                    logger.debug(
+                        f"   🖼️  Processing timeline item {i+1}/{len(timeline)}: {image_name} ({duration_seconds:.2f}s)"
+                    )
+
+                    # Create a video segment for this image
+                    segment_path = temp_dir_path / f"segment_{i:03d}.mp4"
+                    self._create_image_segment(image_path, segment_path, duration_seconds, width, height, fps)
+                    video_segments.append(segment_path)
+
+                    logger.debug(
+                        f"   ✅ Created video segment {i+1}/{len(timeline)}: {segment_path.name}"
+                    )
+
+                if not video_segments:
+                    raise RuntimeError("No valid video segments created")
+
+                logger.debug(
+                    f"🎬 Successfully created {len(video_segments)} video segments"
+                )
+
+                # Create a file list for ffmpeg concat
+                concat_list_path = temp_dir_path / "concat_list.txt"
+                with open(concat_list_path, "w") as f:
+                    for segment in video_segments:
+                        f.write(f"file '{segment}'\n")
+
+                # Build ffmpeg command
+                cmd = [
+                    "ffmpeg",
+                    "-y",  # Overwrite output file
+                    "-f",
+                    "concat",
+                    "-safe",
+                    "0",
+                    "-i",
+                    str(concat_list_path),
+                    "-i",
+                    audio_file,
+                ]
+
+                # Add subtitle filter if subtitles exist
+                if subtitle_file and Path(subtitle_file).exists():
+                    # Check if it's VTT or ASS format
+                    if subtitle_file.endswith('.vtt'):
+                        # For VTT files, we need to convert to ASS or use subtitles filter
+                        # For now, we'll use the subtitles filter which supports VTT
+                        cmd.extend(["-vf", f"subtitles={subtitle_file}"])
+                    else:
+                        # For ASS files, use the ass filter
+                        cmd.extend(["-vf", f"ass={subtitle_file}"])
+
+                # Add video encoding options
+                cmd.extend([
+                    "-c:v",
+                    "libx264",
+                    "-c:a",
+                    "aac",
+                    "-preset",
+                    "medium",
+                    "-crf",
+                    "23",
+                    "-shortest",
+                    output_path,
+                ])
+
+                logger.info(
+                    f"🎬 Running ffmpeg concat command with {len(video_segments)} timeline segments..."
+                )
+                logger.debug(f"ffmpeg command: {' '.join(cmd)}")
+
+                # Run ffmpeg
+                result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+                if not Path(output_path).exists():
+                    raise RuntimeError("ffmpeg completed but output file not found")
+
+                logger.info(f"✅ ffmpeg completed successfully with timeline")
+                logger.debug(
+                    f"🎉 Video generation complete! Output: {Path(output_path).name}"
+                )
+                return output_path
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"ffmpeg failed: {e}")
+            logger.error(f"ffmpeg stderr: {e.stderr}")
+            raise RuntimeError(f"ffmpeg failed: {e}")
+        except Exception as e:
+            logger.error(f"Video creation from timeline failed: {e}")
+            raise RuntimeError(f"Video creation from timeline failed: {e}")
+
+    def _create_image_segment(
+        self, image_path: str, output_path: Path, duration: float, width: int, height: int, fps: int
+    ) -> None:
+        """Create a video segment from a single image with specified duration and resolution."""
+        try:
+            cmd = [
+                "ffmpeg",
+                "-y",  # Overwrite output file
+                "-loop",
+                "1",
+                "-i",
+                image_path,
+                "-t",
+                str(duration),
+                "-vf",
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease,pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "23",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                str(fps),
+                str(output_path),
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            logger.debug(f"Created image segment: {output_path}")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to create image segment {image_path}: {e}")
+            raise RuntimeError(f"Failed to create image segment: {e}")
+        except Exception as e:
+            logger.error(f"Failed to create image segment: {e}")
+            raise RuntimeError(f"Failed to create image segment: {e}")
