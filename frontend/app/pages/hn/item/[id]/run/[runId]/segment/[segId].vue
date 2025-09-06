@@ -88,7 +88,7 @@
       <div class="bg-card border rounded-lg p-6">
         <Accordion type="single" collapsible class="w-full" :default-value="'narration-sections'">
           <AccordionItem value="narration-sections">
-            <AccordionTrigger class="text-lg font-semibold">
+            <AccordionTrigger class="text-lg font-semibold cursor-pointer hover:no-underline">
               <div class="flex items-center justify-between w-full">
                 <span>Narration Sections</span>
                 <div class="flex items-center gap-2">
@@ -104,8 +104,8 @@
                     class="bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
                     @click.stop="buildAllAudio"
                   >
-                    <span v-if="isBuildingAudio">Building...</span>
-                    <span v-else>🎵 Build All</span>
+                    <span v-if="isBuildingAudio">Narrating...</span>
+                    <span v-else>🎵 Narrate Script</span>
                   </Button>
                 </div>
               </div>
@@ -179,8 +179,18 @@
           </AccordionItem>
 
           <AccordionItem value="combined-audio">
-            <AccordionTrigger class="text-lg font-semibold">
-              Combined Audio
+            <AccordionTrigger class="text-lg font-semibold cursor-pointer hover:no-underline">
+              <div class="flex items-center justify-between w-full">
+                <span>Combined Audio</span>
+                <div class="flex items-center gap-2">
+                  <Badge v-if="segment.audio_ready && segment.audio_combined_path" class="bg-green-500 text-white border-green-500 text-xs">
+                    Audio Ready
+                  </Badge>
+                  <Badge v-else class="bg-yellow-500 text-white border-yellow-500 text-xs">
+                    No Audio
+                  </Badge>
+                </div>
+              </div>
             </AccordionTrigger>
             <AccordionContent>
               <div v-if="segment.audio_ready && segment.audio_combined_path" class="space-y-4">
@@ -202,7 +212,7 @@
           </AccordionItem>
 
           <AccordionItem value="asr">
-            <AccordionTrigger class="text-lg font-semibold">
+            <AccordionTrigger class="text-lg font-semibold cursor-pointer hover:no-underline">
               <div class="flex items-center justify-between w-full">
                 <span>ASR (Word Timestamps)</span>
                 <div class="flex items-center gap-2">
@@ -210,7 +220,7 @@
                     :disabled="isRefreshingAsr"
                     size="sm"
                     variant="outline"
-                    class="text-primary border-primary hover:bg-primary hover:text-white"
+                    class="text-primary border-primary hover:bg-primary hover:text-white hover:border-primary"
                     @click.stop="refreshAsr"
                   >
                     <span v-if="isRefreshingAsr">Refreshing...</span>
@@ -233,21 +243,30 @@
 
           <!-- Images Accordion Item -->
           <AccordionItem value="images">
-            <AccordionTrigger class="text-lg font-semibold">
-              Images
+            <AccordionTrigger class="text-lg font-semibold cursor-pointer hover:no-underline">
+              <div class="flex items-center justify-between w-full">
+                <span>Images</span>
+                <div class="flex items-center gap-2">
+                  <Badge v-if="images.length > 0" class="bg-green-500 text-white border-green-500 text-xs">
+                    {{ images.length }} Images
+                  </Badge>
+                  <Badge v-else class="bg-yellow-500 text-white border-yellow-500 text-xs">
+                    No Images
+                  </Badge>
+                  <Button
+                    v-if="segment.script && !isGeneratingImages"
+                    size="sm"
+                    @click.stop="generateImages"
+                    class="bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
+                  >
+                    <span v-if="isGeneratingImages">Generating...</span>
+                    <span v-else>🖼️ Generate Images</span>
+                  </Button>
+                  <div v-if="isGeneratingImages" class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+                </div>
+              </div>
             </AccordionTrigger>
             <AccordionContent>
-              <div class="mb-4 flex justify-end">
-                <Button
-                  v-if="segment.script && !isGeneratingImages"
-                  size="sm"
-                  @click="generateImages"
-                  class="bg-blue-600 hover:bg-blue-700 text-white"
-                >
-                  Generate Images
-                </Button>
-                <div v-if="isGeneratingImages" class="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
-              </div>
 
               <div v-if="images.length > 0" class="space-y-4">
                 <div v-for="image in images" :key="image.index" class="border rounded-lg p-4">
@@ -317,7 +336,7 @@
           </AccordionItem>
 
           <AccordionItem value="video">
-            <AccordionTrigger class="text-lg font-semibold">
+            <AccordionTrigger class="text-lg font-semibold cursor-pointer hover:no-underline">
               <div class="flex items-center justify-between w-full">
                 <span>Video</span>
                 <div class="flex items-center gap-2">
@@ -327,21 +346,20 @@
                   <Badge v-else class="bg-yellow-500 text-white border-yellow-500 text-xs">
                     No Video
                   </Badge>
+                  <Button
+                    v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
+                    size="sm"
+                    @click.stop="generateVideo"
+                    class="bg-purple-600 hover:bg-purple-700 text-white border-purple-600"
+                  >
+                    <span v-if="isGeneratingVideo">Generating...</span>
+                    <span v-else>🎬 Generate Video</span>
+                  </Button>
+                  <div v-if="isGeneratingVideo" class="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
                 </div>
               </div>
             </AccordionTrigger>
             <AccordionContent>
-              <div class="mb-4 flex justify-end">
-                <Button
-                  v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
-                  size="sm"
-                  @click="generateVideo"
-                  class="bg-purple-600 hover:bg-purple-700 text-white"
-                >
-                  Generate Video
-                </Button>
-                <div v-if="isGeneratingVideo" class="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
-              </div>
 
               <div v-if="segment.video_ready && segment.video_path" class="space-y-4">
                 <div class="border rounded-lg p-4">
