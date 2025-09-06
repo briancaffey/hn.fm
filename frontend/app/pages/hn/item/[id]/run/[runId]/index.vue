@@ -175,14 +175,24 @@
       <div class="bg-card border rounded-lg p-6">
         <div class="flex items-center justify-between mb-6">
           <h2 class="text-2xl font-bold">Segments</h2>
-          <Button
-            :disabled="isCreatingSegment"
-            class="bg-green-600 hover:bg-green-700 text-white border-green-600"
-            @click="createSegment"
-          >
-            <span v-if="isCreatingSegment">Creating...</span>
-            <span v-else>🎬 Start New Segment</span>
-          </Button>
+          <div class="flex gap-2">
+            <Button
+              :disabled="isCreatingSegment"
+              variant="outline"
+              @click="createSegment"
+            >
+              <span v-if="isCreatingSegment">Creating...</span>
+              <span v-else>🎬 Script Only</span>
+            </Button>
+            <Button
+              :disabled="isCreatingSegment"
+              class="bg-green-600 hover:bg-green-700 text-white border-green-600"
+              @click="createSegmentWithPipeline"
+            >
+              <span v-if="isCreatingSegment">Creating...</span>
+              <span v-else>🎬 Full Pipeline</span>
+            </Button>
+          </div>
         </div>
 
         <div v-if="segmentsLoading" class="text-center py-4">
@@ -372,7 +382,7 @@ async function fetchSegments() {
   }
 }
 
-// Create a new segment
+// Create a new segment (script only)
 async function createSegment() {
   if (isCreatingSegment.value) return
 
@@ -380,7 +390,8 @@ async function createSegment() {
 
   try {
     const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments`, {
-      method: 'POST'
+      method: 'POST',
+      body: { continue_chain: false }
     })
 
     console.log('Segment created:', response)
@@ -391,6 +402,31 @@ async function createSegment() {
   } catch (err) {
     console.error('Failed to create segment:', err)
     segmentsError.value = 'Failed to create segment'
+  } finally {
+    isCreatingSegment.value = false
+  }
+}
+
+// Create a new segment with full pipeline
+async function createSegmentWithPipeline() {
+  if (isCreatingSegment.value) return
+
+  isCreatingSegment.value = true
+
+  try {
+    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments`, {
+      method: 'POST',
+      body: { continue_chain: true }
+    })
+
+    console.log('Segment created with pipeline:', response)
+
+    // Refresh segments list
+    await fetchSegments()
+
+  } catch (err) {
+    console.error('Failed to create segment with pipeline:', err)
+    segmentsError.value = 'Failed to create segment with pipeline'
   } finally {
     isCreatingSegment.value = false
   }

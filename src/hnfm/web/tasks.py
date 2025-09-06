@@ -92,7 +92,7 @@ def hn_fetch_item(item_id: int) -> Dict[str, any]:
 
 
 @celery_app.task(name="hnfm.web.tasks.process_hn_item_run")
-def process_hn_item_run(item_id: int, run: int) -> Dict[str, any]:
+def process_hn_item_run(item_id: int, run: int = None, continue_chain: bool = False) -> Dict[str, any]:
     """
     Process a HN item run: scrape, clean, summarize, and store.
 
@@ -104,11 +104,17 @@ def process_hn_item_run(item_id: int, run: int) -> Dict[str, any]:
     5) summary = summarize_text_v1(content_clean)
     6) Build ProcessedRun(...) with created_at=utcnow()
     7) save_processed_run(...)
-    8) return {"status": "ok", "item_id": item_id, "run": run}
+    8) If continue_chain=True, trigger generate_segment task
+    9) return {"status": "ok", "item_id": item_id, "run": run}
     """
     try:
         # Get Redis client
         redis_client = get_redis_client()
+
+        # Get next run ID if not provided
+        if run is None:
+            from ..utils.run_utils import next_run_id
+            run = next_run_id(item_id, redis_client=redis_client)
 
         # Get outputs directory
         outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
@@ -173,6 +179,15 @@ def process_hn_item_run(item_id: int, run: int) -> Dict[str, any]:
         )
 
         logger.info(f"Successfully processed run {run} for item {item_id}")
+
+        # If continue_chain is True, trigger the next task in the pipeline
+        if continue_chain:
+            logger.info(f"Continuing chain: triggering generate_segment for item {item_id}, run {run}")
+            generate_segment.apply_async(
+                args=[item_id, run, None, True],
+                queue="hnfm_tasks"
+            )
+
         return {"status": "ok", "item_id": item_id, "run": run}
 
     except Exception as e:
@@ -181,7 +196,7 @@ def process_hn_item_run(item_id: int, run: int) -> Dict[str, any]:
 
 
 @celery_app.task(name="hnfm.web.tasks.generate_segment")
-def generate_segment(item_id: int, run: int, seg: int) -> Dict[str, any]:
+def generate_segment(item_id: int, run: int, seg: int = None, continue_chain: bool = False) -> Dict[str, any]:
     """
     Generate a script segment for a specific run.
 
@@ -193,11 +208,17 @@ def generate_segment(item_id: int, run: int, seg: int) -> Dict[str, any]:
     3) script = generate_script_v1(content_clean, summary)
     4) Build Segment(...)
     5) save_segment(...)
-    6) return {"status":"ok","item_id":item_id,"run":run,"seg":seg}
+    6) If continue_chain=True, trigger build_segment_audio task
+    7) return {"status":"ok","item_id":item_id,"run":run,"seg":seg}
     """
     try:
         # Get Redis client
         redis_client = get_redis_client()
+
+        # Get next segment ID if not provided
+        if seg is None:
+            from ..utils.segment_utils import next_seg_id
+            seg = next_seg_id(item_id, run, redis_client=redis_client)
 
         # Get outputs directory
         outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
@@ -242,6 +263,15 @@ def generate_segment(item_id: int, run: int, seg: int) -> Dict[str, any]:
         logger.info(
             f"Successfully generated segment {seg} for run {run} of item {item_id}"
         )
+
+        # If continue_chain is True, trigger the next task in the pipeline
+        if continue_chain:
+            logger.info(f"Continuing chain: triggering build_segment_audio for item {item_id}, run {run}, seg {seg}")
+            build_segment_audio.apply_async(
+                args=[item_id, run, seg, "all", None, None, True],
+                queue="hnfm_tasks"
+            )
+
         return {"status": "ok", "item_id": item_id, "run": run, "seg": seg}
 
     except Exception as e:
@@ -259,6 +289,7 @@ def build_segment_audio(
     mode: str = "all",
     section: int = None,
     text_override: str = None,
+    continue_chain: bool = False,
 ) -> Dict[str, any]:
     """
     Build audio for segment sections.
@@ -406,6 +437,15 @@ def build_segment_audio(
             logger.info(
                 f"Successfully built {len(paths)} audio sections for segment {item_id}:{run}:{seg}"
             )
+
+            # If continue_chain is True, trigger the next task in the pipeline
+            if continue_chain:
+                logger.info(f"Continuing chain: triggering build_segment_images for item {item_id}, run {run}, seg {seg}")
+                build_segment_images.apply_async(
+                    args=[item_id, run, seg, True],
+                    queue="hnfm_tasks"
+                )
+
             return result_dict
 
         elif mode == "one":
@@ -522,6 +562,14 @@ def build_segment_audio(
                 logger.warning(f"Combined audio not found for ASR: {combined_path}")
                 result_dict["asr"] = "no_audio"
 
+            # If continue_chain is True, trigger the next task in the pipeline
+            if continue_chain:
+                logger.info(f"Continuing chain: triggering build_segment_images for item {item_id}, run {run}, seg {seg}")
+                build_segment_images.apply_async(
+                    args=[item_id, run, seg, True],
+                    queue="hnfm_tasks"
+                )
+
             return result_dict
 
         else:
@@ -533,7 +581,7 @@ def build_segment_audio(
 
 
 @celery_app.task(name="hnfm.web.tasks.build_segment_images")
-def build_segment_images(item_id: int, run: int, seg: int) -> Dict:
+def build_segment_images(item_id: int, run: int, seg: int, continue_chain: bool = False) -> Dict:
     """
     Build all prompts & images for a segment.
 
@@ -653,6 +701,14 @@ def build_segment_images(item_id: int, run: int, seg: int) -> Dict:
         logger.info(
             f"Successfully generated {len(sections)} images for segment {item_id}:{run}:{seg}"
         )
+
+        # If continue_chain is True, trigger the next task in the pipeline
+        if continue_chain:
+            logger.info(f"Continuing chain: triggering generate_segment_video for item {item_id}, run {run}, seg {seg}")
+            generate_segment_video.apply_async(
+                args=[item_id, run, seg, True],
+                queue="hnfm_tasks"
+            )
 
         # 7) Return result
         return {
@@ -800,7 +856,7 @@ def rebuild_single_image(
 
 
 @celery_app.task(name="hnfm.web.tasks.generate_segment_video")
-def generate_segment_video(item_id: int, run: int, seg: int) -> Dict:
+def generate_segment_video(item_id: int, run: int, seg: int, continue_chain: bool = False) -> Dict:
     """
     Generate video for a segment from audio, images, and timeline.
 
@@ -908,6 +964,10 @@ def generate_segment_video(item_id: int, run: int, seg: int) -> Dict:
         )
 
         logger.info(f"✅ Video generation completed for segment {item_id}:{run}:{seg}")
+
+        # If continue_chain is True, this is the end of the pipeline
+        if continue_chain:
+            logger.info(f"🎉 Pipeline completed successfully for item {item_id}, run {run}, seg {seg}")
 
         return {
             "status": "ok",

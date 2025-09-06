@@ -116,6 +116,18 @@ class CreateRunResponse(BaseModel):
     status: str = Field(..., description="Status of the operation")
 
 
+class CreateRunRequest(BaseModel):
+    """Request model for creating a new run"""
+
+    continue_chain: bool = Field(False, description="Whether to continue the full pipeline chain")
+
+
+class CreateSegmentRequest(BaseModel):
+    """Request model for creating a new segment"""
+
+    continue_chain: bool = Field(False, description="Whether to continue the full pipeline chain")
+
+
 class Segment(BaseModel):
     """Model for script segments tied to a specific run"""
 

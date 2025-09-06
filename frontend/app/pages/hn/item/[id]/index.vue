@@ -65,13 +65,22 @@
       <div class="mt-8">
         <div class="flex justify-between items-center mb-4">
           <h2 class="text-2xl font-bold">Runs</h2>
-          <Button
-            :disabled="isStartingRun"
-            variant="default"
-            @click="startNewRun"
-          >
-            {{ isStartingRun ? 'Starting...' : 'Start New Run' }}
-          </Button>
+          <div class="flex gap-2">
+            <Button
+              :disabled="isStartingRun"
+              variant="outline"
+              @click="startNewRun"
+            >
+              {{ isStartingRun ? 'Starting...' : 'Start Run (Script Only)' }}
+            </Button>
+            <Button
+              :disabled="isStartingRun"
+              variant="default"
+              @click="startNewRunWithPipeline"
+            >
+              {{ isStartingRun ? 'Starting...' : 'Start Full Pipeline' }}
+            </Button>
+          </div>
         </div>
 
         <div v-if="deleteMessage" class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded mb-4">
@@ -220,13 +229,38 @@ async function startNewRun() {
     isStartingRun.value = true
     runsError.value = null
 
-    await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs`, { method: 'POST' })
+    await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs`, {
+      method: 'POST',
+      body: { continue_chain: false }
+    })
 
     // Refresh runs list
     await fetchRuns()
   } catch (err) {
     console.error('Failed to start new run:', err)
     runsError.value = 'Failed to start new run: ' + err.message
+  } finally {
+    isStartingRun.value = false
+  }
+}
+
+async function startNewRunWithPipeline() {
+  if (!item.value) return
+
+  try {
+    isStartingRun.value = true
+    runsError.value = null
+
+    await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs`, {
+      method: 'POST',
+      body: { continue_chain: true }
+    })
+
+    // Refresh runs list
+    await fetchRuns()
+  } catch (err) {
+    console.error('Failed to start new run with pipeline:', err)
+    runsError.value = 'Failed to start new run with pipeline: ' + err.message
   } finally {
     isStartingRun.value = false
   }

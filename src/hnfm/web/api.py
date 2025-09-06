@@ -17,11 +17,13 @@ from .models import (
     ProcessedRun,
     RunsListResponse,
     CreateRunResponse,
+    CreateRunRequest,
     RunSummary,
     Segment,
     SegmentSummary,
     SegmentsListResponse,
     CreateSegmentResponse,
+    CreateSegmentRequest,
     DeleteSegmentResponse,
     BuildAudioResponse,
     SectionsListResponse,
@@ -235,15 +237,20 @@ async def get_single_item(
     tags=["hacker-news"],
 )
 async def create_and_queue_run(
-    item_id: int, redis_client: redis.Redis = Depends(get_redis_client)
+    item_id: int,
+    request: CreateRunRequest = Body(CreateRunRequest(continue_chain=False)),
+    redis_client: redis.Redis = Depends(get_redis_client)
 ):
     """Create and queue a new run for an item"""
     try:
         # Get next run ID
         run = next_run_id(item_id, redis_client=redis_client)
 
-        # Queue the task
-        process_hn_item_run.apply_async(args=[item_id, run], queue="hnfm_tasks")
+        # Queue the task with continue_chain parameter
+        process_hn_item_run.apply_async(
+            args=[item_id, run, request.continue_chain],
+            queue="hnfm_tasks"
+        )
 
         return CreateRunResponse(item_id=item_id, run=run, status="queued")
 
@@ -358,15 +365,21 @@ async def delete_single_run(
     tags=["hacker-news"],
 )
 async def create_and_queue_segment(
-    item_id: int, run: int, redis_client: redis.Redis = Depends(get_redis_client)
+    item_id: int,
+    run: int,
+    request: CreateSegmentRequest = Body(CreateSegmentRequest(continue_chain=False)),
+    redis_client: redis.Redis = Depends(get_redis_client)
 ):
     """Create and queue a new segment for a run"""
     try:
         # Get next segment ID
         seg = next_seg_id(item_id, run, redis_client=redis_client)
 
-        # Queue the task
-        generate_segment.apply_async(args=[item_id, run, seg], queue="hnfm_tasks")
+        # Queue the task with continue_chain parameter
+        generate_segment.apply_async(
+            args=[item_id, run, seg, request.continue_chain],
+            queue="hnfm_tasks"
+        )
 
         return CreateSegmentResponse(item_id=item_id, run=run, seg=seg, status="queued")
 
