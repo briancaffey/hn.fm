@@ -92,7 +92,9 @@ def hn_fetch_item(item_id: int) -> Dict[str, any]:
 
 
 @celery_app.task(name="hnfm.web.tasks.process_hn_item_run")
-def process_hn_item_run(item_id: int, run: int = None, continue_chain: bool = False) -> Dict[str, any]:
+def process_hn_item_run(
+    item_id: int, run: int = None, continue_chain: bool = False
+) -> Dict[str, any]:
     """
     Process a HN item run: scrape, clean, summarize, and store.
 
@@ -114,6 +116,7 @@ def process_hn_item_run(item_id: int, run: int = None, continue_chain: bool = Fa
         # Get next run ID if not provided
         if run is None:
             from ..utils.run_utils import next_run_id
+
             run = next_run_id(item_id, redis_client=redis_client)
 
         # Get outputs directory
@@ -182,10 +185,11 @@ def process_hn_item_run(item_id: int, run: int = None, continue_chain: bool = Fa
 
         # If continue_chain is True, trigger the next task in the pipeline
         if continue_chain:
-            logger.info(f"Continuing chain: triggering generate_segment for item {item_id}, run {run}")
+            logger.info(
+                f"Continuing chain: triggering generate_segment for item {item_id}, run {run}"
+            )
             generate_segment.apply_async(
-                args=[item_id, run, None, True],
-                queue="hnfm_tasks"
+                args=[item_id, run, None, True], queue="hnfm_tasks"
             )
 
         return {"status": "ok", "item_id": item_id, "run": run}
@@ -196,7 +200,9 @@ def process_hn_item_run(item_id: int, run: int = None, continue_chain: bool = Fa
 
 
 @celery_app.task(name="hnfm.web.tasks.generate_segment")
-def generate_segment(item_id: int, run: int, seg: int = None, continue_chain: bool = False) -> Dict[str, any]:
+def generate_segment(
+    item_id: int, run: int, seg: int = None, continue_chain: bool = False
+) -> Dict[str, any]:
     """
     Generate a script segment for a specific run.
 
@@ -218,6 +224,7 @@ def generate_segment(item_id: int, run: int, seg: int = None, continue_chain: bo
         # Get next segment ID if not provided
         if seg is None:
             from ..utils.segment_utils import next_seg_id
+
             seg = next_seg_id(item_id, run, redis_client=redis_client)
 
         # Get outputs directory
@@ -266,10 +273,11 @@ def generate_segment(item_id: int, run: int, seg: int = None, continue_chain: bo
 
         # If continue_chain is True, trigger the next task in the pipeline
         if continue_chain:
-            logger.info(f"Continuing chain: triggering build_segment_audio for item {item_id}, run {run}, seg {seg}")
+            logger.info(
+                f"Continuing chain: triggering build_segment_audio for item {item_id}, run {run}, seg {seg}"
+            )
             build_segment_audio.apply_async(
-                args=[item_id, run, seg, "all", None, None, True],
-                queue="hnfm_tasks"
+                args=[item_id, run, seg, "all", None, None, True], queue="hnfm_tasks"
             )
 
         return {"status": "ok", "item_id": item_id, "run": run, "seg": seg}
@@ -440,10 +448,11 @@ def build_segment_audio(
 
             # If continue_chain is True, trigger the next task in the pipeline
             if continue_chain:
-                logger.info(f"Continuing chain: triggering build_segment_images for item {item_id}, run {run}, seg {seg}")
+                logger.info(
+                    f"Continuing chain: triggering build_segment_images for item {item_id}, run {run}, seg {seg}"
+                )
                 build_segment_images.apply_async(
-                    args=[item_id, run, seg, True],
-                    queue="hnfm_tasks"
+                    args=[item_id, run, seg, True], queue="hnfm_tasks"
                 )
 
             return result_dict
@@ -564,10 +573,11 @@ def build_segment_audio(
 
             # If continue_chain is True, trigger the next task in the pipeline
             if continue_chain:
-                logger.info(f"Continuing chain: triggering build_segment_images for item {item_id}, run {run}, seg {seg}")
+                logger.info(
+                    f"Continuing chain: triggering build_segment_images for item {item_id}, run {run}, seg {seg}"
+                )
                 build_segment_images.apply_async(
-                    args=[item_id, run, seg, True],
-                    queue="hnfm_tasks"
+                    args=[item_id, run, seg, True], queue="hnfm_tasks"
                 )
 
             return result_dict
@@ -581,7 +591,9 @@ def build_segment_audio(
 
 
 @celery_app.task(name="hnfm.web.tasks.build_segment_images")
-def build_segment_images(item_id: int, run: int, seg: int, continue_chain: bool = False) -> Dict:
+def build_segment_images(
+    item_id: int, run: int, seg: int, continue_chain: bool = False
+) -> Dict:
     """
     Build all prompts & images for a segment.
 
@@ -704,10 +716,11 @@ def build_segment_images(item_id: int, run: int, seg: int, continue_chain: bool 
 
         # If continue_chain is True, trigger the next task in the pipeline
         if continue_chain:
-            logger.info(f"Continuing chain: triggering generate_segment_video for item {item_id}, run {run}, seg {seg}")
+            logger.info(
+                f"Continuing chain: triggering generate_segment_video for item {item_id}, run {run}, seg {seg}"
+            )
             generate_segment_video.apply_async(
-                args=[item_id, run, seg, True],
-                queue="hnfm_tasks"
+                args=[item_id, run, seg, True], queue="hnfm_tasks"
             )
 
         # 7) Return result
@@ -856,7 +869,9 @@ def rebuild_single_image(
 
 
 @celery_app.task(name="hnfm.web.tasks.generate_segment_video")
-def generate_segment_video(item_id: int, run: int, seg: int, continue_chain: bool = False) -> Dict:
+def generate_segment_video(
+    item_id: int, run: int, seg: int, continue_chain: bool = False
+) -> Dict:
     """
     Generate video for a segment from audio, images, and timeline.
 
@@ -907,21 +922,31 @@ def generate_segment_video(item_id: int, run: int, seg: int, continue_chain: boo
 
         # 2) Build timeline from sections and images
         from ..utils.segment_utils import build_timeline
+
         timeline = build_timeline(item_id, run, seg, redis_client=redis_client)
 
         if not timeline:
-            raise RuntimeError(f"No timeline data generated for segment {item_id}:{run}:{seg}")
+            raise RuntimeError(
+                f"No timeline data generated for segment {item_id}:{run}:{seg}"
+            )
 
         logger.info(f"📊 Built timeline with {len(timeline)} items")
 
         # 3) Create video directory
-        from ..utils.segment_utils import video_dir, video_path, subtitles_path, timeline_path
+        from ..utils.segment_utils import (
+            video_dir,
+            video_path,
+            subtitles_path,
+            timeline_path,
+        )
+
         video_dir_path = video_dir(outputs_root, item_id, run, seg)
         os.makedirs(video_dir_path, exist_ok=True)
 
         # 4) Write subtitles VTT file
         vtt_path = subtitles_path(outputs_root, item_id, run, seg)
         from ..utils.segment_utils import write_vtt_from_timeline
+
         write_vtt_from_timeline(timeline, vtt_path)
         logger.info(f"📝 Created subtitles: {vtt_path}")
 
@@ -932,6 +957,7 @@ def generate_segment_video(item_id: int, run: int, seg: int, continue_chain: boo
 
         # 6) Call VideoGenerator to create video
         from ..video.video_generator import VideoGenerator
+
         video_generator = VideoGenerator()
 
         output_video_path = video_path(outputs_root, item_id, run, seg)
@@ -942,7 +968,7 @@ def generate_segment_video(item_id: int, run: int, seg: int, continue_chain: boo
             subtitles_path=vtt_path,
             output_path=output_video_path,
             size=(1920, 1080),
-            fps=30
+            fps=30,
         )
 
         if not result.get("success"):
@@ -952,6 +978,7 @@ def generate_segment_video(item_id: int, run: int, seg: int, continue_chain: boo
 
         # 7) Update segment video fields
         from ..utils.segment_utils import update_segment_video_fields
+
         update_segment_video_fields(
             item_id=item_id,
             run=run,
@@ -960,14 +987,16 @@ def generate_segment_video(item_id: int, run: int, seg: int, continue_chain: boo
             outputs_root=outputs_root,
             video_path_str=output_video_path,
             subtitles_path_str=vtt_path,
-            video_ready=True
+            video_ready=True,
         )
 
         logger.info(f"✅ Video generation completed for segment {item_id}:{run}:{seg}")
 
         # If continue_chain is True, this is the end of the pipeline
         if continue_chain:
-            logger.info(f"🎉 Pipeline completed successfully for item {item_id}, run {run}, seg {seg}")
+            logger.info(
+                f"🎉 Pipeline completed successfully for item {item_id}, run {run}, seg {seg}"
+            )
 
         return {
             "status": "ok",
@@ -976,9 +1005,11 @@ def generate_segment_video(item_id: int, run: int, seg: int, continue_chain: boo
             "seg": seg,
             "video_path": output_video_path,
             "subtitles_path": vtt_path,
-            "timeline_items": len(timeline)
+            "timeline_items": len(timeline),
         }
 
     except Exception as e:
-        logger.error(f"❌ Video generation failed for segment {item_id}:{run}:{seg}: {e}")
+        logger.error(
+            f"❌ Video generation failed for segment {item_id}:{run}:{seg}: {e}"
+        )
         raise

@@ -10,7 +10,7 @@ import base64
 # Add src to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
-from hnfm.video.image_generator import ImageGenerationService
+from hnfm.image.image_service_factory import ImageServiceFactory
 
 
 class TestImageGenerationService:
@@ -21,9 +21,10 @@ class TestImageGenerationService:
         print("🧪 Testing Image Generation Service Initialization...")
 
         # Mock the config manager to avoid real config calls
-        with patch("hnfm.video.image_generator.config_manager") as mock_config:
+        with patch("hnfm.image.image_service_factory.config_manager") as mock_config:
             # Mock config values
             mock_config.get.side_effect = lambda key, default=None: {
+                "image_generation.backend": "NIM",
                 "image_generation.base_url": "http://localhost:7860",
                 "image_generation.default_height": 1024,
                 "image_generation.default_width": 1024,
@@ -34,8 +35,8 @@ class TestImageGenerationService:
                 "image_generation.output_directory": "images",
             }.get(key, default)
 
-            # Initialize service
-            service = ImageGenerationService()
+            # Initialize service using factory
+            service = ImageServiceFactory.create_image_service()
 
             # Verify basic properties
             assert service.base_url == "http://localhost:7860"

@@ -432,13 +432,13 @@ def generate_image_from_prompt(prompt: str, out_path: str) -> None:
     Must write a PNG to out_path. Overwrite if exists.
     """
     try:
-        from ..video.image_generator import ImageGenerationService
+        from ..image.image_service_factory import ImageServiceFactory
 
         # Create output directory if it doesn't exist
         Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
-        # Generate and save image
-        service = ImageGenerationService()
+        # Generate and save image using the configured service
+        service = ImageServiceFactory.create_image_service()
         service.generate_and_save_image(prompt, out_path, "image.png")
 
     except Exception as e:
@@ -464,7 +464,7 @@ def save_segment_image(
     # Write meta.json
     meta_path = img_meta_path(outputs_root, si.item_id, si.run, si.seg, si.index)
     # Use model_dump_json() to handle datetime serialization properly
-    with open(meta_path, 'w', encoding='utf-8') as f:
+    with open(meta_path, "w", encoding="utf-8") as f:
         f.write(si.model_dump_json())
 
 
@@ -519,7 +519,9 @@ def update_segment_images_status(
     save_segment(segment, redis_client=redis_client, outputs_root=outputs_root)
 
 
-def list_section_numbers(item_id: int, run: int, seg: int, *, redis_client: redis.Redis) -> List[int]:
+def list_section_numbers(
+    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
+) -> List[int]:
     """Get ordered section indices for a segment"""
     from ..audio.audio_utils import k_sec_list
 
@@ -528,7 +530,9 @@ def list_section_numbers(item_id: int, run: int, seg: int, *, redis_client: redi
     return [int(section_str) for section_str in section_strings]
 
 
-def load_section_and_image(item_id: int, run: int, seg: int, index: int, *, redis_client: redis.Redis) -> dict:
+def load_section_and_image(
+    item_id: int, run: int, seg: int, index: int, *, redis_client: redis.Redis
+) -> dict:
     """
     Load section and image data for a specific index.
 
@@ -557,11 +561,13 @@ def load_section_and_image(item_id: int, run: int, seg: int, index: int, *, redi
         "index": index,
         "duration_ms": section.duration_ms,
         "image_path": image.image_path,
-        "text": image.line_text
+        "text": image.line_text,
     }
 
 
-def build_timeline(item_id: int, run: int, seg: int, *, redis_client: redis.Redis) -> List[dict]:
+def build_timeline(
+    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
+) -> List[dict]:
     """
     Build timeline for video generation from sections and images.
 
@@ -580,15 +586,19 @@ def build_timeline(item_id: int, run: int, seg: int, *, redis_client: redis.Redi
     cumulative_start = 0
 
     for index in section_numbers:
-        data = load_section_and_image(item_id, run, seg, index, redis_client=redis_client)
+        data = load_section_and_image(
+            item_id, run, seg, index, redis_client=redis_client
+        )
 
-        timeline.append({
-            "index": data["index"],
-            "image_path": data["image_path"],
-            "start_ms": cumulative_start,
-            "duration_ms": data["duration_ms"],
-            "text": data["text"]
-        })
+        timeline.append(
+            {
+                "index": data["index"],
+                "image_path": data["image_path"],
+                "start_ms": cumulative_start,
+                "duration_ms": data["duration_ms"],
+                "text": data["text"],
+            }
+        )
 
         cumulative_start += data["duration_ms"]
 
@@ -608,7 +618,7 @@ def write_vtt_from_timeline(timeline: List[dict], out_path: str) -> None:
     # Ensure output directory exists
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
-    with open(out_path, 'w', encoding='utf-8') as f:
+    with open(out_path, "w", encoding="utf-8") as f:
         f.write("WEBVTT\n\n")
 
         for item in timeline:
@@ -646,7 +656,7 @@ def update_segment_video_fields(
     outputs_root: str,
     video_path_str: str | None,
     subtitles_path_str: str | None,
-    video_ready: bool
+    video_ready: bool,
 ) -> None:
     """
     Update segment video fields in Redis and on disk.

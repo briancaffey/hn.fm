@@ -653,7 +653,9 @@ class VideoGenerator:
             if not timeline:
                 raise RuntimeError("No timeline items provided")
 
-            logger.info(f"🎨 Processing {len(timeline)} timeline items for video generation")
+            logger.info(
+                f"🎨 Processing {len(timeline)} timeline items for video generation"
+            )
 
             # Create a temporary directory for intermediate files
             with tempfile.TemporaryDirectory() as temp_dir:
@@ -671,7 +673,9 @@ class VideoGenerator:
                         continue
 
                     if duration_seconds <= 0:
-                        logger.warning(f"⚠️ Invalid duration for item {i}: {duration_ms}ms")
+                        logger.warning(
+                            f"⚠️ Invalid duration for item {i}: {duration_ms}ms"
+                        )
                         continue
 
                     # Log which image we're processing
@@ -682,7 +686,9 @@ class VideoGenerator:
 
                     # Create a video segment for this image
                     segment_path = temp_dir_path / f"segment_{i:03d}.mp4"
-                    self._create_image_segment(image_path, segment_path, duration_seconds, width, height, fps)
+                    self._create_image_segment(
+                        image_path, segment_path, duration_seconds, width, height, fps
+                    )
                     video_segments.append(segment_path)
 
                     logger.debug(
@@ -719,7 +725,7 @@ class VideoGenerator:
                 # Add subtitle filter if subtitles exist
                 if subtitle_file and Path(subtitle_file).exists():
                     # Check if it's VTT or ASS format
-                    if subtitle_file.endswith('.vtt'):
+                    if subtitle_file.endswith(".vtt"):
                         # For VTT files, we need to convert to ASS or use subtitles filter
                         # For now, we'll use the subtitles filter which supports VTT
                         cmd.extend(["-vf", f"subtitles={subtitle_file}"])
@@ -728,18 +734,20 @@ class VideoGenerator:
                         cmd.extend(["-vf", f"ass={subtitle_file}"])
 
                 # Add video encoding options
-                cmd.extend([
-                    "-c:v",
-                    "libx264",
-                    "-c:a",
-                    "aac",
-                    "-preset",
-                    "medium",
-                    "-crf",
-                    "23",
-                    "-shortest",
-                    output_path,
-                ])
+                cmd.extend(
+                    [
+                        "-c:v",
+                        "libx264",
+                        "-c:a",
+                        "aac",
+                        "-preset",
+                        "medium",
+                        "-crf",
+                        "23",
+                        "-shortest",
+                        output_path,
+                    ]
+                )
 
                 logger.info(
                     f"🎬 Running ffmpeg concat command with {len(video_segments)} timeline segments..."
@@ -767,7 +775,13 @@ class VideoGenerator:
             raise RuntimeError(f"Video creation from timeline failed: {e}")
 
     def _create_image_segment(
-        self, image_path: str, output_path: Path, duration: float, width: int, height: int, fps: int
+        self,
+        image_path: str,
+        output_path: Path,
+        duration: float,
+        width: int,
+        height: int,
+        fps: int,
     ) -> None:
         """Create a video segment from a single image with specified duration and resolution."""
         try:

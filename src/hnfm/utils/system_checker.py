@@ -330,33 +330,53 @@ class SystemChecker:
             )
 
     def _check_image_generation(self) -> ServiceStatus:
-        """Check Image Generation service (Flux NIM)."""
-        from ..utils.config import config_manager
-
-        base_url = config_manager.get("image_generation.base_url")
-        if not base_url:
+        """Check Image Generation service (NIM or InvokeAI)."""
+        try:
+            from ..image.image_service_factory import ImageServiceFactory
+        except ImportError as e:
             return ServiceStatus(
                 name="Image Generation",
+                url="unknown",
+                status="error",
+                response_time=0.0,
+                error_message=f"Failed to import ImageServiceFactory: {str(e)}",
+            )
+
+        # Get service name and health check URL from factory first
+        try:
+            service_name = ImageServiceFactory.get_service_name()
+            health_url = ImageServiceFactory.get_health_check_url()
+        except Exception as e:
+            return ServiceStatus(
+                name="Image Generation",
+                url="unknown",
+                status="error",
+                response_time=0.0,
+                error_message=f"Failed to get service configuration: {str(e)}",
+            )
+
+        if not health_url:
+            return ServiceStatus(
+                name=service_name,
                 url="not configured",
                 status="offline",
                 response_time=0.0,
-                error_message="Image generation base URL not configured",
+                error_message="Image generation service not configured",
             )
 
         try:
             start_time = time.time()
-            # Use the health endpoint that the ImageGenerationService expects
-            response = requests.get(f"{base_url}/v1/health/ready", timeout=self.timeout)
+            response = requests.get(health_url, timeout=self.timeout)
             response_time = time.time() - start_time
 
             if response.status_code == 200:
                 return ServiceStatus(
-                    name="Image Generation",
-                    url=base_url,
+                    name=service_name,
+                    url=health_url,
                     status="online",
                     response_time=response_time,
                     details={
-                        "health_endpoint": f"{base_url}/v1/health/ready",
+                        "health_endpoint": health_url,
                         "response": (
                             response.text[:100] + "..."
                             if len(response.text) > 100
@@ -366,18 +386,42 @@ class SystemChecker:
                 )
             else:
                 return ServiceStatus(
-                    name="Image Generation",
-                    url=base_url,
+                    name=service_name,
+                    url=health_url,
                     status="offline",
                     response_time=response_time,
                     error_message=f"HTTP {response.status_code}",
                 )
 
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.Timeout:
             return ServiceStatus(
-                name="Image Generation",
-                url=base_url,
+                name=service_name,
+                url=health_url,
                 status="offline",
                 response_time=0.0,
-                error_message=str(e),
+                error_message="Request timed out",
+            )
+        except requests.exceptions.ConnectionError:
+            return ServiceStatus(
+                name=service_name,
+                url=health_url,
+                status="offline",
+                response_time=0.0,
+                error_message="Connection failed - service may be down",
+            )
+        except requests.exceptions.RequestException as e:
+            return ServiceStatus(
+                name=service_name,
+                url=health_url,
+                status="offline",
+                response_time=0.0,
+                error_message=f"Request failed: {str(e)}",
+            )
+        except Exception as e:
+            return ServiceStatus(
+                name=service_name,
+                url=health_url,
+                status="error",
+                response_time=0.0,
+                error_message=f"Unexpected error: {str(e)}",
             )

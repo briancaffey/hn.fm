@@ -61,7 +61,11 @@ x-common-env: &common-env
   INCLUDE_COMMENTS: ${INCLUDE_COMMENTS:-true}
   QUALITY_THRESHOLD: ${QUALITY_THRESHOLD:-0.8}
   # Image Generation Configuration
+  IMAGE_GENERATION_BACKEND: ${IMAGE_GENERATION_BACKEND:-NIM}
   IMAGE_GENERATION_BASE_URL: ${IMAGE_GENERATION_BASE_URL:-http://localhost:8000}
+  # InvokeAI Configuration
+  INVOKEAI_BASE_URL: ${INVOKEAI_BASE_URL:-http://localhost:9090}
+  INVOKEAI_BOARD_ID: ${INVOKEAI_BOARD_ID:-}
 
 services:
   # Redis service for Celery broker and result backend

@@ -239,7 +239,7 @@ async def get_single_item(
 async def create_and_queue_run(
     item_id: int,
     request: CreateRunRequest = Body(CreateRunRequest(continue_chain=False)),
-    redis_client: redis.Redis = Depends(get_redis_client)
+    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """Create and queue a new run for an item"""
     try:
@@ -248,8 +248,7 @@ async def create_and_queue_run(
 
         # Queue the task with continue_chain parameter
         process_hn_item_run.apply_async(
-            args=[item_id, run, request.continue_chain],
-            queue="hnfm_tasks"
+            args=[item_id, run, request.continue_chain], queue="hnfm_tasks"
         )
 
         return CreateRunResponse(item_id=item_id, run=run, status="queued")
@@ -368,7 +367,7 @@ async def create_and_queue_segment(
     item_id: int,
     run: int,
     request: CreateSegmentRequest = Body(CreateSegmentRequest(continue_chain=False)),
-    redis_client: redis.Redis = Depends(get_redis_client)
+    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """Create and queue a new segment for a run"""
     try:
@@ -377,8 +376,7 @@ async def create_and_queue_segment(
 
         # Queue the task with continue_chain parameter
         generate_segment.apply_async(
-            args=[item_id, run, seg, request.continue_chain],
-            queue="hnfm_tasks"
+            args=[item_id, run, seg, request.continue_chain], queue="hnfm_tasks"
         )
 
         return CreateSegmentResponse(item_id=item_id, run=run, seg=seg, status="queued")
@@ -900,7 +898,8 @@ async def generate_segment_video_endpoint(
 
         if not segment.script:
             raise HTTPException(
-                status_code=400, detail="Segment script is empty - generate script first"
+                status_code=400,
+                detail="Segment script is empty - generate script first",
             )
 
         if not segment.audio_ready or not segment.audio_combined_path:
@@ -910,7 +909,8 @@ async def generate_segment_video_endpoint(
 
         if not segment.images_ready:
             raise HTTPException(
-                status_code=400, detail="Segment images not ready - generate images first"
+                status_code=400,
+                detail="Segment images not ready - generate images first",
             )
 
         # Import the task
@@ -935,9 +935,7 @@ async def generate_segment_video_endpoint(
         logger.error(
             f"Failed to queue video generation for segment {item_id}:{run}:{seg}: {e}"
         )
-        raise HTTPException(
-            status_code=500, detail="Failed to queue video generation"
-        )
+        raise HTTPException(status_code=500, detail="Failed to queue video generation")
 
 
 @app.get("/api/video/{item_id}/{run}/{seg}/{filename}")

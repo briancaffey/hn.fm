@@ -180,15 +180,20 @@ class ConfigManager:
                 "max_attempts": 5,
             },
             "image_generation": {
+                "backend": "${IMAGE_GENERATION_BACKEND}",
                 "base_url": "${IMAGE_GENERATION_BASE_URL}",
                 "default_height": 1024,
                 "default_width": 1024,
-                "default_cfg_scale": 5,
+                "default_cfg_scale": 1.0,
                 "default_mode": "base",
                 "default_steps": 50,
                 "default_samples": 1,
                 "output_directory": "images",
                 "default_style": "detailed cartoon style",
+                "invokeai": {
+                    "base_url": "${INVOKEAI_BASE_URL}",
+                    "board_id": "${INVOKEAI_BOARD_ID}",
+                },
             },
             "development": {
                 "debug": "${DEBUG}",
