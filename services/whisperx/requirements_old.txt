@@ -1,0 +1,23 @@
+# WhisperX Audio Processing API - Consolidated Requirements
+# This file consolidates all dependencies from the previous multiple requirements files
+
+# Core FastAPI dependencies
+fastapi
+uvicorn[standard]
+python-multipart
+
+# WhisperX and ML dependencies
+whisperx
+torch
+torchaudio
+transformers
+pyannote.audio
+
+# NumPy and scientific computing with compatibility constraints
+numpy
+scipy
+librosa
+soundfile
+
+# Other dependencies
+requests
