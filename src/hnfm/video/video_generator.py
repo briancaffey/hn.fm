@@ -177,11 +177,11 @@ class VideoGenerator:
                 )
                 # Speaker00: White text with orange border
                 f.write(
-                    "Style: Speaker00,DejaVu Sans,48,&H00FFFFFF,&H000000FF,&H00008CFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n"
+                    "Style: Speaker00,DejaVu Sans,36,&H00FFFFFF,&H000000FF,&H00008CFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n"
                 )
                 # Speaker01: Orange text with white border
                 f.write(
-                    "Style: Speaker01,DejaVu Sans,48,&H00008CFF,&H000000FF,&H00FFFFFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
+                    "Style: Speaker01,DejaVu Sans,36,&H00008CFF,&H000000FF,&H00FFFFFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
                 )
 
                 # Write events section
@@ -574,7 +574,7 @@ class VideoGenerator:
         timeline: List[Dict[str, Any]],
         subtitles_path: str,
         output_path: str,
-        size: Tuple[int, int] = (1920, 1080),
+        size: Tuple[int, int] = (1024, 1024),
         fps: int = 30,
     ) -> Dict[str, Any]:
         """Create video from audio, timeline, and optional subtitles.

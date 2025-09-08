@@ -763,7 +763,7 @@ async def build_segment_images_endpoint(
             raise HTTPException(status_code=400, detail="Script not ready")
 
         # Action: queue the task
-        task = build_segment_images.apply_async(args=[item_id, run, seg])
+        task = build_segment_images.apply_async(args=[item_id, run, seg, True])
 
         # Response
         return {

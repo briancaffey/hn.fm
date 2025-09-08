@@ -590,7 +590,7 @@ def build_segment_audio(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.build_segment_images")
+@celery_app.task(name="hnfm.web.tasks.build_segment_images", time_limit=3600, soft_time_limit=3600)
 def build_segment_images(
     item_id: int, run: int, seg: int, continue_chain: bool = False
 ) -> Dict:
@@ -943,12 +943,28 @@ def generate_segment_video(
         video_dir_path = video_dir(outputs_root, item_id, run, seg)
         os.makedirs(video_dir_path, exist_ok=True)
 
-        # 4) Write subtitles VTT file
-        vtt_path = subtitles_path(outputs_root, item_id, run, seg)
-        from ..utils.segment_utils import write_vtt_from_timeline
+        # 4) Write subtitles file from ASR data or timeline
+        from ..utils.segment_utils import write_ass_from_asr, write_vtt_from_timeline
 
-        write_vtt_from_timeline(timeline, vtt_path)
-        logger.info(f"📝 Created subtitles: {vtt_path}")
+        # Initialize subtitle path variable
+        subtitle_path = None
+
+        # Load ASR data if available
+        if segment.asr_json_path and os.path.exists(segment.asr_json_path):
+            # Generate word-level ASS subtitles from ASR data
+            ass_path = subtitles_path(outputs_root, item_id, run, seg).replace('.vtt', '.ass')
+            import json
+            with open(segment.asr_json_path, 'r') as f:
+                asr_data = json.load(f)
+            write_ass_from_asr(asr_data, ass_path)
+            subtitle_path = ass_path
+            logger.info(f"📝 Created word-level ASS subtitles: {ass_path}")
+        else:
+            # Fallback to VTT from timeline if no ASR data
+            vtt_path = subtitles_path(outputs_root, item_id, run, seg)
+            write_vtt_from_timeline(timeline, vtt_path)
+            subtitle_path = vtt_path
+            logger.info(f"📝 Created VTT subtitles (fallback): {vtt_path}")
 
         # 5) Save timeline debug JSON
         timeline_debug_path = timeline_path(outputs_root, item_id, run, seg)
@@ -965,9 +981,9 @@ def generate_segment_video(
         result = video_generator.create_video(
             audio_path=segment.audio_combined_path,
             timeline=timeline,
-            subtitles_path=vtt_path,
+            subtitles_path=subtitle_path,
             output_path=output_video_path,
-            size=(1920, 1080),
+            size=(1024, 1024),
             fps=30,
         )
 
@@ -986,7 +1002,7 @@ def generate_segment_video(
             redis_client=redis_client,
             outputs_root=outputs_root,
             video_path_str=output_video_path,
-            subtitles_path_str=vtt_path,
+            subtitles_path_str=subtitle_path,
             video_ready=True,
         )
 
@@ -1004,7 +1020,7 @@ def generate_segment_video(
             "run": run,
             "seg": seg,
             "video_path": output_video_path,
-            "subtitles_path": vtt_path,
+            "subtitles_path": subtitle_path,
             "timeline_items": len(timeline),
         }
 

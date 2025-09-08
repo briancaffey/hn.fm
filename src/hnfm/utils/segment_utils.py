@@ -635,6 +635,86 @@ def write_vtt_from_timeline(timeline: List[dict], out_path: str) -> None:
             f.write(f"{text}\n\n")
 
 
+def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
+    """
+    Create ASS subtitles from ASR data with word-level timing and speaker colors.
+
+    Args:
+        asr_data: ASR data with segments containing words with timestamps and speakers
+        out_path: Output ASS file path
+    """
+    from pathlib import Path
+    import tempfile
+
+    # Ensure output directory exists
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        # Write ASS header
+        f.write("[Script Info]\n")
+        f.write("Title: Generated Subtitles\n")
+        f.write("ScriptType: v4.00+\n")
+        f.write("WrapStyle: 1\n")
+        f.write("ScaledBorderAndShadow: yes\n")
+        f.write("YCbCr Matrix: TV.601\n\n")
+
+        # Write styles section
+        f.write("[V4+ Styles]\n")
+        f.write(
+            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+        )
+        # Speaker00: White text with orange border
+        f.write(
+            "Style: Speaker00,DejaVu Sans,36,&H00FFFFFF,&H000000FF,&H00008CFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n"
+        )
+        # Speaker01: Orange text with white border
+        f.write(
+            "Style: Speaker01,DejaVu Sans,36,&H00008CFF,&H000000FF,&H00FFFFFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
+        )
+
+        # Write events section
+        f.write("[Events]\n")
+        f.write(
+            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
+        )
+
+        segments = asr_data.get("segments", [])
+
+        for segment in segments:
+            words = segment.get("words", [])
+
+            for word_data in words:
+                word = word_data.get("word", "").strip()
+                start_time = word_data.get("start", 0)
+                end_time = word_data.get("end", 0)
+                speaker = word_data.get("speaker", "SPEAKER_00")
+
+                if not word or start_time >= end_time:
+                    continue
+
+                # Convert times to ASS format (H:MM:SS.cc)
+                start_ass = _seconds_to_ass_time(start_time)
+                end_ass = _seconds_to_ass_time(end_time)
+
+                # Determine style based on speaker
+                style = "Speaker01" if speaker == "SPEAKER_01" else "Speaker00"
+
+                # Write subtitle entry
+                f.write(
+                    f"Dialogue: 0,{start_ass},{end_ass},{style},,0,0,0,,{word}\n"
+                )
+
+
+def _seconds_to_ass_time(seconds: float) -> str:
+    """Convert seconds to ASS time format (H:MM:SS.cc)."""
+    hours = int(seconds // 3600)
+    minutes = int((seconds % 3600) // 60)
+    secs = int(seconds % 60)
+    centiseconds = int((seconds % 1) * 100)
+
+    return f"{hours}:{minutes:02d}:{secs:02d}.{centiseconds:02d}"
+
+
 def _ms_to_vtt_time(ms: int) -> str:
     """Convert milliseconds to VTT time format (HH:MM:SS.mmm)"""
     seconds = ms // 1000
