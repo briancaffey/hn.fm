@@ -41,7 +41,7 @@ class TestScriptGenerator:
         mock_tts, mock_audio_processor, mock_studio_voice = mock_services
 
         with (
-            patch("hnfm.content.script_generator.TTSService", return_value=mock_tts),
+            patch("hnfm.content.script_generator.TtsApiService", return_value=mock_tts),
             patch(
                 "hnfm.content.script_generator.AudioProcessor",
                 return_value=mock_audio_processor,

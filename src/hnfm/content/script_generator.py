@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import List, Optional
 import logging
 
-from ..audio.tts_service import TTSService
+from ..audio.tts_api_service import TtsApiService
 from ..audio.audio_processor import AudioProcessor
 from ..audio.studio_voice_service import StudioVoiceService
 from ..utils.config import config_manager
@@ -29,7 +29,7 @@ class ScriptGenerator:
             output_dir: Base output directory
         """
         self.output_dir = Path(output_dir)
-        self.tts_service = TTSService()
+        self.tts_service = TtsApiService()
         self.audio_processor = AudioProcessor()
 
         # Get Studio Voice configuration

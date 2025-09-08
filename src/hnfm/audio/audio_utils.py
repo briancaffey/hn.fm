@@ -84,13 +84,13 @@ def tts_synthesize_to_wav(text: str, out_path: str) -> int:
     Returns:
         Duration in milliseconds
     """
-    from .tts_service import TTSService
+    from .tts_api_service import TtsApiService
 
     # Ensure output directory exists
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
-    # Initialize TTS service
-    tts_service = TTSService()
+    # Initialize TTS API service
+    tts_service = TtsApiService()
 
     # Generate speech
     audio_data = tts_service.generate_speech(text)

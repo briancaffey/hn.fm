@@ -38,7 +38,7 @@ class SystemChecker:
         services = [
             ("Local LLM", self._check_local_llm),
             ("Firecrawl", self._check_firecrawl),
-            ("Gradio TTS", self._check_gradio_tts),
+            ("DIA TTS API", self._check_gradio_tts),
             ("Studio Voice", self._check_studio_voice),
             ("ASR Service", self._check_asr_service),
             ("Image Generation", self._check_image_generation),
@@ -173,13 +173,13 @@ class SystemChecker:
             )
 
     def _check_gradio_tts(self) -> ServiceStatus:
-        """Check Gradio TTS service."""
+        """Check DIA TTS API service."""
         from ..utils.config import config_manager
 
         base_url = config_manager.get("tts.base_url")
         if not base_url:
             return ServiceStatus(
-                name="Gradio TTS",
+                name="DIA TTS API",
                 url="not configured",
                 status="offline",
                 response_time=0.0,
@@ -188,21 +188,23 @@ class SystemChecker:
 
         try:
             start_time = time.time()
-            # Try to access the Gradio interface
-            response = requests.get(base_url, timeout=self.timeout)
+            # Try to access the DIA API health endpoint
+            health_url = f"{base_url.rstrip('/')}/health"
+            response = requests.get(health_url, timeout=self.timeout)
             response_time = time.time() - start_time
 
             if response.status_code == 200:
+                health_data = response.json()
                 return ServiceStatus(
-                    name="Gradio TTS",
+                    name="DIA TTS API",
                     url=base_url,
                     status="online",
                     response_time=response_time,
-                    details={"response": "Gradio interface accessible"},
+                    details={"health": health_data},
                 )
             else:
                 return ServiceStatus(
-                    name="Gradio TTS",
+                    name="DIA TTS API",
                     url=base_url,
                     status="offline",
                     response_time=response_time,
@@ -211,7 +213,7 @@ class SystemChecker:
 
         except requests.exceptions.RequestException as e:
             return ServiceStatus(
-                name="Gradio TTS",
+                name="DIA TTS API",
                 url=base_url,
                 status="offline",
                 response_time=0.0,

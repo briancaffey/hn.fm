@@ -1,43 +1,36 @@
-"""TTS service for hn.fm."""
+"""TTS API service for hn.fm using DIA FastAPI service."""
 
 import requests
 import logging
 import time
 import random
 import os
-from typing import Optional, Tuple, Dict, Any
+from typing import Optional, Dict, Any
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 
-class TTSService:
-    """
-    DEPRECATED: Text-to-speech service using local Gradio API.
-
-    This service has been deprecated in favor of TtsApiService which uses the DIA FastAPI service.
-    This class is kept for reference and demonstrates how to use DIA via the Gradio API.
-
-    Use TtsApiService instead for new implementations.
-    """
+class TtsApiService:
+    """Text-to-speech service using DIA FastAPI service."""
 
     def __init__(self, base_url: str = None):
-        """Initialize the TTS service.
+        """Initialize the TTS API service.
 
         Args:
-            base_url: Base URL for the TTS API
+            base_url: Base URL for the DIA TTS API
         """
         # Use default URL if none provided
         if base_url is None:
             from ..utils.config import config_manager
 
-            base_url = config_manager.get("tts.base_url", "http://localhost:7860")
+            base_url = config_manager.get("tts.base_url", "http://localhost:8491")
 
         # Handle case where base_url might still be None or empty
         if not base_url:
-            base_url = "http://localhost:7860"
+            base_url = "http://localhost:8491"
             logger.warning(
-                "No TTS base URL configured, using default: http://localhost:7860"
+                "No TTS base URL configured, using default: http://localhost:8491"
             )
 
         self.base_url = base_url.rstrip("/")
@@ -65,7 +58,7 @@ class TTSService:
             True if service is healthy, False otherwise
         """
         try:
-            response = requests.get(f"{self.base_url}/config", timeout=5)
+            response = requests.get(f"{self.base_url}/health", timeout=5)
             return response.status_code == 200
         except Exception as e:
             logger.debug(f"Health check failed: {e}")
@@ -87,13 +80,13 @@ class TTSService:
     def _test_connection(self):
         """Test connection to the TTS API."""
         try:
-            response = requests.get(f"{self.base_url}/config", timeout=10)
+            response = requests.get(f"{self.base_url}/health", timeout=10)
             if response.status_code == 200:
-                logger.debug("✅ Successfully connected to API")
+                logger.debug("✅ Successfully connected to DIA TTS API")
             else:
-                logger.warning(f"TTS API returned status {response.status_code}")
+                logger.warning(f"DIA TTS API returned status {response.status_code}")
         except Exception as e:
-            logger.warning(f"Could not connect to TTS API: {e}")
+            logger.warning(f"Could not connect to DIA TTS API: {e}")
 
     def generate_speech(self, text: str, voice: str = "notebooklm") -> Optional[bytes]:
         """Generate speech from text.
@@ -230,7 +223,7 @@ class TTSService:
             return None
 
     def _call_tts_api(self, text: str, voice: str, seed: int) -> Optional[bytes]:
-        """Call the TTS API.
+        """Call the DIA TTS API.
 
         Args:
             text: Text to convert
@@ -241,19 +234,7 @@ class TTSService:
             Audio data or None if failed
         """
         try:
-            logger.debug("🎵 Calling real TTS API using gradio_client")
-
-            # Import gradio_client here to avoid dependency issues
-            try:
-                from gradio_client import Client
-            except ImportError:
-                logger.error(
-                    "gradio_client not installed. Install with: pip install gradio-client"
-                )
-                return None
-
-            # Initialize the client silently
-            client = Client(self.base_url)
+            logger.debug("🎵 Calling DIA TTS API")
 
             # Clean the text for TTS (replace problematic characters)
             cleaned_text = self._clean_text_for_tts(text)
@@ -282,67 +263,60 @@ class TTSService:
             else:
                 logger.warning(f"⚠️  No voice sample audio found for voice: {voice}")
 
-            # Import handle_file for proper audio file handling
+            # Prepare form data with same defaults as TTSService
+            form_data = {
+                "text": full_text,
+                "audio_prompt_text": voice_sample_text or "",
+                "max_new_tokens": 3072,
+                "cfg_scale": 3.0,
+                "temperature": 1.8,
+                "top_p": 0.95,
+                "cfg_filter_top_k": 45,
+                "speed_factor": 1.0,
+                "seed": seed,
+            }
+
+            # Prepare files for audio prompt
+            files = None
+            if voice_sample_audio_path and os.path.exists(voice_sample_audio_path):
+                files = {
+                    "audio_prompt": (
+                        "sample.wav",
+                        open(voice_sample_audio_path, "rb"),
+                        "audio/wav"
+                    )
+                }
+
             try:
-                from gradio_client import handle_file
-            except ImportError:
-                logger.error(
-                    "gradio_client not installed. Install with: pip install gradio-client"
+                # Make the API call
+                response = requests.post(
+                    f"{self.base_url}/generate",
+                    data=form_data,
+                    files=files,
+                    timeout=self.timeout_seconds
                 )
-                return None
 
-            # Make the API call with the correct structure based on your working implementation
-            result = client.predict(
-                text_input=full_text,
-                audio_prompt_text_input=voice_sample_text or "",  # Voice sample text
-                audio_prompt_input=(
-                    handle_file(voice_sample_audio_path)
-                    if voice_sample_audio_path
-                    else None
-                ),  # Voice sample audio file
-                max_new_tokens=3072,
-                cfg_scale=3,
-                temperature=1.8,
-                top_p=0.95,
-                cfg_filter_top_k=45,
-                speed_factor=1,
-                seed=seed,
-                api_name="/generate_audio",
-            )
+                if response.status_code == 200:
+                    logger.debug(f"📥 Received result from DIA API")
+                    logger.debug(f"📦 API returned {len(response.content)} bytes")
 
-            logger.debug(f"📥 Received result from API")
+                    # Get audio duration from headers if available
+                    duration_header = response.headers.get("x-duration-seconds")
+                    if duration_header:
+                        logger.debug(f"⏱️  Audio duration: {duration_header}s")
 
-            # Handle the result - it might be a tuple or single path
-            if isinstance(result, tuple):
-                # If it's a tuple, the first element should be the file path
-                result_path = result[0] if len(result) > 0 else None
-                logger.debug(f"📦 API returned tuple with {len(result)} elements")
-            else:
-                result_path = result
+                    return response.content
+                else:
+                    logger.error(f"❌ DIA API returned status {response.status_code}: {response.text}")
+                    return None
 
-                # The result should be a file path to the generated audio
-            if result_path and os.path.exists(result_path):
-                logger.debug(f"📁 Audio file generated at: {result_path}")
-
-                # Get audio duration
-                duration = self._get_audio_duration(result_path)
-                if duration:
-                    logger.debug(f"⏱️  Audio duration: {duration:.1f}s")
-
-                # Read the audio file and return as bytes
-                with open(result_path, "rb") as f:
-                    audio_data = f.read()
-
-                logger.debug(
-                    f"✅ Successfully read audio file: {len(audio_data)} bytes"
-                )
-                return audio_data
-            else:
-                logger.error(f"❌ API returned invalid result: {result}")
-                return None
+            finally:
+                # Clean up file handles
+                if files:
+                    files["audio_prompt"][1].close()
 
         except Exception as e:
-            logger.error(f"TTS API call failed: {e}")
+            logger.error(f"DIA TTS API call failed: {e}")
             return None
 
     def _load_voice_sample_text(self, voice: str) -> Optional[str]:
@@ -407,11 +381,11 @@ class TTSService:
         cleaned = text.replace("‑", "-")
 
         # Replace curly quotes and apostrophes with straight ones
-        cleaned = cleaned.replace("“", '"').replace(
-            "”", '"'
+        cleaned = cleaned.replace(""", '"').replace(
+            """, '"'
         )  # Curly double quotes to straight quotes
-        cleaned = cleaned.replace("‘", "'").replace(
-            "’", "'"
+        cleaned = cleaned.replace("'", "'").replace(
+            "'", "'"
         )  # Curly single quotes/apostrophes to straight ones
 
         # Replace other problematic characters
@@ -432,91 +406,3 @@ class TTSService:
         logger.debug(f"🧹 After:  '{cleaned[:100]}...'")
 
         return cleaned
-
-    def _get_audio_duration(self, file_path: str) -> Optional[float]:
-        """Get the duration of a WAV file in seconds.
-
-        Args:
-            file_path: Path to the WAV file
-
-        Returns:
-            Duration in seconds or None if failed
-        """
-        try:
-            import wave
-
-            with wave.open(file_path, "rb") as wav_file:
-                frames = wav_file.getnframes()
-                rate = wav_file.getframerate()
-                duration = frames / float(rate)
-                return duration
-        except Exception as e:
-            logger.debug(f"Could not determine audio duration: {e}")
-            return None
-
-    def _wait_for_completion(self, session_hash: str) -> Optional[bytes]:
-        """Wait for TTS job completion.
-
-        Args:
-            session_hash: Session hash from job submission
-
-        Returns:
-            Audio data or None if failed
-        """
-        try:
-            # Poll for completion
-            while True:
-                response = requests.get(
-                    f"{self.base_url}/gradio_api/queue/data?session_hash={session_hash}",
-                    stream=True,
-                )
-
-                if response.status_code != 200:
-                    raise RuntimeError(
-                        f"Failed to get job status: {response.status_code}"
-                    )
-
-                # Check for completion
-                for line in response.iter_lines():
-                    if line:
-                        line_str = line.decode("utf-8")
-                        if '"msg": "process_completed"' in line_str:
-                            # Get the result
-                            audio_data = self._get_audio_result(session_hash)
-                            return audio_data
-
-                time.sleep(0.1)
-
-        except Exception as e:
-            logger.error(f"Failed to wait for completion: {e}")
-            return None
-
-    def _get_audio_result(self, session_hash: str) -> Optional[bytes]:
-        """Get audio result from completed job.
-
-        Args:
-            session_hash: Session hash
-
-        Returns:
-            Audio data or None if failed
-        """
-        try:
-            # Get the audio file
-            response = requests.get(
-                f"{self.base_url}/gradio_api/file=/tmp/gradio/{session_hash}/audio.wav"
-            )
-
-            if response.status_code == 200:
-                logger.debug("📥 Received result from API")
-                logger.debug(
-                    f"📦 API returned tuple with {len(response.content)} elements"
-                )
-                return response.content
-            else:
-                raise RuntimeError(
-                    f"Failed to get audio result: {response.status_code}"
-                )
-
-        except Exception as e:
-            logger.error(f"Failed to get audio result: {e}")
-            return None
