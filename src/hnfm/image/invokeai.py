@@ -369,7 +369,11 @@ class InvokeAIClient:
         return False
 
     def get_batch_results(
-        self, queue_id: str, batch_id: str, session_id: str = None, item_ids: List[int] = None
+        self,
+        queue_id: str,
+        batch_id: str,
+        session_id: str = None,
+        item_ids: List[int] = None,
     ) -> Optional[Dict[str, Any]]:
         """
         Get the results of a completed batch by finding the session and extracting image results.
@@ -403,23 +407,23 @@ class InvokeAIClient:
                                 if result.get("type") == "image_output":
                                     image_info = result.get("image", {})
                                     if "image_name" in image_info:
-                                        images.append({
-                                            "image_name": image_info["image_name"],
-                                            "width": result.get("width", 1024),
-                                            "height": result.get("height", 1024),
-                                            "session_id": item_data.get("session_id"),
-                                            "node_id": node_id
-                                        })
+                                        images.append(
+                                            {
+                                                "image_name": image_info["image_name"],
+                                                "width": result.get("width", 1024),
+                                                "height": result.get("height", 1024),
+                                                "session_id": item_data.get(
+                                                    "session_id"
+                                                ),
+                                                "node_id": node_id,
+                                            }
+                                        )
 
                             if images:
-                                logger.info(f"Found {len(images)} images in queue item {item_id}")
-                                return {
-                                    "items": [
-                                        {
-                                            "images": images
-                                        }
-                                    ]
-                                }
+                                logger.info(
+                                    f"Found {len(images)} images in queue item {item_id}"
+                                )
+                                return {"items": [{"images": images}]}
 
             # Fallback: try to find session_id from queue list
             if session_id:
@@ -431,7 +435,9 @@ class InvokeAIClient:
                 )
 
                 if session_response.status_code != 200:
-                    logger.error(f"Failed to get queue list: {session_response.status_code}")
+                    logger.error(
+                        f"Failed to get queue list: {session_response.status_code}"
+                    )
                     return None
 
                 session_data = session_response.json()
@@ -452,7 +458,9 @@ class InvokeAIClient:
             )
 
             if session_detail_response.status_code != 200:
-                logger.error(f"Failed to get session detail: {session_detail_response.status_code}")
+                logger.error(
+                    f"Failed to get session detail: {session_detail_response.status_code}"
+                )
                 return None
 
             session_detail_data = session_detail_response.json()
@@ -469,13 +477,15 @@ class InvokeAIClient:
                         if result.get("type") == "image_output":
                             image_info = result.get("image", {})
                             if "image_name" in image_info:
-                                images.append({
-                                    "image_name": image_info["image_name"],
-                                    "width": result.get("width", 1024),
-                                    "height": result.get("height", 1024),
-                                    "session_id": session_id,
-                                    "node_id": node_id
-                                })
+                                images.append(
+                                    {
+                                        "image_name": image_info["image_name"],
+                                        "width": result.get("width", 1024),
+                                        "height": result.get("height", 1024),
+                                        "session_id": session_id,
+                                        "node_id": node_id,
+                                    }
+                                )
                     break
 
             if not images:
@@ -483,13 +493,7 @@ class InvokeAIClient:
                 return None
 
             # Return the images in the expected format
-            return {
-                "items": [
-                    {
-                        "images": images
-                    }
-                ]
-            }
+            return {"items": [{"images": images}]}
 
         except Exception as e:
             logger.error(f"Error getting batch results: {e}")

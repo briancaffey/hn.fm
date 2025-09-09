@@ -40,6 +40,9 @@ class InvokeAIImageService:
         self.output_directory = config_manager.get(
             "image_generation.output_directory", "images"
         )
+        self.timeout_seconds = config_manager.get(
+            "image_generation.timeout_seconds", 1800
+        )
 
         # Initialize InvokeAI client and processor
         self.client = InvokeAIClient(self.base_url)
@@ -130,7 +133,7 @@ class InvokeAIImageService:
                 batch_id = batch_info.get("batch_id")
 
                 if not self.client.wait_for_batch_completion(
-                    queue_id, batch_id, timeout=600
+                    queue_id, batch_id, timeout=self.timeout_seconds
                 ):
                     raise RuntimeError("InvokeAI batch processing timed out")
 
@@ -147,10 +150,14 @@ class InvokeAIImageService:
                         if item_response.status_code == 200:
                             item_data = item_response.json()
                             session_id = item_data.get("session_id")
-                            logger.info(f"Found session_id from queue item: {session_id}")
+                            logger.info(
+                                f"Found session_id from queue item: {session_id}"
+                            )
 
                 item_ids = batch_info.get("item_ids", [])
-                results = self.client.get_batch_results(queue_id, batch_id, session_id, item_ids)
+                results = self.client.get_batch_results(
+                    queue_id, batch_id, session_id, item_ids
+                )
                 if not results:
                     raise RuntimeError("Failed to get batch results from InvokeAI")
 

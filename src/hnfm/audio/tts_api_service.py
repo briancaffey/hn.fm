@@ -283,7 +283,7 @@ class TtsApiService:
                     "audio_prompt": (
                         "sample.wav",
                         open(voice_sample_audio_path, "rb"),
-                        "audio/wav"
+                        "audio/wav",
                     )
                 }
 
@@ -293,7 +293,7 @@ class TtsApiService:
                     f"{self.base_url}/generate",
                     data=form_data,
                     files=files,
-                    timeout=self.timeout_seconds
+                    timeout=self.timeout_seconds,
                 )
 
                 if response.status_code == 200:
@@ -307,7 +307,9 @@ class TtsApiService:
 
                     return response.content
                 else:
-                    logger.error(f"❌ DIA API returned status {response.status_code}: {response.text}")
+                    logger.error(
+                        f"❌ DIA API returned status {response.status_code}: {response.text}"
+                    )
                     return None
 
             finally:
@@ -381,8 +383,10 @@ class TtsApiService:
         cleaned = text.replace("‑", "-")
 
         # Replace curly quotes and apostrophes with straight ones
-        cleaned = cleaned.replace(""", '"').replace(
-            """, '"'
+        cleaned = cleaned.replace(
+            """, '"').replace(
+            """,
+            '"',
         )  # Curly double quotes to straight quotes
         cleaned = cleaned.replace("'", "'").replace(
             "'", "'"

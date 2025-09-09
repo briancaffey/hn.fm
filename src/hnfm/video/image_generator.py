@@ -33,6 +33,9 @@ class ImageGenerationService:
         self.output_directory = config_manager.get(
             "image_generation.output_directory", "images"
         )
+        self.timeout_seconds = config_manager.get(
+            "image_generation.timeout_seconds", 1800
+        )
 
     def generate_image(
         self,
@@ -99,7 +102,7 @@ class ImageGenerationService:
                 f"{self.base_url}/v1/infer",
                 json=payload,
                 headers=headers,
-                timeout=120,
+                timeout=self.timeout_seconds,
             )
             response.raise_for_status()
 

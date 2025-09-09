@@ -190,6 +190,7 @@ class ConfigManager:
                 "default_samples": 1,
                 "output_directory": "images",
                 "default_style": "detailed cartoon style",
+                "timeout_seconds": 1800,  # 30 minutes timeout for image generation
                 "invokeai": {
                     "base_url": "${INVOKEAI_BASE_URL}",
                     "board_id": "${INVOKEAI_BOARD_ID}",

@@ -6,4 +6,10 @@ from .studio_voice_service import StudioVoiceService
 from .tts_service import TTSService
 from .tts_api_service import TtsApiService
 
-__all__ = ["ASRService", "AudioProcessor", "StudioVoiceService", "TTSService", "TtsApiService"]
+__all__ = [
+    "ASRService",
+    "AudioProcessor",
+    "StudioVoiceService",
+    "TTSService",
+    "TtsApiService",
+]

@@ -700,9 +700,7 @@ def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
                 style = "Speaker01" if speaker == "SPEAKER_01" else "Speaker00"
 
                 # Write subtitle entry
-                f.write(
-                    f"Dialogue: 0,{start_ass},{end_ass},{style},,0,0,0,,{word}\n"
-                )
+                f.write(f"Dialogue: 0,{start_ass},{end_ass},{style},,0,0,0,,{word}\n")
 
 
 def _seconds_to_ass_time(seconds: float) -> str:

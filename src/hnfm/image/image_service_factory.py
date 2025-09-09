@@ -35,6 +35,7 @@ class ImageServiceFactory:
 
             if backend == "NIM":
                 from ..video.image_generator import ImageGenerationService
+
                 return ImageGenerationService()
             elif backend == "INVOKEAI":
                 return InvokeAIImageService()

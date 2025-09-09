@@ -590,7 +590,9 @@ def build_segment_audio(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.build_segment_images", time_limit=3600, soft_time_limit=3600)
+@celery_app.task(
+    name="hnfm.web.tasks.build_segment_images", time_limit=3600, soft_time_limit=3600
+)
 def build_segment_images(
     item_id: int, run: int, seg: int, continue_chain: bool = False
 ) -> Dict:
@@ -952,9 +954,12 @@ def generate_segment_video(
         # Load ASR data if available
         if segment.asr_json_path and os.path.exists(segment.asr_json_path):
             # Generate word-level ASS subtitles from ASR data
-            ass_path = subtitles_path(outputs_root, item_id, run, seg).replace('.vtt', '.ass')
+            ass_path = subtitles_path(outputs_root, item_id, run, seg).replace(
+                ".vtt", ".ass"
+            )
             import json
-            with open(segment.asr_json_path, 'r') as f:
+
+            with open(segment.asr_json_path, "r") as f:
                 asr_data = json.load(f)
             write_ass_from_asr(asr_data, ass_path)
             subtitle_path = ass_path
