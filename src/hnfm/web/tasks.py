@@ -91,7 +91,7 @@ def hn_fetch_item(item_id: int) -> Dict[str, any]:
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.process_hn_item_run")
+@celery_app.task(name="hnfm.web.tasks.process_hn_item_run", time_limit=1800, soft_time_limit=1800)
 def process_hn_item_run(
     item_id: int, run: int = None, continue_chain: bool = False
 ) -> Dict[str, any]:
@@ -199,7 +199,7 @@ def process_hn_item_run(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.generate_segment")
+@celery_app.task(name="hnfm.web.tasks.generate_segment", time_limit=1800, soft_time_limit=1800)
 def generate_segment(
     item_id: int, run: int, seg: int = None, continue_chain: bool = False
 ) -> Dict[str, any]:
@@ -289,7 +289,7 @@ def generate_segment(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.build_segment_audio")
+@celery_app.task(name="hnfm.web.tasks.build_segment_audio", time_limit=1800, soft_time_limit=1800)
 def build_segment_audio(
     item_id: int,
     run: int,
@@ -591,7 +591,7 @@ def build_segment_audio(
 
 
 @celery_app.task(
-    name="hnfm.web.tasks.build_segment_images", time_limit=3600, soft_time_limit=3600
+    name="hnfm.web.tasks.build_segment_images", time_limit=7200, soft_time_limit=7200
 )
 def build_segment_images(
     item_id: int, run: int, seg: int, continue_chain: bool = False
@@ -739,7 +739,7 @@ def build_segment_images(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.rebuild_single_image")
+@celery_app.task(name="hnfm.web.tasks.rebuild_single_image", time_limit=3600, soft_time_limit=3600)
 def rebuild_single_image(
     item_id: int,
     run: int,
@@ -870,7 +870,89 @@ def rebuild_single_image(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.generate_segment_video")
+@celery_app.task(name="hnfm.web.tasks.full_pipeline", time_limit=10800, soft_time_limit=10800)
+def full_pipeline(item_id: int) -> Dict[str, any]:
+    """
+    Run the entire pipeline in a single task for an item.
+
+    This task orchestrates all pipeline steps linearly without using apply_async,
+    so continue_chain should be set to False for all sub-tasks.
+
+    Steps:
+    1) Process HN item run (scrape, clean, summarize)
+    2) Generate segment (script generation)
+    3) Build segment audio (TTS, ASR)
+    4) Build segment images (image generation)
+    5) Generate segment video (video creation)
+
+    Args:
+        item_id: The HN item ID to process
+
+    Returns:
+        Dict with status and results
+    """
+    try:
+        logger.info(f"🚀 Starting full pipeline for item {item_id}")
+
+        # Get Redis client
+        redis_client = get_redis_client()
+
+        # Get next run ID
+        from ..utils.run_utils import next_run_id
+        run = next_run_id(item_id, redis_client=redis_client)
+
+        logger.info(f"📝 Step 1/5: Processing run {run} for item {item_id}")
+        # Step 1: Process HN item run (with continue_chain=False)
+        run_result = process_hn_item_run(item_id, run, continue_chain=False)
+        logger.info(f"✅ Run processing completed: {run_result}")
+
+        # Get next segment ID
+        from ..utils.segment_utils import next_seg_id
+        seg = next_seg_id(item_id, run, redis_client=redis_client)
+
+        logger.info(f"📝 Step 2/5: Generating segment {seg} for run {run}")
+        # Step 2: Generate segment (with continue_chain=False)
+        segment_result = generate_segment(item_id, run, seg, continue_chain=False)
+        logger.info(f"✅ Segment generation completed: {segment_result}")
+
+        logger.info(f"📝 Step 3/5: Building audio for segment {seg}")
+        # Step 3: Build segment audio (with continue_chain=False)
+        audio_result = build_segment_audio(item_id, run, seg, "all", None, None, continue_chain=False)
+        logger.info(f"✅ Audio building completed: {audio_result}")
+
+        logger.info(f"📝 Step 4/5: Building images for segment {seg}")
+        # Step 4: Build segment images (with continue_chain=False)
+        images_result = build_segment_images(item_id, run, seg, continue_chain=False)
+        logger.info(f"✅ Image building completed: {images_result}")
+
+        logger.info(f"📝 Step 5/5: Generating video for segment {seg}")
+        # Step 5: Generate segment video (with continue_chain=False)
+        video_result = generate_segment_video(item_id, run, seg, continue_chain=False)
+        logger.info(f"✅ Video generation completed: {video_result}")
+
+        logger.info(f"🎉 Full pipeline completed successfully for item {item_id}, run {run}, seg {seg}")
+
+        return {
+            "status": "completed",
+            "item_id": item_id,
+            "run": run,
+            "seg": seg,
+            "steps_completed": 5,
+            "results": {
+                "run": run_result,
+                "segment": segment_result,
+                "audio": audio_result,
+                "images": images_result,
+                "video": video_result
+            }
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Full pipeline failed for item {item_id}: {e}")
+        raise
+
+
+@celery_app.task(name="hnfm.web.tasks.generate_segment_video", time_limit=3600, soft_time_limit=3600)
 def generate_segment_video(
     item_id: int, run: int, seg: int, continue_chain: bool = False
 ) -> Dict:

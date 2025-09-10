@@ -80,6 +80,14 @@
             >
               {{ isStartingRun ? 'Starting...' : 'Start Full Pipeline' }}
             </Button>
+            <Button
+              :disabled="isStartingRun"
+              variant="secondary"
+              @click="startSingleTaskPipeline"
+              class="bg-purple-600 hover:bg-purple-700 text-white border-purple-600"
+            >
+              {{ isStartingRun ? 'Starting...' : 'Single Task Pipeline' }}
+            </Button>
           </div>
         </div>
 
@@ -261,6 +269,33 @@ async function startNewRunWithPipeline() {
   } catch (err) {
     console.error('Failed to start new run with pipeline:', err)
     runsError.value = 'Failed to start new run with pipeline: ' + err.message
+  } finally {
+    isStartingRun.value = false
+  }
+}
+
+async function startSingleTaskPipeline() {
+  if (!item.value) return
+
+  try {
+    isStartingRun.value = true
+    runsError.value = null
+
+    const response = await $fetch(`${config.public.apiBase}/api/hn/single-task-pipeline`, {
+      method: 'POST',
+      body: { item_id: item.value.id }
+    })
+
+    console.log('Single task pipeline queued:', response)
+
+    // Refresh runs list after a short delay to allow the pipeline to start
+    setTimeout(async () => {
+      await fetchRuns()
+    }, 2000)
+
+  } catch (err) {
+    console.error('Failed to start single task pipeline:', err)
+    runsError.value = 'Failed to start single task pipeline: ' + err.message
   } finally {
     isStartingRun.value = false
   }

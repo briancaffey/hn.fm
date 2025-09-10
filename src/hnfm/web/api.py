@@ -34,6 +34,7 @@ from .tasks import (
     process_hn_item_run,
     generate_segment,
     build_segment_audio,
+    full_pipeline,
 )
 from ..utils.hn_utils import (
     get_top_story_ids,
@@ -249,6 +250,33 @@ async def get_single_item(
     except Exception as e:
         logger.error(f"Failed to get item {item_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get item")
+
+
+@app.post("/api/hn/single-task-pipeline", tags=["hacker-news"])
+async def start_single_task_pipeline(
+    request: dict = Body(...), redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """Start the full pipeline as a single task for an item"""
+    try:
+        item_id = request.get("item_id")
+        if not item_id:
+            raise HTTPException(status_code=400, detail="item_id is required in request body")
+
+        # Queue the full pipeline task
+        task = full_pipeline.apply_async(args=[item_id], queue="hnfm_tasks")
+
+        return {
+            "status": "queued",
+            "item_id": item_id,
+            "task_id": task.id,
+            "message": f"Full pipeline queued for item {item_id}"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to queue full pipeline for item {item_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to queue full pipeline")
 
 
 # HN Item Runs API Endpoints
