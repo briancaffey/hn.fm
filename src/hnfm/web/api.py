@@ -176,6 +176,27 @@ async def queue_top_stories(
         raise HTTPException(status_code=500, detail="Failed to queue top stories")
 
 
+@app.post("/api/hn/process-item", tags=["hacker-news"])
+async def process_single_item(
+    item_id: int, redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """Process a single Hacker News item by ID"""
+    try:
+        # Queue the task to fetch the item
+        task = hn_fetch_item.apply_async(args=[item_id], queue="hnfm_tasks")
+
+        return {
+            "status": "queued",
+            "item_id": item_id,
+            "task_id": task.id,
+            "message": f"Item {item_id} queued for fetching"
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to queue item {item_id} for processing: {e}")
+        raise HTTPException(status_code=500, detail="Failed to queue item for processing")
+
+
 @app.get("/api/hn/items", tags=["hacker-news"])
 async def list_downloaded_items(
     offset: int = 0,

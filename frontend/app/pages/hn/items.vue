@@ -12,6 +12,35 @@
       </Button>
     </div>
 
+    <!-- Single Item Fetch Form -->
+    <div class="bg-card border rounded-lg p-4 mb-6">
+      <div class="flex items-center space-x-4">
+        <div class="flex-1">
+          <Input
+            v-model="singleItemId"
+            type="number"
+            placeholder="Enter HN item ID (e.g., 123456)"
+            :disabled="isFetchingSingle"
+            class="w-full"
+          />
+        </div>
+        <Button
+          :disabled="!singleItemId || isFetchingSingle"
+          @click="fetchSingleItem"
+          class="bg-orange-600 hover:bg-orange-700 text-white"
+        >
+          <Icon v-if="isFetchingSingle" name="lucide:loader-2" class="h-4 w-4 mr-2 animate-spin" />
+          {{ isFetchingSingle ? 'Fetching...' : 'Fetch Item' }}
+        </Button>
+      </div>
+      <div v-if="singleItemError" class="mt-2 text-sm text-destructive">
+        {{ singleItemError }}
+      </div>
+      <div v-if="singleItemSuccess" class="mt-2 text-sm text-green-600">
+        {{ singleItemSuccess }}
+      </div>
+    </div>
+
     <div v-if="isLoading" class="text-center py-8">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto"/>
       <p class="mt-2 text-muted-foreground">Loading items...</p>
@@ -128,6 +157,9 @@
 <script setup>
 import { usePagination } from '~/composables/usePagination'
 import Pagination from '~/components/Pagination.vue'
+import { Button } from '~/components/ui/button'
+import { Input } from '~/components/ui/input'
+import { Icon } from '#components'
 
 // Disable SSR for this page
 definePageMeta({
@@ -141,6 +173,12 @@ const items = ref([])
 const isLoading = ref(true)
 const error = ref(null)
 const isQueueing = ref(false)
+
+// Single item fetch state
+const singleItemId = ref(null)
+const isFetchingSingle = ref(false)
+const singleItemError = ref(null)
+const singleItemSuccess = ref(null)
 
 // Ensure config is available
 if (!config.public?.apiBase) {
@@ -206,6 +244,34 @@ async function queueTopStories() {
     error.value = 'Failed to queue top stories: ' + err.message
   } finally {
     isQueueing.value = false
+  }
+}
+
+// Fetch single item
+async function fetchSingleItem() {
+  if (!singleItemId.value) return
+
+  try {
+    isFetchingSingle.value = true
+    singleItemError.value = null
+    singleItemSuccess.value = null
+
+    const response = await $fetch(`${config.public.apiBase}/api/hn/process-item?item_id=${singleItemId.value}`, {
+      method: 'POST'
+    })
+
+    singleItemSuccess.value = `Item ${singleItemId.value} queued for fetching! Check back in a moment.`
+    singleItemId.value = null
+
+    // Refetch the list to show the new item
+    setTimeout(() => {
+      fetchItems(pagination.page.value)
+    }, 1000)
+
+  } catch (err) {
+    singleItemError.value = 'Failed to fetch item: ' + (err.message || 'Unknown error')
+  } finally {
+    isFetchingSingle.value = false
   }
 }
 

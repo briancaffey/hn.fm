@@ -976,15 +976,62 @@ def generate_segment_video(
         write_json(timeline_debug_path, {"timeline": timeline})
         logger.info(f"📋 Saved timeline debug: {timeline_debug_path}")
 
-        # 6) Call VideoGenerator to create video
+        # 6) Create combined audio with intro
         from ..video.video_generator import VideoGenerator
+        from pathlib import Path
+        import tempfile
 
         video_generator = VideoGenerator()
+
+        # Check if intro audio exists and create combined audio
+        intro_audio_path = Path(__file__).parent.parent / "video" / "media" / "intro.wav"
+        combined_audio_path = segment.audio_combined_path
+
+        # Create a temporary combined audio file with intro + segment audio + outro silence
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as temp_audio:
+            temp_audio_path = temp_audio.name
+
+        # Use ffmpeg to create: intro + segment audio + 4 seconds of silence for outro
+        import subprocess
+
+        if intro_audio_path.exists():
+            # Combine intro + segment audio + outro silence
+            cmd = [
+                "ffmpeg",
+                "-y",  # Overwrite output file
+                "-i", str(intro_audio_path),
+                "-i", segment.audio_combined_path,
+                "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+                "-filter_complex",
+                "[0:a][1:a]concat=n=2:v=0:a=1[main];[2:a]atrim=duration=4[outro];[main][outro]concat=n=2:v=0:a=1[final]",
+                "-map", "[final]",
+                temp_audio_path
+            ]
+        else:
+            # Just segment audio + outro silence
+            cmd = [
+                "ffmpeg",
+                "-y",  # Overwrite output file
+                "-i", segment.audio_combined_path,
+                "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+                "-filter_complex",
+                "[0:a][1:a]concat=n=2:v=0:a=1[final]",
+                "-map", "[final]",
+                temp_audio_path
+            ]
+
+        try:
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+            combined_audio_path = temp_audio_path
+            logger.info(f"🎵 Combined audio with intro + segment + outro silence: {combined_audio_path}")
+        except subprocess.CalledProcessError as e:
+            logger.warning(f"Failed to combine audio, using segment audio only: {e}")
+            combined_audio_path = segment.audio_combined_path
 
         output_video_path = video_path(outputs_root, item_id, run, seg)
 
         result = video_generator.create_video(
-            audio_path=segment.audio_combined_path,
+            audio_path=combined_audio_path,
             timeline=timeline,
             subtitles_path=subtitle_path,
             output_path=output_video_path,
@@ -996,6 +1043,14 @@ def generate_segment_video(
             raise RuntimeError(f"Video generation failed: {result}")
 
         logger.info(f"🎥 Video generated successfully: {output_video_path}")
+
+        # Clean up temporary audio file if it was created
+        if combined_audio_path != segment.audio_combined_path and os.path.exists(combined_audio_path):
+            try:
+                os.unlink(combined_audio_path)
+                logger.debug(f"🧹 Cleaned up temporary audio file: {combined_audio_path}")
+            except Exception as e:
+                logger.warning(f"Failed to clean up temporary audio file: {e}")
 
         # 7) Update segment video fields
         from ..utils.segment_utils import update_segment_video_fields

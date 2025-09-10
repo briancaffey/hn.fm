@@ -70,7 +70,7 @@
       <div class="bg-card border rounded-lg p-6">
         <h2 class="text-2xl font-bold mb-6">Segment Content</h2>
 
-        <Accordion type="single" collapsible class="w-full" :default-value="'script'">
+        <Accordion type="single" collapsible class="w-full">
           <AccordionItem value="script">
             <AccordionTrigger class="text-lg font-semibold">
               Script (Full Text)
@@ -86,7 +86,7 @@
 
       <!-- Narration Sections -->
       <div class="bg-card border rounded-lg p-6">
-        <Accordion type="single" collapsible class="w-full" :default-value="'narration-sections'">
+        <Accordion type="single" collapsible class="w-full">
           <AccordionItem value="narration-sections">
             <AccordionTrigger class="text-lg font-semibold cursor-pointer hover:no-underline">
               <div class="flex items-center justify-between w-full">

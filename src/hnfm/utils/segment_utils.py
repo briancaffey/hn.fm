@@ -570,6 +570,7 @@ def build_timeline(
 ) -> List[dict]:
     """
     Build timeline for video generation from sections and images.
+    Includes intro, title page, main content, and outro.
 
     Returns:
         List of dicts with:
@@ -578,12 +579,38 @@ def build_timeline(
             "image_path": str,
             "start_ms": int,
             "duration_ms": int,
-            "text": str
+            "text": str,
+            "type": str  # "intro", "title", "content", "outro"
         }
     """
-    section_numbers = list_section_numbers(item_id, run, seg, redis_client=redis_client)
+    from ..utils.run_utils import get_run
+    from pathlib import Path
+
+    # Get run data for title and emojis
+    run_data = get_run(item_id, run, redis_client=redis_client)
+    if not run_data:
+        raise RuntimeError(f"Run data not found for item {item_id}, run {run}")
+
     timeline = []
     cumulative_start = 0
+
+    # Add intro sequence (4 seconds)
+    intro_audio_path = Path(__file__).parent.parent / "video" / "media" / "intro.wav"
+    intro_image_path = Path(__file__).parent.parent / "video" / "media" / "hnfm_square.png"
+
+    if intro_audio_path.exists() and intro_image_path.exists():
+        timeline.append({
+            "index": -3,  # Special index for intro
+            "image_path": str(intro_image_path),
+            "start_ms": cumulative_start,
+            "duration_ms": 4000,  # 4 seconds
+            "text": "Intro",
+            "type": "intro"
+        })
+        cumulative_start += 4000
+
+    # Add main content from sections and images
+    section_numbers = list_section_numbers(item_id, run, seg, redis_client=redis_client)
 
     for index in section_numbers:
         data = load_section_and_image(
@@ -597,10 +624,24 @@ def build_timeline(
                 "start_ms": cumulative_start,
                 "duration_ms": data["duration_ms"],
                 "text": data["text"],
+                "type": "content"
             }
         )
 
         cumulative_start += data["duration_ms"]
+
+    # Add outro sequence (4 seconds)
+    outro_image_path = Path(__file__).parent.parent / "video" / "media" / "hnfm_square.png"
+
+    if outro_image_path.exists():
+        timeline.append({
+            "index": -1,  # Special index for outro
+            "image_path": str(outro_image_path),
+            "start_ms": cumulative_start,
+            "duration_ms": 4000,  # 4 seconds
+            "text": "Outro",
+            "type": "outro"
+        })
 
     return timeline
 
@@ -638,6 +679,8 @@ def write_vtt_from_timeline(timeline: List[dict], out_path: str) -> None:
 def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
     """
     Create ASS subtitles from ASR data with word-level timing and speaker colors.
+    Adds 4-second offset to account for intro sequence and ensures subtitles
+    don't extend into outro period.
 
     Args:
         asr_data: ASR data with segments containing words with timestamps and speakers
@@ -645,6 +688,27 @@ def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
     """
     from pathlib import Path
     import tempfile
+
+    # 4-second offset for intro sequence
+    INTRO_OFFSET = 4.0
+
+    # 4-second outro period (silence)
+    OUTRO_DURATION = 4.0
+
+    # Calculate the maximum subtitle time based on ASR data
+    # Find the latest end time in the ASR data
+    max_end_time = 0
+    segments = asr_data.get("segments", [])
+    for segment in segments:
+        words = segment.get("words", [])
+        for word_data in words:
+            end_time = word_data.get("end", 0)
+            if end_time > max_end_time:
+                max_end_time = end_time
+
+    # Maximum subtitle time is the latest ASR time + intro offset
+    # Subtitles should end when the main content ends (before outro silence)
+    max_subtitle_time = max_end_time + INTRO_OFFSET
 
     # Ensure output directory exists
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
@@ -692,9 +756,21 @@ def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
                 if not word or start_time >= end_time:
                     continue
 
+                # Add intro offset to timing
+                adjusted_start = start_time + INTRO_OFFSET
+                adjusted_end = end_time + INTRO_OFFSET
+
+                # Ensure subtitles don't extend beyond the main content (before outro)
+                if adjusted_start >= max_subtitle_time:
+                    continue
+
+                # Cap the end time to the maximum subtitle time
+                if adjusted_end > max_subtitle_time:
+                    adjusted_end = max_subtitle_time
+
                 # Convert times to ASS format (H:MM:SS.cc)
-                start_ass = _seconds_to_ass_time(start_time)
-                end_ass = _seconds_to_ass_time(end_time)
+                start_ass = _seconds_to_ass_time(adjusted_start)
+                end_ass = _seconds_to_ass_time(adjusted_end)
 
                 # Determine style based on speaker
                 style = "Speaker01" if speaker == "SPEAKER_01" else "Speaker00"

@@ -664,13 +664,11 @@ class VideoGenerator:
                 # Create individual video segments for each timeline item
                 video_segments = []
                 for i, item in enumerate(timeline):
+                    item_type = item.get("type", "content")
                     image_path = item.get("image_path")
                     duration_ms = item.get("duration_ms", 0)
                     duration_seconds = duration_ms / 1000.0
-
-                    if not image_path or not Path(image_path).exists():
-                        logger.warning(f"⚠️ Image file not found: {image_path}")
-                        continue
+                    text = item.get("text", "")
 
                     if duration_seconds <= 0:
                         logger.warning(
@@ -678,22 +676,27 @@ class VideoGenerator:
                         )
                         continue
 
-                    # Log which image we're processing
-                    image_name = Path(image_path).name
-                    logger.debug(
-                        f"   🖼️  Processing timeline item {i+1}/{len(timeline)}: {image_name} ({duration_seconds:.2f}s)"
-                    )
+                    # Handle different timeline item types
+                    if image_path and Path(image_path).exists():
+                        # Regular image segment
+                        image_name = Path(image_path).name
+                        logger.debug(
+                            f"   🖼️  Processing timeline item {i+1}/{len(timeline)}: {image_name} ({duration_seconds:.2f}s)"
+                        )
 
-                    # Create a video segment for this image
-                    segment_path = temp_dir_path / f"segment_{i:03d}.mp4"
-                    self._create_image_segment(
-                        image_path, segment_path, duration_seconds, width, height, fps
-                    )
-                    video_segments.append(segment_path)
+                        # Create a video segment for this image
+                        segment_path = temp_dir_path / f"segment_{i:03d}.mp4"
+                        self._create_image_segment(
+                            image_path, segment_path, duration_seconds, width, height, fps
+                        )
+                        video_segments.append(segment_path)
 
-                    logger.debug(
-                        f"   ✅ Created video segment {i+1}/{len(timeline)}: {segment_path.name}"
-                    )
+                        logger.debug(
+                            f"   ✅ Created video segment {i+1}/{len(timeline)}: {segment_path.name}"
+                        )
+                    else:
+                        logger.warning(f"⚠️ Skipping timeline item {i}: no valid image path")
+                        continue
 
                 if not video_segments:
                     raise RuntimeError("No valid video segments created")
@@ -819,3 +822,75 @@ class VideoGenerator:
         except Exception as e:
             logger.error(f"Failed to create image segment: {e}")
             raise RuntimeError(f"Failed to create image segment: {e}")
+
+    def _create_title_segment(
+        self,
+        text: str,
+        output_path: Path,
+        duration: float,
+        width: int,
+        height: int,
+        fps: int,
+    ) -> None:
+        """Create a video segment with black background, title text, and emojis."""
+        try:
+            # Parse the text to extract title and emojis
+            # Format: "TITLE:title text|EMOJIS:emoji1 emoji2 emoji3 emoji4"
+            title_text = ""
+            emoji_text = ""
+
+            if "TITLE:" in text and "|EMOJIS:" in text:
+                parts = text.split("|EMOJIS:")
+                title_text = parts[0].replace("TITLE:", "").strip()
+                emoji_text = parts[1].strip()
+            else:
+                # Fallback if format is unexpected
+                title_text = text
+                emoji_text = ""
+
+            # Escape special characters in text for ffmpeg
+            def escape_text(text):
+                # Escape single quotes and backslashes for ffmpeg
+                return text.replace("\\", "\\\\").replace("'", "\\'")
+
+            escaped_title = escape_text(title_text)
+            escaped_emoji = escape_text(emoji_text)
+
+            # Create a simpler approach using drawtext filter
+            # First create the background, then add text overlays
+            cmd = [
+                "ffmpeg",
+                "-y",  # Overwrite output file
+                "-f",
+                "lavfi",
+                "-i",
+                f"color=black:size={width}x{height}:duration={duration}",
+                "-vf",
+                f"drawtext=text='{escaped_title}':fontsize=48:fontcolor=orange:"
+                f"x=(w-tw)/2:y=(h-th)/2-50:borderw=3:bordercolor=white,"
+                f"drawtext=text='{escaped_emoji}':fontsize=36:fontcolor=white:"
+                f"x=(w-tw)/2:y=(h-th)/2+50",
+                "-c:v",
+                "libx264",
+                "-preset",
+                "ultrafast",
+                "-crf",
+                "23",
+                "-pix_fmt",
+                "yuv420p",
+                "-r",
+                str(fps),
+                str(output_path),
+            ]
+
+            result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+
+            logger.debug(f"Created title segment: {output_path}")
+
+        except subprocess.CalledProcessError as e:
+            logger.error(f"Failed to create title segment: {e}")
+            logger.error(f"ffmpeg stderr: {e.stderr}")
+            raise RuntimeError(f"Failed to create title segment: {e}")
+        except Exception as e:
+            logger.error(f"Failed to create title segment: {e}")
+            raise RuntimeError(f"Failed to create title segment: {e}")
