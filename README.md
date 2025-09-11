@@ -8,19 +8,35 @@ Transform Hacker News into AI-powered podcasts using content scraping, AI proces
 # Clone and setup
 git clone <repository-url>
 cd hn.fm
-
-# Install dependencies
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-uv pip install -e .
-
-# Configure environment
-cp env.example .env
-# Edit .env with your API keys and service URLs
-
-# Start development environment
-make docker-dev
 ```
+
+## Getting started
+
+### Inference Services
+
+- Download and install InvokeAI and download the Flux starter models, including the Flux Krea models
+- Download and install the studio-voice NVIDIA NIM service
+- Set up gpt-oss-20b with a sufficiently large context window (e.g. 32539)
+- Set up the `dia` and `whisperx` services (see the `services/` directory)
+- update the `.env` file to make sure that the ports and addresses are correct if running services across different machines
+
+### Start the backend
+
+Run `docker compose up`
+
+### Start the frontend
+
+Run `cd frontend && yarn && yarn dev`
+
+## Queue Hacker News items
+
+## Run the pipeline
+
+On the item detail page click the `Single Task Pipeline` button.
+
+## Monitor task status in Celery Flower
+
+## View results on Segment detail page
 
 ## What It Does
 
@@ -31,84 +47,3 @@ make docker-dev
 5. **Enhances audio** using Studio Voice for professional quality
 6. **Generates images** for visual content
 7. **Creates videos** combining audio and images
-
-## Basic Usage
-
-### Generate a Podcast Episode
-
-```bash
-# Run full pipeline
-uv run python run_pipeline.py --story-id "test" --story-title "Test Story"
-
-# Run text-only (faster iteration)
-uv run python run_text_only_pipeline.py --story-id "test" --story-title "Test Story"
-
-# Resume from specific step
-uv run python run_pipeline.py --story-id "test" --story-title "Test Story" --start-from "tts_generation"
-```
-
-### Generate Audio from Script
-
-```bash
-# Generate audio for existing script
-uv run python generate_audio.py outputs/tts_lines_*.txt
-
-# Customize batch size
-uv run python generate_audio.py outputs/tts_lines_*.txt --batch-size 3
-```
-
-## Development
-
-```bash
-# Start development environment
-make docker-dev
-
-# Code formatting
-make black
-
-# Run tests
-make test
-
-# View available commands
-make help
-```
-
-## Services
-
-- **Web Server**: http://localhost:8000
-- **API Docs**: http://localhost:8000/docs
-- **Flower Monitoring**: http://localhost:5555
-
-## Configuration
-
-Required services:
-- TTS Service (for text-to-speech)
-- Studio Voice (for audio enhancement)
-- Local LLM (for content processing)
-- Firecrawl (for web scraping)
-
-## Documentation
-
-See the [documentation folder](documentation/) for detailed guides on:
-- Setup and development
-- Pipeline usage and content structure
-- Audio, image, and video generation
-- AI prompt customization
-- Web API usage
-- Testing and troubleshooting
-
-## Project Structure
-
-```
-src/hnfm/
-├── audio/          # Audio processing services
-├── content/        # Content processing
-├── pipeline/       # Pipeline management
-├── scraper/        # Content scraping
-├── web/           # Web API and Celery
-└── utils/         # Utilities and config
-```
-
-## License
-
-MIT License - see [LICENSE](LICENSE) for details.
