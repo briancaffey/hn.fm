@@ -2,14 +2,24 @@
   <div class="container mx-auto px-4 py-8">
     <div class="flex justify-between items-center mb-6">
       <h1 class="text-3xl font-bold text-orange-600">Hacker News Items</h1>
-      <Button
-        :disabled="isQueueing"
-        variant="default"
-        class="bg-orange-600 hover:bg-orange-700 text-white"
-        @click="queueTopStories"
-      >
-        {{ isQueueing ? 'Queueing...' : 'Queue Top (20)' }}
-      </Button>
+      <div class="flex gap-2">
+        <Button
+          :disabled="isQueueing"
+          variant="default"
+          class="bg-orange-600 hover:bg-orange-700 text-white"
+          @click="queueTopStories"
+        >
+          {{ isQueueing ? 'Queueing...' : 'Queue Top (20)' }}
+        </Button>
+        <Button
+          :disabled="isQueueingNew"
+          variant="default"
+          class="bg-blue-600 hover:bg-blue-700 text-white"
+          @click="queueNewStories"
+        >
+          {{ isQueueingNew ? 'Queueing...' : 'Queue New (20)' }}
+        </Button>
+      </div>
     </div>
 
     <!-- Single Item Fetch Form -->
@@ -173,6 +183,7 @@ const items = ref([])
 const isLoading = ref(true)
 const error = ref(null)
 const isQueueing = ref(false)
+const isQueueingNew = ref(false)
 
 // Single item fetch state
 const singleItemId = ref(null)
@@ -236,7 +247,12 @@ async function queueTopStories() {
     isQueueing.value = true
     error.value = null
 
-    await $fetch(`${config.public.apiBase}/api/hn/queue-top?limit=20`, { method: 'POST' })
+    const response = await $fetch(`${config.public.apiBase}/api/hn/queue-top?limit=20`, { method: 'POST' })
+
+    // Show informative message about what was queued vs skipped
+    const queuedCount = response.queued_count || 0
+    const skippedCount = response.skipped_count || 0
+    console.log(`Queued ${queuedCount} new items, skipped ${skippedCount} existing items`)
 
     // Refetch the list after queuing
     await fetchItems(pagination.page.value)
@@ -244,6 +260,28 @@ async function queueTopStories() {
     error.value = 'Failed to queue top stories: ' + err.message
   } finally {
     isQueueing.value = false
+  }
+}
+
+// Queue new stories
+async function queueNewStories() {
+  try {
+    isQueueingNew.value = true
+    error.value = null
+
+    const response = await $fetch(`${config.public.apiBase}/api/hn/queue-new?limit=20`, { method: 'POST' })
+
+    // Show informative message about what was queued vs skipped
+    const queuedCount = response.queued_count || 0
+    const skippedCount = response.skipped_count || 0
+    console.log(`Queued ${queuedCount} new items, skipped ${skippedCount} existing items`)
+
+    // Refetch the list after queuing
+    await fetchItems(pagination.page.value)
+  } catch (err) {
+    error.value = 'Failed to queue new stories: ' + err.message
+  } finally {
+    isQueueingNew.value = false
   }
 }
 
@@ -260,7 +298,11 @@ async function fetchSingleItem() {
       method: 'POST'
     })
 
-    singleItemSuccess.value = `Item ${singleItemId.value} queued for fetching! Check back in a moment.`
+    if (response.status === 'exists') {
+      singleItemSuccess.value = `Item ${singleItemId.value} already exists in database.`
+    } else {
+      singleItemSuccess.value = `Item ${singleItemId.value} queued for fetching! Check back in a moment.`
+    }
     singleItemId.value = null
 
     // Refetch the list to show the new item

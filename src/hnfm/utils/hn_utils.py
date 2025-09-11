@@ -24,6 +24,17 @@ def get_top_story_ids() -> List[int]:
         raise
 
 
+def get_new_story_ids() -> List[int]:
+    """Get new story IDs from Hacker News Firebase API"""
+    try:
+        response = requests.get("https://hacker-news.firebaseio.com/v0/newstories.json")
+        response.raise_for_status()
+        return response.json()
+    except requests.RequestException as e:
+        logger.error(f"Failed to fetch new story IDs: {e}")
+        raise
+
+
 def get_item_json_and_store(
     item_id: int, *, redis_client: redis.Redis, outputs_dir: str
 ) -> HNItem:

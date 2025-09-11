@@ -290,3 +290,10 @@ class SectionsListResponse(BaseModel):
     sections: List[Dict[str, Any]] = Field(
         ..., description="List of sections with metadata"
     )
+
+
+class AllSegmentsListResponse(BaseModel):
+    """Response model for listing all segments across all items and runs"""
+
+    segments: List[Segment] = Field(..., description="List of segments")
+    pagination: Dict[str, int] = Field(..., description="Pagination info")

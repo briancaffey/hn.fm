@@ -2,10 +2,50 @@
 
 import requests
 import logging
+import urllib.parse
 from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
+
+
+def get_wayback_url(url: str) -> Optional[str]:
+    """Get the closest Wayback Machine URL for a given URL.
+
+    Args:
+        url: Original URL to find archived version for
+
+    Returns:
+        Wayback Machine URL if available, None otherwise
+    """
+    try:
+        logger.info(f"Looking up Wayback Machine archive for: {url}")
+
+        response = requests.get(
+            "https://archive.org/wayback/available",
+            params={"url": url},
+            timeout=10
+        )
+
+        if response.status_code != 200:
+            logger.warning(f"Wayback Machine API returned {response.status_code}")
+            return None
+
+        data = response.json()
+        closest = data.get("archived_snapshots", {}).get("closest")
+
+        if closest and closest.get("available"):
+            wayback_url = closest["url"]
+            timestamp = closest["timestamp"]
+            logger.info(f"Found Wayback Machine snapshot from {timestamp}: {wayback_url}")
+            return wayback_url
+        else:
+            logger.info(f"No Wayback Machine snapshot found for {url}")
+            return None
+
+    except Exception as e:
+        logger.error(f"Failed to lookup Wayback Machine URL for {url}: {e}")
+        return None
 
 
 @dataclass
@@ -52,7 +92,7 @@ class ContentScraper:
             return {"title": "Error", "content": "", "url": url}
 
     def scrape_url(self, url: str) -> ScrapedContent:
-        """Scrape content from a URL.
+        """Scrape content from a URL with Wayback Machine fallback.
 
         Args:
             url: URL to scrape
@@ -63,14 +103,36 @@ class ContentScraper:
         try:
             logger.info(f"Extracting content from: {url}")
 
-            # Always use local Firecrawl instance
+            # Try scraping the original URL first
             return self._scrape_with_local_firecrawl(url)
 
         except Exception as e:
-            logger.error(f"Failed to scrape {url}: {e}")
-            return ScrapedContent(
-                title="Error", content="", url=url, success=False, error=str(e)
-            )
+            logger.warning(f"Failed to scrape original URL {url}: {e}")
+
+            # Try Wayback Machine as fallback
+            wayback_url = get_wayback_url(url)
+            if wayback_url:
+                try:
+                    logger.info(f"Attempting to scrape Wayback Machine URL: {wayback_url}")
+                    return self._scrape_with_local_firecrawl(wayback_url)
+                except Exception as wayback_error:
+                    logger.error(f"Failed to scrape Wayback Machine URL {wayback_url}: {wayback_error}")
+                    return ScrapedContent(
+                        title="Error",
+                        content="",
+                        url=url,
+                        success=False,
+                        error=f"Original failed: {e}. Wayback failed: {wayback_error}"
+                    )
+            else:
+                logger.error(f"No Wayback Machine archive available for {url}")
+                return ScrapedContent(
+                    title="Error",
+                    content="",
+                    url=url,
+                    success=False,
+                    error=f"Scraping failed and no Wayback Machine archive available: {e}"
+                )
 
     def _scrape_with_local_firecrawl(self, url: str) -> ScrapedContent:
         """Scrape using local Firecrawl instance."""

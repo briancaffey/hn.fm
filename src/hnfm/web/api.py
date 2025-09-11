@@ -27,6 +27,7 @@ from .models import (
     DeleteSegmentResponse,
     BuildAudioResponse,
     SectionsListResponse,
+    AllSegmentsListResponse,
 )
 from .celery_app import celery_app
 from .tasks import (
@@ -38,6 +39,7 @@ from .tasks import (
 )
 from ..utils.hn_utils import (
     get_top_story_ids,
+    get_new_story_ids,
     get_item,
     list_items,
     list_item_ids,
@@ -53,6 +55,7 @@ from ..utils.segment_utils import (
     next_seg_id,
     get_segment,
     list_segments_for_run,
+    list_all_segments,
     delete_segment,
 )
 from ..audio.audio_utils import (
@@ -153,6 +156,19 @@ async def get_services_status():
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# Helper functions
+def queue_item_if_not_exists(item_id: int, redis_client: redis.Redis) -> dict:
+    """Queue an item for processing only if it doesn't already exist in the database"""
+    if exists_item(item_id, redis_client=redis_client):
+        logger.info(f"Item {item_id} already exists, skipping queue")
+        return {"status": "exists", "id": item_id}
+
+    # Queue the task to fetch the item
+    task = hn_fetch_item.apply_async(args=[item_id], queue="hnfm_tasks")
+    logger.info(f"Item {item_id} queued for fetching")
+    return {"status": "queued", "id": item_id, "task_id": task.id}
+
+
 # HN API Endpoints
 @app.post("/api/hn/queue-top", tags=["hacker-news"])
 async def queue_top_stories(
@@ -166,15 +182,64 @@ async def queue_top_stories(
         # Take the first limit IDs
         ids_to_queue = top_ids[:limit]
 
-        # Queue each ID using apply_async with explicit queue
-        for item_id in ids_to_queue:
-            hn_fetch_item.apply_async(args=[item_id], queue="hnfm_tasks")
+        # Queue each ID only if it doesn't exist
+        queued_items = []
+        skipped_items = []
 
-        return {"queued_count": len(ids_to_queue), "ids": ids_to_queue, "limit": limit}
+        for item_id in ids_to_queue:
+            result = queue_item_if_not_exists(item_id, redis_client)
+            if result["status"] == "queued":
+                queued_items.append(item_id)
+            else:
+                skipped_items.append(item_id)
+
+        return {
+            "queued_count": len(queued_items),
+            "skipped_count": len(skipped_items),
+            "queued_ids": queued_items,
+            "skipped_ids": skipped_items,
+            "limit": limit
+        }
 
     except Exception as e:
         logger.error(f"Failed to queue top stories: {e}")
         raise HTTPException(status_code=500, detail="Failed to queue top stories")
+
+
+@app.post("/api/hn/queue-new", tags=["hacker-news"])
+async def queue_new_stories(
+    limit: int = 50, redis_client: redis.Redis = Depends(get_redis_client)
+):
+    """Queue new stories for processing"""
+    try:
+        # Get new story IDs
+        new_ids = get_new_story_ids()
+
+        # Take the first limit IDs
+        ids_to_queue = new_ids[:limit]
+
+        # Queue each ID only if it doesn't exist
+        queued_items = []
+        skipped_items = []
+
+        for item_id in ids_to_queue:
+            result = queue_item_if_not_exists(item_id, redis_client)
+            if result["status"] == "queued":
+                queued_items.append(item_id)
+            else:
+                skipped_items.append(item_id)
+
+        return {
+            "queued_count": len(queued_items),
+            "skipped_count": len(skipped_items),
+            "queued_ids": queued_items,
+            "skipped_ids": skipped_items,
+            "limit": limit
+        }
+
+    except Exception as e:
+        logger.error(f"Failed to queue new stories: {e}")
+        raise HTTPException(status_code=500, detail="Failed to queue new stories")
 
 
 @app.post("/api/hn/process-item", tags=["hacker-news"])
@@ -183,15 +248,22 @@ async def process_single_item(
 ):
     """Process a single Hacker News item by ID"""
     try:
-        # Queue the task to fetch the item
-        task = hn_fetch_item.apply_async(args=[item_id], queue="hnfm_tasks")
+        # Queue the item only if it doesn't exist
+        result = queue_item_if_not_exists(item_id, redis_client)
 
-        return {
-            "status": "queued",
-            "item_id": item_id,
-            "task_id": task.id,
-            "message": f"Item {item_id} queued for fetching"
-        }
+        if result["status"] == "exists":
+            return {
+                "status": "exists",
+                "item_id": item_id,
+                "message": f"Item {item_id} already exists in database"
+            }
+        else:
+            return {
+                "status": "queued",
+                "item_id": item_id,
+                "task_id": result["task_id"],
+                "message": f"Item {item_id} queued for fetching"
+            }
 
     except Exception as e:
         logger.error(f"Failed to queue item {item_id} for processing: {e}")
@@ -541,6 +613,48 @@ async def delete_single_segment(
             f"Failed to delete segment {seg} for item {item_id}, run {run}: {e}"
         )
         raise HTTPException(status_code=500, detail="Failed to delete segment")
+
+
+@app.get(
+    "/api/segments",
+    response_model=AllSegmentsListResponse,
+    tags=["segments"],
+)
+async def list_all_segments_endpoint(
+    offset: int = 0,
+    limit: int = 50,
+    redis_client: redis.Redis = Depends(get_redis_client),
+):
+    """List all segments across all items and runs with pagination"""
+    try:
+        segments = list_all_segments(
+            redis_client=redis_client, offset=offset, limit=limit
+        )
+
+        # Get total count for pagination
+        pattern = "hnfm:seg:*"
+        all_segment_keys = redis_client.keys(pattern)
+        # Filter out non-segment keys (convert bytes to string for filtering)
+        filtered_keys = []
+        for key in all_segment_keys:
+            key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+            if not any(suffix in key_str for suffix in [":list", ":seq", ":img:", ":sec:"]):
+                filtered_keys.append(key)
+        total_count = len(filtered_keys)
+
+        return AllSegmentsListResponse(
+            segments=segments,
+            pagination={
+                "offset": offset,
+                "limit": limit,
+                "count": len(segments),
+                "total": total_count,
+            },
+        )
+
+    except Exception as e:
+        logger.error(f"Failed to list all segments: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list segments")
 
 
 # Audio API Endpoints

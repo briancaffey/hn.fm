@@ -217,8 +217,14 @@ def save_segment(
         k_seg(seg_obj.item_id, seg_obj.run, seg_obj.seg), seg_obj.model_dump_json()
     )
 
-    # Add to segment list (newest-first)
-    redis_client.lpush(k_seg_list(seg_obj.item_id, seg_obj.run), str(seg_obj.seg))
+    # Add to segment list (newest-first) only if not already present
+    list_key = k_seg_list(seg_obj.item_id, seg_obj.run)
+    seg_id_str = str(seg_obj.seg)
+
+    # Check if segment ID is already in the list
+    existing_segments = redis_client.lrange(list_key, 0, -1)
+    if seg_id_str not in [seg.decode() for seg in existing_segments]:
+        redis_client.lpush(list_key, seg_id_str)
 
     # Save to disk
     seg_path = seg_dir(outputs_root, seg_obj.item_id, seg_obj.run, seg_obj.seg)
@@ -281,6 +287,58 @@ def list_segments_for_run(
     segment_ids = redis_client.lrange(key, offset, offset + limit - 1)
 
     return [int(seg_id) for seg_id in segment_ids]
+
+
+def list_all_segments(
+    *,
+    redis_client: redis.Redis,
+    offset: int = 0,
+    limit: int = 50,
+) -> List[Segment]:
+    """
+    List all segments across all items and runs (newest-first).
+
+    Args:
+        redis_client: Redis client
+        offset: Pagination offset
+        limit: Pagination limit
+
+    Returns:
+        List of Segment objects
+    """
+    # Get all segment keys from Redis
+    pattern = "hnfm:seg:*"
+    segment_keys = redis_client.keys(pattern)
+
+    # Filter out non-segment keys (like lists, sequences, etc.)
+    # Convert bytes to string for filtering
+    filtered_keys = []
+    for key in segment_keys:
+        key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+        if not any(suffix in key_str for suffix in [":list", ":seq", ":img:", ":sec:"]):
+            filtered_keys.append(key)
+
+    # Sort by creation time (newest first) by checking the segment data
+    segments_with_time = []
+    for key in filtered_keys:
+        try:
+            data = redis_client.get(key)
+            if data:
+                # Decode data if it's bytes
+                if isinstance(data, bytes):
+                    data = data.decode('utf-8')
+                segment = Segment.model_validate_json(data)
+                segments_with_time.append((segment.created_at, segment))
+        except Exception:
+            continue
+
+    # Sort by creation time (newest first)
+    segments_with_time.sort(key=lambda x: x[0], reverse=True)
+
+    # Apply pagination
+    paginated_segments = segments_with_time[offset:offset + limit]
+
+    return [segment for _, segment in paginated_segments]
 
 
 def delete_segment(
