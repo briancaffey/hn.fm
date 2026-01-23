@@ -22,9 +22,7 @@ def get_wayback_url(url: str) -> Optional[str]:
         logger.info(f"Looking up Wayback Machine archive for: {url}")
 
         response = requests.get(
-            "https://archive.org/wayback/available",
-            params={"url": url},
-            timeout=10
+            "https://archive.org/wayback/available", params={"url": url}, timeout=10
         )
 
         if response.status_code != 200:
@@ -37,7 +35,9 @@ def get_wayback_url(url: str) -> Optional[str]:
         if closest and closest.get("available"):
             wayback_url = closest["url"]
             timestamp = closest["timestamp"]
-            logger.info(f"Found Wayback Machine snapshot from {timestamp}: {wayback_url}")
+            logger.info(
+                f"Found Wayback Machine snapshot from {timestamp}: {wayback_url}"
+            )
             return wayback_url
         else:
             logger.info(f"No Wayback Machine snapshot found for {url}")
@@ -113,16 +113,20 @@ class ContentScraper:
             wayback_url = get_wayback_url(url)
             if wayback_url:
                 try:
-                    logger.info(f"Attempting to scrape Wayback Machine URL: {wayback_url}")
+                    logger.info(
+                        f"Attempting to scrape Wayback Machine URL: {wayback_url}"
+                    )
                     return self._scrape_with_local_firecrawl(wayback_url)
                 except Exception as wayback_error:
-                    logger.error(f"Failed to scrape Wayback Machine URL {wayback_url}: {wayback_error}")
+                    logger.error(
+                        f"Failed to scrape Wayback Machine URL {wayback_url}: {wayback_error}"
+                    )
                     return ScrapedContent(
                         title="Error",
                         content="",
                         url=url,
                         success=False,
-                        error=f"Original failed: {e}. Wayback failed: {wayback_error}"
+                        error=f"Original failed: {e}. Wayback failed: {wayback_error}",
                     )
             else:
                 logger.error(f"No Wayback Machine archive available for {url}")
@@ -131,7 +135,7 @@ class ContentScraper:
                     content="",
                     url=url,
                     success=False,
-                    error=f"Scraping failed and no Wayback Machine archive available: {e}"
+                    error=f"Scraping failed and no Wayback Machine archive available: {e}",
                 )
 
     def _scrape_with_local_firecrawl(self, url: str) -> ScrapedContent:

@@ -182,6 +182,22 @@ services:
       retries: 3
       start_period: 40s
 
+  # Jupyter Lab for interactive development
+  jupyter:
+    <<: *common-app-config
+    container_name: hnfm-jupyter
+    ports:
+      - "8888:8888"
+    environment:
+      <<: *common-env
+    command: ["jupyter", "lab", "--ip=0.0.0.0", "--port=8888", "--no-browser", "--allow-root", "--NotebookApp.token=''", "--NotebookApp.password=''"]
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8888/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
 volumes:
   redis_data:
     driver: local

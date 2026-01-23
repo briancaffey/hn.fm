@@ -198,7 +198,7 @@ async def queue_top_stories(
             "skipped_count": len(skipped_items),
             "queued_ids": queued_items,
             "skipped_ids": skipped_items,
-            "limit": limit
+            "limit": limit,
         }
 
     except Exception as e:
@@ -234,7 +234,7 @@ async def queue_new_stories(
             "skipped_count": len(skipped_items),
             "queued_ids": queued_items,
             "skipped_ids": skipped_items,
-            "limit": limit
+            "limit": limit,
         }
 
     except Exception as e:
@@ -255,19 +255,21 @@ async def process_single_item(
             return {
                 "status": "exists",
                 "item_id": item_id,
-                "message": f"Item {item_id} already exists in database"
+                "message": f"Item {item_id} already exists in database",
             }
         else:
             return {
                 "status": "queued",
                 "item_id": item_id,
                 "task_id": result["task_id"],
-                "message": f"Item {item_id} queued for fetching"
+                "message": f"Item {item_id} queued for fetching",
             }
 
     except Exception as e:
         logger.error(f"Failed to queue item {item_id} for processing: {e}")
-        raise HTTPException(status_code=500, detail="Failed to queue item for processing")
+        raise HTTPException(
+            status_code=500, detail="Failed to queue item for processing"
+        )
 
 
 @app.get("/api/hn/items", tags=["hacker-news"])
@@ -332,7 +334,9 @@ async def start_single_task_pipeline(
     try:
         item_id = request.get("item_id")
         if not item_id:
-            raise HTTPException(status_code=400, detail="item_id is required in request body")
+            raise HTTPException(
+                status_code=400, detail="item_id is required in request body"
+            )
 
         # Queue the full pipeline task
         task = full_pipeline.apply_async(args=[item_id], queue="hnfm_tasks")
@@ -341,7 +345,7 @@ async def start_single_task_pipeline(
             "status": "queued",
             "item_id": item_id,
             "task_id": task.id,
-            "message": f"Full pipeline queued for item {item_id}"
+            "message": f"Full pipeline queued for item {item_id}",
         }
 
     except HTTPException:
@@ -637,8 +641,10 @@ async def list_all_segments_endpoint(
         # Filter out non-segment keys (convert bytes to string for filtering)
         filtered_keys = []
         for key in all_segment_keys:
-            key_str = key.decode('utf-8') if isinstance(key, bytes) else key
-            if not any(suffix in key_str for suffix in [":list", ":seq", ":img:", ":sec:"]):
+            key_str = key.decode("utf-8") if isinstance(key, bytes) else key
+            if not any(
+                suffix in key_str for suffix in [":list", ":seq", ":img:", ":sec:"]
+            ):
                 filtered_keys.append(key)
         total_count = len(filtered_keys)
 

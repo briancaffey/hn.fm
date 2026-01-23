@@ -687,7 +687,12 @@ class VideoGenerator:
                         # Create a video segment for this image
                         segment_path = temp_dir_path / f"segment_{i:03d}.mp4"
                         self._create_image_segment(
-                            image_path, segment_path, duration_seconds, width, height, fps
+                            image_path,
+                            segment_path,
+                            duration_seconds,
+                            width,
+                            height,
+                            fps,
                         )
                         video_segments.append(segment_path)
 
@@ -695,7 +700,9 @@ class VideoGenerator:
                             f"   ✅ Created video segment {i+1}/{len(timeline)}: {segment_path.name}"
                         )
                     else:
-                        logger.warning(f"⚠️ Skipping timeline item {i}: no valid image path")
+                        logger.warning(
+                            f"⚠️ Skipping timeline item {i}: no valid image path"
+                        )
                         continue
 
                 if not video_segments:

@@ -223,7 +223,9 @@ def save_segment(
 
     # Check if segment ID is already in the list
     existing_segments = redis_client.lrange(list_key, 0, -1)
-    if seg_id_str not in [seg.decode() for seg in existing_segments]:
+    if seg_id_str not in [
+        seg.decode() if isinstance(seg, bytes) else seg for seg in existing_segments
+    ]:
         redis_client.lpush(list_key, seg_id_str)
 
     # Save to disk
@@ -314,7 +316,7 @@ def list_all_segments(
     # Convert bytes to string for filtering
     filtered_keys = []
     for key in segment_keys:
-        key_str = key.decode('utf-8') if isinstance(key, bytes) else key
+        key_str = key.decode("utf-8") if isinstance(key, bytes) else key
         if not any(suffix in key_str for suffix in [":list", ":seq", ":img:", ":sec:"]):
             filtered_keys.append(key)
 
@@ -326,7 +328,7 @@ def list_all_segments(
             if data:
                 # Decode data if it's bytes
                 if isinstance(data, bytes):
-                    data = data.decode('utf-8')
+                    data = data.decode("utf-8")
                 segment = Segment.model_validate_json(data)
                 segments_with_time.append((segment.created_at, segment))
         except Exception:
@@ -336,7 +338,7 @@ def list_all_segments(
     segments_with_time.sort(key=lambda x: x[0], reverse=True)
 
     # Apply pagination
-    paginated_segments = segments_with_time[offset:offset + limit]
+    paginated_segments = segments_with_time[offset : offset + limit]
 
     return [segment for _, segment in paginated_segments]
 
@@ -515,7 +517,8 @@ def save_segment_image(
     # Add to image list if not already present
     list_key = k_img_list(si.item_id, si.run, si.seg)
     if not redis_client.lrange(list_key, 0, -1) or str(si.index) not in [
-        x.decode() for x in redis_client.lrange(list_key, 0, -1)
+        x.decode() if isinstance(x, bytes) else x
+        for x in redis_client.lrange(list_key, 0, -1)
     ]:
         redis_client.rpush(list_key, str(si.index))
 
@@ -654,17 +657,21 @@ def build_timeline(
 
     # Add intro sequence (4 seconds)
     intro_audio_path = Path(__file__).parent.parent / "video" / "media" / "intro.wav"
-    intro_image_path = Path(__file__).parent.parent / "video" / "media" / "hnfm_square.png"
+    intro_image_path = (
+        Path(__file__).parent.parent / "video" / "media" / "hnfm_square.png"
+    )
 
     if intro_audio_path.exists() and intro_image_path.exists():
-        timeline.append({
-            "index": -3,  # Special index for intro
-            "image_path": str(intro_image_path),
-            "start_ms": cumulative_start,
-            "duration_ms": 4000,  # 4 seconds
-            "text": "Intro",
-            "type": "intro"
-        })
+        timeline.append(
+            {
+                "index": -3,  # Special index for intro
+                "image_path": str(intro_image_path),
+                "start_ms": cumulative_start,
+                "duration_ms": 4000,  # 4 seconds
+                "text": "Intro",
+                "type": "intro",
+            }
+        )
         cumulative_start += 4000
 
     # Add main content from sections and images
@@ -682,24 +689,28 @@ def build_timeline(
                 "start_ms": cumulative_start,
                 "duration_ms": data["duration_ms"],
                 "text": data["text"],
-                "type": "content"
+                "type": "content",
             }
         )
 
         cumulative_start += data["duration_ms"]
 
     # Add outro sequence (4 seconds)
-    outro_image_path = Path(__file__).parent.parent / "video" / "media" / "hnfm_square.png"
+    outro_image_path = (
+        Path(__file__).parent.parent / "video" / "media" / "hnfm_square.png"
+    )
 
     if outro_image_path.exists():
-        timeline.append({
-            "index": -1,  # Special index for outro
-            "image_path": str(outro_image_path),
-            "start_ms": cumulative_start,
-            "duration_ms": 4000,  # 4 seconds
-            "text": "Outro",
-            "type": "outro"
-        })
+        timeline.append(
+            {
+                "index": -1,  # Special index for outro
+                "image_path": str(outro_image_path),
+                "start_ms": cumulative_start,
+                "duration_ms": 4000,  # 4 seconds
+                "text": "Outro",
+                "type": "outro",
+            }
+        )
 
     return timeline
 

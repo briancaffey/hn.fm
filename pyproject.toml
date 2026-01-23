@@ -51,6 +51,11 @@ dependencies = [
     "Pillow>=10.0.0",
     "celery[redis]>=5.5.3",
     "flower>=2.0.1",
+    # Jupyter/iPython Notebook Dependencies
+    "jupyter>=1.0.0",
+    "ipykernel>=6.0.0",
+    "notebook>=7.0.0",
+    "jupyterlab>=4.0.0",
 ]
 
 [project.optional-dependencies]

@@ -91,7 +91,9 @@ def hn_fetch_item(item_id: int) -> Dict[str, any]:
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.process_hn_item_run", time_limit=1800, soft_time_limit=1800)
+@celery_app.task(
+    name="hnfm.web.tasks.process_hn_item_run", time_limit=1800, soft_time_limit=1800
+)
 def process_hn_item_run(
     item_id: int, run: int = None, continue_chain: bool = False
 ) -> Dict[str, any]:
@@ -199,7 +201,9 @@ def process_hn_item_run(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.generate_segment", time_limit=1800, soft_time_limit=1800)
+@celery_app.task(
+    name="hnfm.web.tasks.generate_segment", time_limit=1800, soft_time_limit=1800
+)
 def generate_segment(
     item_id: int, run: int, seg: int = None, continue_chain: bool = False
 ) -> Dict[str, any]:
@@ -289,7 +293,9 @@ def generate_segment(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.build_segment_audio", time_limit=1800, soft_time_limit=1800)
+@celery_app.task(
+    name="hnfm.web.tasks.build_segment_audio", time_limit=1800, soft_time_limit=1800
+)
 def build_segment_audio(
     item_id: int,
     run: int,
@@ -739,7 +745,9 @@ def build_segment_images(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.rebuild_single_image", time_limit=3600, soft_time_limit=3600)
+@celery_app.task(
+    name="hnfm.web.tasks.rebuild_single_image", time_limit=3600, soft_time_limit=3600
+)
 def rebuild_single_image(
     item_id: int,
     run: int,
@@ -870,7 +878,9 @@ def rebuild_single_image(
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.full_pipeline", time_limit=10800, soft_time_limit=10800)
+@celery_app.task(
+    name="hnfm.web.tasks.full_pipeline", time_limit=10800, soft_time_limit=10800
+)
 def full_pipeline(item_id: int) -> Dict[str, any]:
     """
     Run the entire pipeline in a single task for an item.
@@ -899,6 +909,7 @@ def full_pipeline(item_id: int) -> Dict[str, any]:
 
         # Get next run ID
         from ..utils.run_utils import next_run_id
+
         run = next_run_id(item_id, redis_client=redis_client)
 
         logger.info(f"📝 Step 1/5: Processing run {run} for item {item_id}")
@@ -908,6 +919,7 @@ def full_pipeline(item_id: int) -> Dict[str, any]:
 
         # Get next segment ID
         from ..utils.segment_utils import next_seg_id
+
         seg = next_seg_id(item_id, run, redis_client=redis_client)
 
         logger.info(f"📝 Step 2/5: Generating segment {seg} for run {run}")
@@ -917,7 +929,9 @@ def full_pipeline(item_id: int) -> Dict[str, any]:
 
         logger.info(f"📝 Step 3/5: Building audio for segment {seg}")
         # Step 3: Build segment audio (with continue_chain=False)
-        audio_result = build_segment_audio(item_id, run, seg, "all", None, None, continue_chain=False)
+        audio_result = build_segment_audio(
+            item_id, run, seg, "all", None, None, continue_chain=False
+        )
         logger.info(f"✅ Audio building completed: {audio_result}")
 
         logger.info(f"📝 Step 4/5: Building images for segment {seg}")
@@ -930,7 +944,9 @@ def full_pipeline(item_id: int) -> Dict[str, any]:
         video_result = generate_segment_video(item_id, run, seg, continue_chain=False)
         logger.info(f"✅ Video generation completed: {video_result}")
 
-        logger.info(f"🎉 Full pipeline completed successfully for item {item_id}, run {run}, seg {seg}")
+        logger.info(
+            f"🎉 Full pipeline completed successfully for item {item_id}, run {run}, seg {seg}"
+        )
 
         return {
             "status": "completed",
@@ -943,8 +959,8 @@ def full_pipeline(item_id: int) -> Dict[str, any]:
                 "segment": segment_result,
                 "audio": audio_result,
                 "images": images_result,
-                "video": video_result
-            }
+                "video": video_result,
+            },
         }
 
     except Exception as e:
@@ -952,7 +968,9 @@ def full_pipeline(item_id: int) -> Dict[str, any]:
         raise
 
 
-@celery_app.task(name="hnfm.web.tasks.generate_segment_video", time_limit=3600, soft_time_limit=3600)
+@celery_app.task(
+    name="hnfm.web.tasks.generate_segment_video", time_limit=3600, soft_time_limit=3600
+)
 def generate_segment_video(
     item_id: int, run: int, seg: int, continue_chain: bool = False
 ) -> Dict:
@@ -1066,7 +1084,9 @@ def generate_segment_video(
         video_generator = VideoGenerator()
 
         # Check if intro audio exists and create combined audio
-        intro_audio_path = Path(__file__).parent.parent / "video" / "media" / "intro.wav"
+        intro_audio_path = (
+            Path(__file__).parent.parent / "video" / "media" / "intro.wav"
+        )
         combined_audio_path = segment.audio_combined_path
 
         # Create a temporary combined audio file with intro + segment audio + outro silence
@@ -1081,31 +1101,44 @@ def generate_segment_video(
             cmd = [
                 "ffmpeg",
                 "-y",  # Overwrite output file
-                "-i", str(intro_audio_path),
-                "-i", segment.audio_combined_path,
-                "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+                "-i",
+                str(intro_audio_path),
+                "-i",
+                segment.audio_combined_path,
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=channel_layout=stereo:sample_rate=48000",
                 "-filter_complex",
                 "[0:a][1:a]concat=n=2:v=0:a=1[main];[2:a]atrim=duration=4[outro];[main][outro]concat=n=2:v=0:a=1[final]",
-                "-map", "[final]",
-                temp_audio_path
+                "-map",
+                "[final]",
+                temp_audio_path,
             ]
         else:
             # Just segment audio + outro silence
             cmd = [
                 "ffmpeg",
                 "-y",  # Overwrite output file
-                "-i", segment.audio_combined_path,
-                "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=48000",
+                "-i",
+                segment.audio_combined_path,
+                "-f",
+                "lavfi",
+                "-i",
+                "anullsrc=channel_layout=stereo:sample_rate=48000",
                 "-filter_complex",
                 "[0:a][1:a]concat=n=2:v=0:a=1[final]",
-                "-map", "[final]",
-                temp_audio_path
+                "-map",
+                "[final]",
+                temp_audio_path,
             ]
 
         try:
             result = subprocess.run(cmd, capture_output=True, text=True, check=True)
             combined_audio_path = temp_audio_path
-            logger.info(f"🎵 Combined audio with intro + segment + outro silence: {combined_audio_path}")
+            logger.info(
+                f"🎵 Combined audio with intro + segment + outro silence: {combined_audio_path}"
+            )
         except subprocess.CalledProcessError as e:
             logger.warning(f"Failed to combine audio, using segment audio only: {e}")
             combined_audio_path = segment.audio_combined_path
@@ -1127,10 +1160,14 @@ def generate_segment_video(
         logger.info(f"🎥 Video generated successfully: {output_video_path}")
 
         # Clean up temporary audio file if it was created
-        if combined_audio_path != segment.audio_combined_path and os.path.exists(combined_audio_path):
+        if combined_audio_path != segment.audio_combined_path and os.path.exists(
+            combined_audio_path
+        ):
             try:
                 os.unlink(combined_audio_path)
-                logger.debug(f"🧹 Cleaned up temporary audio file: {combined_audio_path}")
+                logger.debug(
+                    f"🧹 Cleaned up temporary audio file: {combined_audio_path}"
+                )
             except Exception as e:
                 logger.warning(f"Failed to clean up temporary audio file: {e}")
 
