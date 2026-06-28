@@ -166,23 +166,24 @@ Emoji (4 characters, space-separated):"""
         # Clean up the result
         result = result.strip()
 
-        # Split by spaces and clean up
-        emoji_list = [emoji.strip() for emoji in result.split() if emoji.strip()]
-
-        # Validate that we have exactly 4 emoji
-        if len(emoji_list) != 4:
-            raise ValueError(f"Expected exactly 4 emoji, got {len(emoji_list)}")
-
-        # Basic validation that they look like emoji (contain at least one emoji character)
-        for emoji in emoji_list:
-            if not any(ord(char) > 127 for char in emoji):  # Basic emoji detection
-                logger.warning(f"Emoji '{emoji}' may not be a valid emoji character")
-
-        return emoji_list
+        # Keep only things that look like emoji, then pad/truncate to exactly 4.
+        # The LLM occasionally returns the wrong count — that must NOT fail the
+        # whole pipeline over cosmetic metadata.
+        _defaults = ["📰", "✨", "🔥", "💡", "🚀", "🤖"]
+        emoji_list = [
+            e.strip() for e in result.split()
+            if e.strip() and any(ord(c) > 127 for c in e)
+        ]
+        for d in _defaults:
+            if len(emoji_list) >= 4:
+                break
+            if d not in emoji_list:
+                emoji_list.append(d)
+        return emoji_list[:4]
 
     except Exception as e:
-        logger.error(f"Failed to generate emoji: {e}")
-        raise RuntimeError(f"Failed to generate emoji: {e}")
+        logger.warning(f"emoji generation fell back to defaults (non-fatal): {e}")
+        return ["📰", "✨", "🔥", "💡"]
 
 
 def generate_haiku(content_clean: str) -> str:

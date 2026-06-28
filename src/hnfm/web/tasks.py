@@ -164,18 +164,22 @@ def process_hn_item_run(
         logger.info(f"Summarizing content for item {item_id}, run {run}")
         summary = summarize_text_v1(content_clean)
 
-        # Step 6: Generate additional content fields
-        logger.info(f"Generating short description for item {item_id}, run {run}")
-        short_description = generate_short_description(summary)
+        # Step 6: Generate additional content fields. These are cosmetic metadata
+        # — a flaky LLM response must NOT fail the whole video. Each falls back.
+        def _safe(fn, default, label):
+            try:
+                return fn()
+            except Exception as e:
+                logger.warning(f"{label} fell back to default (non-fatal): {e}")
+                return default
 
-        logger.info(f"Generating tags for item {item_id}, run {run}")
-        tags = generate_tags(summary)
-
-        logger.info(f"Generating emoji for item {item_id}, run {run}")
-        emoji = generate_emoji(summary)
-
-        logger.info(f"Generating haiku for item {item_id}, run {run}")
-        haiku = generate_haiku(content_clean)
+        logger.info(f"Generating metadata for item {item_id}, run {run}")
+        short_description = _safe(lambda: generate_short_description(summary),
+                                  (summary or "")[:160], "short_description")
+        tags = _safe(lambda: generate_tags(summary), ["tech", "news"], "tags")
+        emoji = _safe(lambda: generate_emoji(summary), ["📰", "✨", "🔥", "💡"], "emoji")
+        haiku = _safe(lambda: generate_haiku(content_clean),
+                      "A story unfolds\nthrough pixels and quiet code\ninsight takes its form", "haiku")
 
         # Step 7: Build ProcessedRun
         processed_run = ProcessedRun(
