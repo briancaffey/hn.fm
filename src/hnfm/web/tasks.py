@@ -732,7 +732,13 @@ def build_segment_images(
         segment.style_theme = theme.key
         segment.style_theme_name = theme.name
         redis_client.set(segment.key, segment.model_dump_json())
-        logger.info(f"🎨 Take theme: {theme.name} ({theme.key})")
+
+        # Aspect format for this take -> image/video/subtitle dimensions
+        from ..content.art_direction import format_dims
+
+        _fmt = getattr(segment, "aspect_format", None) or "16:9"
+        _w, _h = format_dims(_fmt)
+        logger.info(f"🎨 Take theme: {theme.name} ({theme.key}) · format {_fmt} {_w}x{_h}")
 
         # Cycle shot types so compositions vary within the take.
         SHOTS = [
@@ -757,9 +763,9 @@ def build_segment_images(
             )
             logger.info(f"Generated prompt: {prompt[:100]}...")
 
-            # Generate the root frame (text-to-image)
+            # Generate the root frame (text-to-image) at the take's format
             out = img_path(outputs_root, item_id, run, seg, i)
-            generate_image_from_prompt(prompt, out)
+            generate_image_from_prompt(prompt, out, width=_w, height=_h)
             logger.info(f"Generated image: {out}")
 
             # Alignment (start/duration) — drives sequence length + timeline
@@ -791,7 +797,8 @@ def build_segment_images(
                             fdir = _img_dir(outputs_root, item_id, run, seg, i)
                             fname = f"frame_{k}.png"
                             svc.generate_and_save_edit(
-                                edit_directive(k - 1, theme), prev, fdir, fname
+                                edit_directive(k - 1, theme), prev, fdir, fname,
+                                width=_w, height=_h,
                             )
                             fp = os.path.join(fdir, fname)
                             sequence_paths.append(fp)
@@ -998,7 +1005,9 @@ def rebuild_single_image(
 @celery_app.task(
     name="hnfm.web.tasks.full_pipeline", time_limit=10800, soft_time_limit=10800
 )
-def full_pipeline(item_id: int) -> Dict[str, any]:
+def full_pipeline(
+    item_id: int, aspect_format: str = None, style_theme: str = None
+) -> Dict[str, any]:
     """
     Run the entire pipeline in a single task for an item.
 
@@ -1043,6 +1052,21 @@ def full_pipeline(item_id: int) -> Dict[str, any]:
         # Step 2: Generate segment (with continue_chain=False)
         segment_result = generate_segment(item_id, run, seg, continue_chain=False)
         logger.info(f"✅ Segment generation completed: {segment_result}")
+
+        # Apply requested take format/theme (multi-take / multi-format)
+        if aspect_format or style_theme:
+            from ..utils.segment_utils import get_segment
+
+            _seg = get_segment(item_id, run, seg, redis_client=redis_client)
+            if _seg:
+                if aspect_format:
+                    _seg.aspect_format = aspect_format
+                if style_theme:
+                    _seg.style_theme = style_theme
+                redis_client.set(_seg.key, _seg.model_dump_json())
+                logger.info(
+                    f"🎛️ Take format={_seg.aspect_format} theme={_seg.style_theme}"
+                )
 
         logger.info(f"📝 Step 3/5: Building audio for segment {seg}")
         # Step 3: Build segment audio (with continue_chain=False)
@@ -1164,6 +1188,10 @@ def generate_segment_video(
 
         # 4) Write subtitles file from ASR data or timeline
         from ..utils.segment_utils import write_ass_from_asr, write_vtt_from_timeline
+        from ..content.art_direction import format_dims
+
+        _fmt = getattr(segment, "aspect_format", None) or "16:9"
+        _vw, _vh = format_dims(_fmt)
 
         # Initialize subtitle path variable
         subtitle_path = None
@@ -1178,7 +1206,7 @@ def generate_segment_video(
 
             with open(segment.asr_json_path, "r") as f:
                 asr_data = json.load(f)
-            write_ass_from_asr(asr_data, ass_path)
+            write_ass_from_asr(asr_data, ass_path, width=_vw, height=_vh)
             subtitle_path = ass_path
             logger.info(f"📝 Created word-level ASS subtitles: {ass_path}")
         else:
@@ -1313,7 +1341,7 @@ def generate_segment_video(
             timeline=timeline,
             subtitles_path=subtitle_path,
             output_path=output_video_path,
-            size=(1280, 720),
+            size=(_vw, _vh),
             fps=30,
         )
 

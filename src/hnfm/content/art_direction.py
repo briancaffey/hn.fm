@@ -114,7 +114,25 @@ THEMES: List[Theme] = [
 _THEMES_BY_KEY = {t.key: t for t in THEMES}
 
 # Universal quality tags appended to every prompt.
-QUALITY_TAGS = "highly detailed, striking composition, professional, 16:9"
+QUALITY_TAGS = "highly detailed, striking composition, professional"
+
+# Aspect formats: key -> (width, height). 16:9 widescreen, 1:1 square (feed),
+# 9:16 vertical (TikTok / Shorts / Reels).
+FORMATS = {
+    "16:9": (1280, 720),
+    "1:1": (1024, 1024),
+    "9:16": (720, 1280),
+}
+DEFAULT_FORMAT = "16:9"
+
+
+def format_dims(fmt: Optional[str]) -> tuple:
+    """(width, height) for an aspect format key; defaults to 16:9."""
+    return FORMATS.get(fmt or DEFAULT_FORMAT, FORMATS[DEFAULT_FORMAT])
+
+
+def list_formats():
+    return list(FORMATS.keys())
 
 
 def list_themes() -> List[Theme]:

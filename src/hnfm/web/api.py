@@ -338,12 +338,22 @@ async def start_single_task_pipeline(
                 status_code=400, detail="item_id is required in request body"
             )
 
+        # Optional per-take overrides (multi-take / multi-format)
+        aspect_format = request.get("aspect_format")  # "16:9" | "1:1" | "9:16"
+        style_theme = request.get("style_theme")  # art_direction theme key
+
         # Queue the full pipeline task
-        task = full_pipeline.apply_async(args=[item_id], queue="hnfm_tasks")
+        task = full_pipeline.apply_async(
+            args=[item_id],
+            kwargs={"aspect_format": aspect_format, "style_theme": style_theme},
+            queue="hnfm_tasks",
+        )
 
         return {
             "status": "queued",
             "item_id": item_id,
+            "aspect_format": aspect_format or "16:9",
+            "style_theme": style_theme,
             "task_id": task.id,
             "message": f"Full pipeline queued for item {item_id}",
         }

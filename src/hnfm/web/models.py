@@ -154,6 +154,9 @@ class Segment(BaseModel):
     style_theme_name: Optional[str] = Field(
         default=None, description="Human-readable theme name for this take"
     )
+    aspect_format: Optional[str] = Field(
+        default="16:9", description="Aspect format for this take: 16:9 | 1:1 | 9:16"
+    )
 
     # ASR quality check (transcript-vs-script) receipt
     asr_qa: Optional[dict] = Field(

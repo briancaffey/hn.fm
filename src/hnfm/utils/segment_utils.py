@@ -480,7 +480,7 @@ def generate_image_prompt_v1(line_text: str, run_summary: str, theme=None, shot_
         raise RuntimeError(f"Failed to generate image prompt: {e}")
 
 
-def generate_image_from_prompt(prompt: str, out_path: str) -> None:
+def generate_image_from_prompt(prompt: str, out_path: str, width=None, height=None) -> None:
     """
     Use video/image scripts you have (image_generator.py) or service.
     Must write a PNG to out_path. Overwrite if exists.
@@ -493,7 +493,12 @@ def generate_image_from_prompt(prompt: str, out_path: str) -> None:
 
         # Generate and save image using the configured service
         service = ImageServiceFactory.create_image_service()
-        service.generate_and_save_image(prompt, out_path, "image.png")
+        kwargs = {}
+        if width:
+            kwargs["width"] = width
+        if height:
+            kwargs["height"] = height
+        service.generate_and_save_image(prompt, out_path, "image.png", **kwargs)
 
     except Exception as e:
         raise RuntimeError(f"Failed to generate image: {e}")
@@ -752,7 +757,7 @@ def write_vtt_from_timeline(timeline: List[dict], out_path: str) -> None:
             f.write(f"{text}\n\n")
 
 
-def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
+def write_ass_from_asr(asr_data: dict, out_path: str, width: int = 1280, height: int = 720) -> None:
     """Animated karaoke captions (ASS) from ASR word timings, via pysubs2.
 
     Each caption line highlights word-by-word as it is spoken (smooth ``\\kf``
@@ -771,8 +776,8 @@ def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
 
     subs = pysubs2.SSAFile()
     subs.info["Title"] = "hn.fm captions"
-    subs.info["PlayResX"] = "1280"
-    subs.info["PlayResY"] = "720"
+    subs.info["PlayResX"] = str(width)
+    subs.info["PlayResY"] = str(height)
     subs.info["ScaledBorderAndShadow"] = "yes"
 
     style = pysubs2.SSAStyle()
