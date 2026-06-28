@@ -24,10 +24,11 @@ def _base_url() -> str:
     return os.getenv("ACESTEP_BASE_URL", "http://host.docker.internal:8015").rstrip("/")
 
 
-def generate_music_intro(prompt: str, out_wav: str, seconds: float = 4.0) -> bool:
-    """Generate a short instrumental intro and write a `seconds`-long faded WAV.
+def generate_music_bed(prompt: str, out_wav: str) -> bool:
+    """Generate an instrumental music piece and write it as a 48k stereo WAV.
 
-    Returns True on success, False on any failure (caller should fall back).
+    The full clip is kept (looped/volume-shaped by the caller into a bed under
+    the whole video). Returns True on success, False on any failure.
     """
     try:
         r = requests.post(
@@ -59,14 +60,11 @@ def generate_music_intro(prompt: str, out_wav: str, seconds: float = 4.0) -> boo
             f.write(raw)
             mp3_path = f.name
 
-        # Trim to `seconds` with a gentle fade-out, render to WAV (48k stereo to
-        # match the rest of the audio assembly).
+        # Render the full clip to WAV (48k stereo) — looping/volume handled by
+        # the caller when mixing it under the narration.
         os.makedirs(os.path.dirname(out_wav), exist_ok=True)
-        fade_start = max(0.0, seconds - 1.2)
         cmd = [
             "ffmpeg", "-y", "-i", mp3_path,
-            "-t", str(seconds),
-            "-af", f"afade=t=out:st={fade_start}:d=1.2,aresample=48000",
             "-ac", "2", "-ar", "48000",
             out_wav,
         ]

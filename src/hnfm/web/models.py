@@ -233,7 +233,11 @@ class SegmentImage(BaseModel):
     )
     prompt: str = Field(..., description="Generated prompt text")
     image_path: Optional[str] = Field(
-        default=None, description="Path to generated image file"
+        default=None, description="Path to generated image file (first frame)"
+    )
+    sequence_paths: Optional[List[str]] = Field(
+        default=None,
+        description="Ordered image-sequence frame paths (root + edits) for dynamic visuals",
     )
     start_ms: Optional[int] = Field(
         default=None, description="Alignment start time in milliseconds"

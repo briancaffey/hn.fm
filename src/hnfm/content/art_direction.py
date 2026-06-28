@@ -139,3 +139,44 @@ def compose_prompt(scene: str, theme: Optional[Theme]) -> str:
     if not theme:
         return f"{scene}. {QUALITY_TAGS}"
     return f"{scene}. {theme.style}. {QUALITY_TAGS}"
+
+
+# ---- Image sequences (dynamic visuals via flux2 image-edit) -----------------
+# A narration section becomes a short *sequence*: a root image (text-to-image)
+# plus N-1 image-to-image edits that evolve the SAME scene (continuity), shown
+# in quick cadence. The count scales with the section's spoken duration so the
+# visuals change roughly every few seconds — rules are soft/env-tunable, not
+# hardcoded (the eventual goal is an LLM planner per SEQ.md).
+
+# Soft evolution directives for image-to-image edits; cycled, theme-agnostic.
+EVOLUTION_DIRECTIVES = [
+    "the camera slowly pushes in, revealing finer detail; subtle motion",
+    "the lighting shifts warmer and the mood intensifies; small change",
+    "pull back slightly to reveal more of the surrounding scene",
+    "a new related element enters the frame; keep the same subject",
+    "the angle tilts for a more dynamic composition; gentle drift",
+    "atmosphere thickens (haze, particles, glow); same scene",
+    "focus racks to a key detail in the foreground",
+    "the scene comes alive with a hint of action; continuity preserved",
+]
+
+
+def frames_for_duration(duration_s: float) -> int:
+    """How many sequence frames for a spoken section of `duration_s` seconds.
+
+    Soft rule: ~one frame per `SEQ_SECONDS_PER_FRAME` seconds, clamped. Env-tunable.
+    """
+    spf = float(os.getenv("SEQ_SECONDS_PER_FRAME", "2.6"))
+    lo = int(os.getenv("SEQ_MIN_FRAMES", "1"))
+    hi = int(os.getenv("SEQ_MAX_FRAMES", "5"))
+    if duration_s <= 0:
+        return max(lo, 1)
+    n = round(duration_s / max(0.5, spf))
+    return max(lo, min(hi, int(n)))
+
+
+def edit_directive(i: int, theme: Optional[Theme]) -> str:
+    """The image-to-image prompt for the i-th edit (1-based), reinforcing style."""
+    base = EVOLUTION_DIRECTIVES[(i - 1) % len(EVOLUTION_DIRECTIVES)]
+    style = f" Keep the {theme.name} style." if theme else ""
+    return f"Same scene, {base}.{style} Coherent, high quality."

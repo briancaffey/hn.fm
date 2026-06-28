@@ -195,6 +195,49 @@ class ImageGenerationService:
         base64_data = artifacts[0]["base64"]
         return self.save_image_from_base64(base64_data, output_dir, filename)
 
+    def generate_edit(
+        self, prompt: str, reference_bytes: bytes, width=None, height=None, seed=None
+    ) -> Dict[str, any]:
+        """Image-to-image edit: evolve a reference image with a new prompt.
+
+        Uses flux2-klein's OpenAI-style POST /v1/images/edits (multipart). The
+        reference PNG carries the scene/subject forward (continuity); the prompt
+        nudges the change. Returns {"artifacts": [{"base64": ...}]}.
+        """
+        width = width or self.default_width
+        height = height or self.default_height
+        files = {"image": ("reference.png", reference_bytes, "image/png")}
+        data = {
+            "prompt": prompt,
+            "n": "1",
+            "size": f"{width}x{height}",
+            "response_format": "b64_json",
+            "seed": str(seed if seed is not None else 0),
+        }
+        resp = requests.post(
+            f"{self.base_url}/v1/images/edits",
+            data=data,
+            files=files,
+            timeout=self.timeout_seconds,
+        )
+        resp.raise_for_status()
+        items = resp.json().get("data", [])
+        artifacts = [{"base64": d["b64_json"]} for d in items if d.get("b64_json")]
+        if not artifacts:
+            raise RuntimeError("Image edit API returned no b64_json data")
+        return {"artifacts": artifacts}
+
+    def generate_and_save_edit(
+        self, prompt: str, reference_path: str, output_dir, filename=None, **kwargs
+    ):
+        """Edit `reference_path` with `prompt` and save the result."""
+        with open(reference_path, "rb") as f:
+            ref = f.read()
+        result = self.generate_edit(prompt, ref, **kwargs)
+        return self.save_image_from_base64(
+            result["artifacts"][0]["base64"], output_dir, filename
+        )
+
     def health_check(self) -> bool:
         """Check if the image generation service is healthy.
 

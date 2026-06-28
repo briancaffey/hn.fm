@@ -757,15 +757,51 @@ def build_segment_images(
             )
             logger.info(f"Generated prompt: {prompt[:100]}...")
 
-            # Generate image
+            # Generate the root frame (text-to-image)
             out = img_path(outputs_root, item_id, run, seg, i)
             generate_image_from_prompt(prompt, out)
             logger.info(f"Generated image: {out}")
 
-            # Get alignment data if available
+            # Alignment (start/duration) — drives sequence length + timeline
             start_ms, duration_ms = (
                 align[i - 1] if align and i <= len(align) else (None, None)
             )
+
+            # Image sequence: evolve the root into N frames via image-to-image
+            # edits (count scales with spoken duration). Non-fatal per frame.
+            sequence_paths = [out]
+            if os.getenv("SEQ_ENABLED", "true").lower() == "true":
+                from ..content.art_direction import frames_for_duration, edit_directive
+                from ..utils.segment_utils import img_dir as _img_dir
+
+                dur_s = (duration_ms / 1000.0) if duration_ms else (len(text.split()) / 2.5)
+                n_frames = frames_for_duration(dur_s)
+                if n_frames > 1:
+                    try:
+                        from ..image.image_service_factory import ImageServiceFactory
+
+                        svc = ImageServiceFactory.create_image_service()
+                    except Exception:
+                        svc = None
+                    prev = out
+                    for k in range(2, n_frames + 1):
+                        if not svc or not hasattr(svc, "generate_and_save_edit"):
+                            break
+                        try:
+                            fdir = _img_dir(outputs_root, item_id, run, seg, i)
+                            fname = f"frame_{k}.png"
+                            svc.generate_and_save_edit(
+                                edit_directive(k - 1, theme), prev, fdir, fname
+                            )
+                            fp = os.path.join(fdir, fname)
+                            sequence_paths.append(fp)
+                            prev = fp
+                        except Exception as se:
+                            logger.warning(f"seq frame {k}/{n_frames} sec {i} failed: {se}")
+                            break
+                    logger.info(
+                        f"🖼️  Section {i}: image sequence of {len(sequence_paths)} frames"
+                    )
 
             # Create SegmentImage
             si = SegmentImage(
@@ -777,6 +813,7 @@ def build_segment_images(
                 line_text=text,
                 prompt=prompt,
                 image_path=out,
+                sequence_paths=sequence_paths,
                 start_ms=start_ms,
                 duration_ms=duration_ms,
                 created_at=datetime.utcnow(),
@@ -1167,27 +1204,6 @@ def generate_segment_video(
         intro_audio_path = (
             Path(__file__).parent.parent / "video" / "media" / "intro.wav"
         )
-        # Themed intro music (optional, non-fatal). Kept to the 4s intro length
-        # so the subtitle offset stays aligned.
-        if os.getenv("MUSIC_ENABLED", "false").lower() == "true":
-            try:
-                from ..audio.music_service import generate_music_intro
-                from ..content.art_direction import get_theme
-
-                _theme = get_theme(segment.style_theme)
-                _mood = (_theme.mood if _theme else "") or "energetic modern"
-                _music_wav = os.path.join(
-                    video_dir(outputs_root, item_id, run, seg), "intro_music.wav"
-                )
-                if generate_music_intro(
-                    f"instrumental {_mood} electronic tech-news intro sting, "
-                    f"upbeat, punchy, no vocals, clean ending",
-                    _music_wav,
-                    seconds=4.0,
-                ):
-                    intro_audio_path = Path(_music_wav)
-            except Exception as _m:
-                logger.warning(f"intro music skipped (non-fatal): {_m}")
         combined_audio_path = segment.audio_combined_path
 
         # Create a temporary combined audio file with intro + segment audio + outro silence
@@ -1243,6 +1259,52 @@ def generate_segment_video(
         except subprocess.CalledProcessError as e:
             logger.warning(f"Failed to combine audio, using segment audio only: {e}")
             combined_audio_path = segment.audio_combined_path
+
+        # Themed low-volume music bed under the whole video (optional, non-fatal).
+        if os.getenv("MUSIC_ENABLED", "false").lower() == "true":
+            try:
+                from ..audio.music_service import generate_music_bed
+                from ..content.art_direction import get_theme
+
+                _theme = get_theme(segment.style_theme)
+                _mood = (_theme.mood if _theme else "") or "energetic modern"
+                _music_wav = os.path.join(
+                    video_dir(outputs_root, item_id, run, seg), "music_bed.wav"
+                )
+                if generate_music_bed(
+                    f"instrumental {_mood} electronic tech background music, "
+                    f"steady groove, no vocals, loopable",
+                    _music_wav,
+                ):
+                    # duration of the narration track to size the bed
+                    _dur = float(
+                        subprocess.run(
+                            ["ffprobe", "-v", "error", "-show_entries",
+                             "format=duration", "-of", "csv=p=0", combined_audio_path],
+                            capture_output=True, text=True,
+                        ).stdout.strip() or 0
+                    )
+                    _vol = os.getenv("MUSIC_BED_VOLUME", "0.14")
+                    _mixed = combined_audio_path.replace(".wav", "_music.wav")
+                    _fade = max(0.0, _dur - 2.5)
+                    mcmd = [
+                        "ffmpeg", "-y",
+                        "-i", combined_audio_path,
+                        "-stream_loop", "-1", "-i", _music_wav,
+                        "-filter_complex",
+                        f"[1:a]volume={_vol},afade=t=in:st=0:d=1.5,"
+                        f"afade=t=out:st={_fade}:d=2.5[bed];"
+                        f"[0:a][bed]amix=inputs=2:duration=first:dropout_transition=0[a]",
+                        "-map", "[a]", _mixed,
+                    ]
+                    mr = subprocess.run(mcmd, capture_output=True, text=True)
+                    if mr.returncode == 0 and os.path.exists(_mixed):
+                        combined_audio_path = _mixed
+                        logger.info(f"🎵 Mixed music bed (vol={_vol}) under narration")
+                    else:
+                        logger.warning(f"music mix failed: {mr.stderr[:160]}")
+            except Exception as _m:
+                logger.warning(f"music bed skipped (non-fatal): {_m}")
 
         output_video_path = video_path(outputs_root, item_id, run, seg)
 

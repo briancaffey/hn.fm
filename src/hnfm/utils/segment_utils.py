@@ -676,18 +676,31 @@ def build_timeline(
             item_id, run, seg, index, redis_client=redis_client
         )
 
-        timeline.append(
-            {
-                "index": data["index"],
-                "image_path": data["image_path"],
-                "start_ms": cumulative_start,
-                "duration_ms": data["duration_ms"],
-                "text": data["text"],
-                "type": "content",
-            }
-        )
+        total = int(data["duration_ms"] or 0)
+        # Expand an image sequence (root + edits) across this section's slot so
+        # the visuals change in quick cadence. Falls back to a single image.
+        si = get_segment_image(item_id, run, seg, index, redis_client=redis_client)
+        frames = [
+            p for p in (getattr(si, "sequence_paths", None) or []) if p
+        ] or [data["image_path"]]
+        n = max(1, len(frames))
+        per = max(500, total // n) if total else 0
 
-        cumulative_start += data["duration_ms"]
+        for k, fp in enumerate(frames):
+            d = (total - per * (n - 1)) if k == n - 1 else per
+            if d <= 0:
+                d = per or total
+            timeline.append(
+                {
+                    "index": data["index"],
+                    "image_path": fp,
+                    "start_ms": cumulative_start,
+                    "duration_ms": d,
+                    "text": data["text"],
+                    "type": "content",
+                }
+            )
+            cumulative_start += d
 
     # Add outro sequence (4 seconds)
     outro_image_path = (
