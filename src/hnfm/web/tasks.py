@@ -138,9 +138,24 @@ def process_hn_item_run(
         if not url:
             raise RuntimeError(f"Item {item_id} has no URL")
 
-        # Step 3: Scrape content
+        # Step 3: Scrape content (non-fatal: degrade to HN title/text on failure
+        # so paywalled/blocked URLs don't kill the whole pipeline)
         logger.info(f"Scraping content from {url}")
-        content_raw = scrape_url_firecrawl(url)
+        try:
+            content_raw = scrape_url_firecrawl(url)
+        except Exception as scrape_err:
+            logger.warning(
+                f"⚠️ Scrape failed ({scrape_err}); falling back to HN title/text"
+            )
+            _title = item_data.get("title", "") or ""
+            _text = item_data.get("text", "") or ""
+            content_raw = (f"{_title}\n\n{_text}").strip() or _title or url
+            if len(content_raw) < 40:
+                content_raw = (
+                    f"This Hacker News story is titled '{_title}'. "
+                    f"The linked source could not be retrieved, so discuss the topic "
+                    f"based on the title and general knowledge."
+                )
 
         # Step 4: Clean content
         content_clean = clean_content(content_raw)

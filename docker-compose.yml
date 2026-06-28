@@ -48,6 +48,15 @@ x-common-env: &common-env
   ASR_BASE_URL: ${ASR_BASE_URL:-http://localhost:8042}
   ASR_MODEL_SIZE: ${ASR_MODEL_SIZE:-large-v2}
   ASR_TIMEOUT_SECONDS: ${ASR_TIMEOUT_SECONDS:-300}
+  ASR_MAX_ATTEMPTS: ${ASR_MAX_ATTEMPTS:-1}
+  # TTS backend selection + Magpie voices
+  TTS_BACKEND: ${TTS_BACKEND:-magpie}
+  MAGPIE_S1_VOICE: ${MAGPIE_S1_VOICE:-Magpie-Multilingual.EN-US.Mia}
+  MAGPIE_S2_VOICE: ${MAGPIE_S2_VOICE:-Magpie-Multilingual.EN-US.Jason}
+  STUDIO_VOICE_ENABLED: ${STUDIO_VOICE_ENABLED:-false}
+  # Outputs (set both to avoid OUTPUTS_DIR/OUTPUTS_ROOT split)
+  OUTPUTS_DIR: ${OUTPUTS_DIR:-/app/outputs}
+  OUTPUTS_ROOT: ${OUTPUTS_ROOT:-/app/outputs}
   # Local LLM Configuration
   LLM_BASE_URL: ${LLM_BASE_URL:-http://localhost:1234/v1}
   LLM_MODEL: ${LLM_MODEL:-openai/gpt-oss-20b}

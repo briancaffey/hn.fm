@@ -139,23 +139,30 @@ class ContentScraper:
                 )
 
     def _scrape_with_local_firecrawl(self, url: str) -> ScrapedContent:
-        """Scrape using local Firecrawl instance."""
+        """Scrape using local Firecrawl (current v1 API)."""
         data = {
             "url": url,
+            "formats": ["markdown"],
+            "onlyMainContent": True,
             "includeTags": ["h1", "h2", "h3", "p", "article"],
             "excludeTags": ["nav", "footer", "aside", "script", "style"],
         }
 
-        response = requests.post(f"{self.base_url}/v0/scrape", json=data, timeout=30)
+        response = requests.post(f"{self.base_url}/v1/scrape", json=data, timeout=60)
 
         if response.status_code != 200:
             raise RuntimeError(f"Local Firecrawl error: {response.status_code}")
 
         result = response.json()
+        d = result.get("data", {}) or {}
+        meta = d.get("metadata", {}) or {}
+        markdown = d.get("markdown", "") or ""
+        if not markdown.strip():
+            raise RuntimeError("Firecrawl returned empty markdown")
 
         return ScrapedContent(
-            title=result.get("data", {}).get("title", "Unknown Title"),
-            content=result.get("data", {}).get("markdown", ""),
+            title=meta.get("title") or meta.get("ogTitle") or "Unknown Title",
+            content=markdown,
             url=url,
             success=True,
         )

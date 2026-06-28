@@ -113,6 +113,12 @@ def studio_voice_clean_inplace(wav_path: str) -> None:
     Args:
         wav_path: Path to WAV file to clean (will be overwritten)
     """
+    # NVIDIA Studio Voice NIM is not deployed in the inference-club cluster, so
+    # enhancement is a no-op by default (Magpie TTS output is already clean WAV).
+    if os.getenv("STUDIO_VOICE_ENABLED", "false").lower() != "true":
+        print(f"⏭️  Studio Voice disabled; skipping enhance for {wav_path}")
+        return
+
     from .studio_voice_service import StudioVoiceService
 
     # Read original audio

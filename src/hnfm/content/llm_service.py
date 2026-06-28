@@ -38,7 +38,9 @@ class LLMService:
                     api_url = self.base_url
 
                 self.client = openai.OpenAI(
-                    api_key="not-needed",  # Local models typically don't require API keys
+                    # Gateways like LiteLLM require the real key; bare local
+                    # servers ignore it. Fall back to a placeholder.
+                    api_key=self.api_key or "not-needed",
                     base_url=api_url,
                 )
                 logger.info(f"Local LLM client initialized successfully for {api_url}")
@@ -74,18 +76,25 @@ class LLMService:
             # Use the configured model (local or OpenAI)
             model_name = self.model if self.use_local else "gpt-4"
 
-            response = self.client.chat.completions.create(
+            create_kwargs = dict(
                 model=model_name,
                 messages=[
                     {
                         "role": "system",
-                        "content": "Reasoning: high\nYou are a helpful AI assistant that generates high-quality content based on user requests.",
+                        "content": "You are a helpful AI assistant that generates high-quality content based on user requests.",
                     },
                     {"role": "user", "content": prompt},
                 ],
                 max_tokens=2000,
                 temperature=0.7,
             )
+            if self.use_local:
+                # Disable reasoning for local reasoning models (e.g. nemotron),
+                # which otherwise emit only `reasoning_content` and null content.
+                create_kwargs["extra_body"] = {
+                    "chat_template_kwargs": {"enable_thinking": False}
+                }
+            response = self.client.chat.completions.create(**create_kwargs)
 
             # Check if response is valid and has the expected structure
             if not response or not hasattr(response, "choices") or not response.choices:
@@ -129,6 +138,11 @@ class LLMService:
                 return self._generate_fallback_content(prompt)
 
             content = response.choices[0].message.content
+            if not content:
+                # Reasoning models may place the answer in reasoning_content.
+                content = getattr(
+                    response.choices[0].message, "reasoning_content", None
+                )
             if not content:
                 logger.error(f"🚨 CRITICAL: Empty content received from {model_name}")
                 print(f"   🚨 LLM FAILED: {model_name} returned empty content")

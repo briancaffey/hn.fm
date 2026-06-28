@@ -73,16 +73,13 @@ class ImageGenerationService:
         steps = steps or self.default_steps
         samples = samples or self.default_samples
 
+        # flux2-klein (inference-club) exposes an OpenAI-compatible image API:
+        # POST /v1/images/generations -> {"data": [{"b64_json": ...}]}
         payload = {
             "prompt": prompt,
-            "height": height,
-            "width": width,
-            "cfg_scale": cfg_scale,
-            "mode": mode,
-            "image": image,
-            "samples": samples,
-            "seed": seed or 0,
-            "steps": steps,
+            "n": samples or 1,
+            "size": f"{width}x{height}",
+            "response_format": "b64_json",
         }
 
         headers = {
@@ -91,25 +88,26 @@ class ImageGenerationService:
         }
 
         try:
-            # Show the beginning of the prompt for context
             prompt_preview = prompt[:100] + "..." if len(prompt) > 100 else prompt
             logger.debug(f"🎨 Generating image with prompt: {prompt_preview}")
-            logger.debug(
-                f"   📐 Settings: {width}x{height}, {steps} steps, CFG {cfg_scale}"
-            )
+            logger.debug(f"   📐 Settings: {width}x{height}")
 
             response = requests.post(
-                f"{self.base_url}/v1/infer",
+                f"{self.base_url}/v1/images/generations",
                 json=payload,
                 headers=headers,
                 timeout=self.timeout_seconds,
             )
             response.raise_for_status()
 
-            result = response.json()
-            artifacts_count = len(result.get("artifacts", []))
-            logger.info(f"✅ Successfully generated {artifacts_count} image(s)")
-            return result
+            data = response.json().get("data", [])
+            artifacts = [
+                {"base64": d["b64_json"]} for d in data if d.get("b64_json")
+            ]
+            if not artifacts:
+                raise RuntimeError("Image API returned no b64_json data")
+            logger.info(f"✅ Successfully generated {len(artifacts)} image(s)")
+            return {"artifacts": artifacts}
 
         except requests.exceptions.RequestException as e:
             logger.error(f"❌ Failed to generate image: {e}")
@@ -204,7 +202,7 @@ class ImageGenerationService:
             True if service is healthy, False otherwise
         """
         try:
-            response = requests.get(f"{self.base_url}/v1/health/ready", timeout=10)
+            response = requests.get(f"{self.base_url}/v1/health", timeout=10)
             return response.status_code == 200
         except Exception as e:
             logger.warning(f"Health check failed: {e}")
