@@ -677,7 +677,18 @@ class VideoGenerator:
                         continue
 
                     # Handle different timeline item types
-                    if image_path and Path(image_path).exists():
+                    clip_path = item.get("video_path")
+                    if clip_path and Path(clip_path).exists():
+                        # LTX motion clip for this section
+                        segment_path = temp_dir_path / f"segment_{i:03d}.mp4"
+                        self._create_clip_segment(
+                            clip_path, segment_path, duration_seconds, width, height, fps
+                        )
+                        video_segments.append(segment_path)
+                        logger.debug(
+                            f"   🎞️  Clip segment {i+1}/{len(timeline)} ({duration_seconds:.2f}s)"
+                        )
+                    elif image_path and Path(image_path).exists():
                         # Regular image segment
                         image_name = Path(image_path).name
                         logger.debug(
@@ -783,6 +794,37 @@ class VideoGenerator:
         except Exception as e:
             logger.error(f"Video creation from timeline failed: {e}")
             raise RuntimeError(f"Video creation from timeline failed: {e}")
+
+    def _create_clip_segment(
+        self,
+        clip_path: str,
+        output_path: Path,
+        duration: float,
+        width: int,
+        height: int,
+        fps: int,
+    ) -> None:
+        """Re-encode an LTX motion clip into a timeline segment matching images.
+
+        Scales/pads to WxH and normalizes fps/codec so it concats cleanly with the
+        still-image segments. The clip is already stretched to ~`duration`.
+        """
+        try:
+            cmd = [
+                "ffmpeg", "-y", "-i", clip_path,
+                "-t", str(duration),
+                "-vf",
+                f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+                f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black",
+                "-c:v", "libx264", "-preset", "ultrafast", "-crf", "23",
+                "-pix_fmt", "yuv420p", "-r", str(fps), "-an",
+                str(output_path),
+            ]
+            subprocess.run(cmd, capture_output=True, text=True, check=True)
+            logger.debug(f"Created clip segment: {output_path}")
+        except Exception as e:
+            logger.error(f"Failed to create clip segment {clip_path}: {e}")
+            raise RuntimeError(f"Failed to create clip segment: {e}")
 
     def _create_image_segment(
         self,

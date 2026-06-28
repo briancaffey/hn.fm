@@ -242,6 +242,10 @@ class SegmentImage(BaseModel):
         default=None,
         description="Ordered image-sequence frame paths (root + edits) for dynamic visuals",
     )
+    video_clip_path: Optional[str] = Field(
+        default=None,
+        description="Optional LTX-2 motion clip (stretched) used for this section",
+    )
     start_ms: Optional[int] = Field(
         default=None, description="Alignment start time in milliseconds"
     )

@@ -682,9 +682,27 @@ def build_timeline(
         )
 
         total = int(data["duration_ms"] or 0)
-        # Expand an image sequence (root + edits) across this section's slot so
-        # the visuals change in quick cadence. Falls back to a single image.
         si = get_segment_image(item_id, run, seg, index, redis_client=redis_client)
+
+        # If this section has an LTX motion clip, use it for the whole slot.
+        clip = getattr(si, "video_clip_path", None) if si else None
+        if clip and Path(clip).exists():
+            timeline.append(
+                {
+                    "index": data["index"],
+                    "image_path": data["image_path"],
+                    "video_path": clip,
+                    "start_ms": cumulative_start,
+                    "duration_ms": total,
+                    "text": data["text"],
+                    "type": "video",
+                }
+            )
+            cumulative_start += total
+            continue
+
+        # Otherwise expand an image sequence (root + edits) across the slot so
+        # the visuals change in quick cadence. Falls back to a single image.
         frames = [
             p for p in (getattr(si, "sequence_paths", None) or []) if p
         ] or [data["image_path"]]

@@ -1002,6 +1002,64 @@ def rebuild_single_image(
         raise
 
 
+def build_segment_motion_clips(item_id: int, run: int, seg: int) -> Dict[str, any]:
+    """Generate LTX-2 motion clips for the N longest sections (most screen time).
+
+    Each clip animates that section's root image and is stretched to the section's
+    spoken duration. Stored on SegmentImage.video_clip_path; the timeline then uses
+    the clip for that slot instead of a still/sequence. Non-fatal + gated on
+    VIDEO_ENABLED so it never blocks the pipeline.
+    """
+    if os.getenv("VIDEO_ENABLED", "false").lower() != "true":
+        return {"status": "skipped", "reason": "VIDEO_ENABLED!=true"}
+
+    from ..utils.segment_utils import (
+        get_segment,
+        get_segment_image,
+        save_segment_image,
+        list_section_numbers,
+        load_section_and_image,
+        img_dir,
+    )
+    from ..content.art_direction import format_dims
+    from ..video.ltx_service import make_motion_clip
+
+    redis_client = get_redis_client()
+    outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
+    n_clips = int(os.getenv("VIDEO_CLIPS_PER_SEGMENT", "2"))
+
+    segment = get_segment(item_id, run, seg, redis_client=redis_client)
+    if not segment:
+        return {"status": "error", "reason": "no segment"}
+    w, h = format_dims(getattr(segment, "aspect_format", None) or "16:9")
+
+    # Collect sections with a root image + their real (audio) durations.
+    rows = []
+    for idx in list_section_numbers(item_id, run, seg, redis_client=redis_client):
+        si = get_segment_image(item_id, run, seg, idx, redis_client=redis_client)
+        if not si or not si.image_path or not os.path.exists(si.image_path):
+            continue
+        data = load_section_and_image(item_id, run, seg, idx, redis_client=redis_client)
+        dur = (data.get("duration_ms") or 0) / 1000.0
+        rows.append((idx, si, dur))
+    if not rows:
+        return {"status": "skipped", "reason": "no images"}
+
+    chosen = sorted(rows, key=lambda r: r[2], reverse=True)[:n_clips]
+    made = 0
+    for j, (idx, si, dur) in enumerate(chosen):
+        target = max(2.0, dur if dur > 0 else 5.0)
+        clip_out = os.path.join(img_dir(outputs_root, item_id, run, seg, idx), "motion.mp4")
+        logger.info(f"🎞️ LTX motion clip: section {idx} -> {target:.1f}s")
+        if make_motion_clip(si.image_path, si.prompt, clip_out, target, w, h, idx=j):
+            si.video_clip_path = clip_out
+            save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
+            made += 1
+        else:
+            logger.warning(f"motion clip failed for section {idx} (non-fatal)")
+    return {"status": "ok", "clips": made}
+
+
 @celery_app.task(
     name="hnfm.web.tasks.full_pipeline", time_limit=10800, soft_time_limit=10800
 )
@@ -1079,6 +1137,13 @@ def full_pipeline(
         # Step 4: Build segment images (with continue_chain=False)
         images_result = build_segment_images(item_id, run, seg, continue_chain=False)
         logger.info(f"✅ Image building completed: {images_result}")
+
+        # Step 4b: LTX-2 motion clips for key sections (optional, non-fatal)
+        try:
+            clips_result = build_segment_motion_clips(item_id, run, seg)
+            logger.info(f"🎞️ Motion clips: {clips_result}")
+        except Exception as _ve:
+            logger.warning(f"motion clips skipped (non-fatal): {_ve}")
 
         logger.info(f"📝 Step 5/5: Generating video for segment {seg}")
         # Step 5: Generate segment video (with continue_chain=False)

@@ -53,6 +53,10 @@ x-common-env: &common-env
   # ACE-Step music
   ACESTEP_BASE_URL: ${ACESTEP_BASE_URL:-http://host.docker.internal:8015}
   MUSIC_ENABLED: ${MUSIC_ENABLED:-false}
+  # LTX-2 video clips
+  LTX_BASE_URL: ${LTX_BASE_URL:-http://host.docker.internal:8023}
+  VIDEO_ENABLED: ${VIDEO_ENABLED:-false}
+  VIDEO_CLIPS_PER_SEGMENT: ${VIDEO_CLIPS_PER_SEGMENT:-2}
   # TTS backend selection + Magpie voices
   TTS_BACKEND: ${TTS_BACKEND:-magpie}
   MAGPIE_S1_VOICE: ${MAGPIE_S1_VOICE:-Magpie-Multilingual.EN-US.Mia}
