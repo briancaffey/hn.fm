@@ -1,5 +1,10 @@
 @import "tailwindcss";
 
+/* Slightly smaller, denser UI text (was the 16px default). Tune to taste. */
+html {
+  font-size: 15px;
+}
+
 @layer base {
   :root {
     --background: 0 0% 98%;
