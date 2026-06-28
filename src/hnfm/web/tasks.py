@@ -1167,6 +1167,27 @@ def generate_segment_video(
         intro_audio_path = (
             Path(__file__).parent.parent / "video" / "media" / "intro.wav"
         )
+        # Themed intro music (optional, non-fatal). Kept to the 4s intro length
+        # so the subtitle offset stays aligned.
+        if os.getenv("MUSIC_ENABLED", "false").lower() == "true":
+            try:
+                from ..audio.music_service import generate_music_intro
+                from ..content.art_direction import get_theme
+
+                _theme = get_theme(segment.style_theme)
+                _mood = (_theme.mood if _theme else "") or "energetic modern"
+                _music_wav = os.path.join(
+                    video_dir(outputs_root, item_id, run, seg), "intro_music.wav"
+                )
+                if generate_music_intro(
+                    f"instrumental {_mood} electronic tech-news intro sting, "
+                    f"upbeat, punchy, no vocals, clean ending",
+                    _music_wav,
+                    seconds=4.0,
+                ):
+                    intro_audio_path = Path(_music_wav)
+            except Exception as _m:
+                logger.warning(f"intro music skipped (non-fatal): {_m}")
         combined_audio_path = segment.audio_combined_path
 
         # Create a temporary combined audio file with intro + segment audio + outro silence
