@@ -29,8 +29,11 @@ MOTION_DIRECTIVES = [
 # LTX native clip is capped short; the stretch fills the rest of the section.
 MAX_NATIVE_SECONDS = float(os.getenv("LTX_MAX_NATIVE_SECONDS", "4.0"))
 LTX_FPS = int(os.getenv("LTX_FPS", "24"))
-OUT_FPS = int(os.getenv("LTX_OUT_FPS", "30"))
+OUT_FPS = int(os.getenv("LTX_OUT_FPS", "24"))
 LTX_STEPS = int(os.getenv("LTX_STEPS", "20"))
+# Interpolation mode for the stretch: "blend" (fast, soft) or "mci"
+# (motion-compensated, smoother but very CPU-heavy on long stretches).
+INTERP_MODE = os.getenv("LTX_INTERP_MODE", "blend")
 
 
 def _base_url() -> str:
@@ -96,9 +99,12 @@ def stretch_clip(in_path: str, out_path: str, target_seconds: float, width: int,
         if dur <= 0:
             return False
         factor = max(1.0, target_seconds / dur)
+        if INTERP_MODE == "mci":
+            interp = f"minterpolate=fps={OUT_FPS}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir"
+        else:
+            interp = f"minterpolate=fps={OUT_FPS}:mi_mode=blend"
         vf = (
-            f"setpts={factor:.4f}*PTS,"
-            f"minterpolate=fps={OUT_FPS}:mi_mode=mci:mc_mode=aobmc:me_mode=bidir,"
+            f"setpts={factor:.4f}*PTS,{interp},"
             f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
             f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:black"
         )
