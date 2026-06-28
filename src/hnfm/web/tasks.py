@@ -781,7 +781,8 @@ def build_segment_images(
             # edits (count scales with spoken duration). Non-fatal per frame.
             sequence_paths = [out]
             if os.getenv("SEQ_ENABLED", "true").lower() == "true":
-                from ..content.art_direction import frames_for_duration, edit_directive
+                from ..content.art_direction import frames_for_duration
+                from ..content.sequence_planner import plan_sequence_edits
                 from ..utils.segment_utils import img_dir as _img_dir
 
                 dur_s = (duration_ms / 1000.0) if duration_ms else (len(text.split()) / 2.5)
@@ -793,6 +794,12 @@ def build_segment_images(
                         svc = ImageServiceFactory.create_image_service()
                     except Exception:
                         svc = None
+                    # Plan content-evolving edits by LOOKING at the root frame
+                    # (Nemotron vision) — unique per section, not a fixed cycle.
+                    edit_prompts = plan_sequence_edits(
+                        out, text, (theme.name if theme else ""),
+                        n_frames - 1, seed=item_id * 131 + i * 977,
+                    )
                     prev = out
                     for k in range(2, n_frames + 1):
                         if not svc or not hasattr(svc, "generate_and_save_edit"):
@@ -800,9 +807,15 @@ def build_segment_images(
                         try:
                             fdir = _img_dir(outputs_root, item_id, run, seg, i)
                             fname = f"frame_{k}.png"
+                            directive = edit_prompts[k - 2] if (k - 2) < len(edit_prompts) else ""
+                            # Reinforce continuity + theme; the directive carries
+                            # the (content) change to make this frame.
+                            edit_prompt = (
+                                f"{directive}. Keep the same scene, characters and "
+                                f"{(theme.name if theme else '')} style; coherent, high quality."
+                            )
                             svc.generate_and_save_edit(
-                                edit_directive(k - 1, theme), prev, fdir, fname,
-                                width=_w, height=_h,
+                                edit_prompt, prev, fdir, fname, width=_w, height=_h,
                             )
                             fp = os.path.join(fdir, fname)
                             sequence_paths.append(fp)
@@ -811,7 +824,8 @@ def build_segment_images(
                             logger.warning(f"seq frame {k}/{n_frames} sec {i} failed: {se}")
                             break
                     logger.info(
-                        f"🖼️  Section {i}: image sequence of {len(sequence_paths)} frames"
+                        f"🖼️  Section {i}: image sequence of {len(sequence_paths)} frames "
+                        f"(vision-planned)"
                     )
 
             # Create SegmentImage
