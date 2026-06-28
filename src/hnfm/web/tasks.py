@@ -1002,6 +1002,44 @@ def rebuild_single_image(
         raise
 
 
+def ingest_source_images(item_id: int, run: int) -> Dict[str, any]:
+    """Pull, rank, describe and store the best real images from the article.
+
+    Stored under redis key `hnfm:item:{id}:run:{run}:source_images` + a JSON on
+    disk. Gated on SOURCE_IMAGES_ENABLED; always non-fatal.
+    """
+    if os.getenv("SOURCE_IMAGES_ENABLED", "false").lower() != "true":
+        return {"status": "skipped", "reason": "SOURCE_IMAGES_ENABLED!=true"}
+
+    import json as _json
+    from ..scraper.source_images import ingest
+    from ..utils.run_utils import get_run
+
+    redis_client = get_redis_client()
+    outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
+    pr = get_run(item_id, run, redis_client=redis_client)
+    if not pr or not getattr(pr, "source_url", None):
+        return {"status": "skipped", "reason": "no run/url"}
+
+    out_dir = os.path.join(
+        outputs_root, "hn", "item", str(item_id), "runs", str(run), "source_images"
+    )
+    results = ingest(
+        pr.source_url, pr.summary or "", out_dir,
+        top_n=int(os.getenv("SOURCE_IMAGES_TOP_N", "4")),
+    )
+    redis_client.set(
+        f"hnfm:item:{item_id}:run:{run}:source_images", _json.dumps(results)
+    )
+    try:
+        os.makedirs(out_dir, exist_ok=True)
+        with open(os.path.join(out_dir, "source_images.json"), "w") as f:
+            f.write(_json.dumps(results, indent=2))
+    except Exception:
+        pass
+    return {"status": "ok", "count": len(results)}
+
+
 def build_segment_motion_clips(item_id: int, run: int, seg: int) -> Dict[str, any]:
     """Generate LTX-2 motion clips for the N longest sections (most screen time).
 
@@ -1103,6 +1141,13 @@ def full_pipeline(
         # Step 1: Process HN item run (with continue_chain=False)
         run_result = process_hn_item_run(item_id, run, continue_chain=False)
         logger.info(f"✅ Run processing completed: {run_result}")
+
+        # Step 1b: ingest real source images from the article (optional, non-fatal)
+        try:
+            src_img_result = ingest_source_images(item_id, run)
+            logger.info(f"📸 Source images: {src_img_result}")
+        except Exception as _se:
+            logger.warning(f"source images skipped (non-fatal): {_se}")
 
         # Get next segment ID
         from ..utils.segment_utils import next_seg_id

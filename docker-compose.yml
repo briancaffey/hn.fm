@@ -75,6 +75,9 @@ x-common-env: &common-env
   LLM_PROVIDER: ${LLM_PROVIDER:-local}
   # Firecrawl Configuration
   FIRECRAWL_BASE_URL: ${FIRECRAWL_BASE_URL:-http://localhost:3002}
+  # Source images (real images from the scraped article)
+  SOURCE_IMAGES_ENABLED: ${SOURCE_IMAGES_ENABLED:-false}
+  SOURCE_IMAGES_TOP_N: ${SOURCE_IMAGES_TOP_N:-4}
   # Hacker News Configuration
   HN_USER_AGENT: ${HN_USER_AGENT:-hn.fm/0.1.0 (briancaffey)}
   # Content Configuration
