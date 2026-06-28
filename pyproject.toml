@@ -38,6 +38,7 @@ dependencies = [
     "soundfile>=0.12.0",
     "scipy>=1.11.0",
     "numpy>=1.24.0",
+    "pysubs2>=1.7.0",
     # LLM and Agent Dependencies
     "langchain>=0.2.0",
     "langchain-openai>=0.1.0",

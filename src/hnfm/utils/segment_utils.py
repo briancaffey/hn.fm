@@ -740,106 +740,72 @@ def write_vtt_from_timeline(timeline: List[dict], out_path: str) -> None:
 
 
 def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
-    """
-    Create ASS subtitles from ASR data with word-level timing and speaker colors.
-    Adds 4-second offset to account for intro sequence and ensures subtitles
-    don't extend into outro period.
+    """Animated karaoke captions (ASS) from ASR word timings, via pysubs2.
 
-    Args:
-        asr_data: ASR data with segments containing words with timestamps and speakers
-        out_path: Output ASS file path
+    Each caption line highlights word-by-word as it is spoken (smooth ``\\kf``
+    fill synced to the actual word times). Times are offset by the 4s intro.
+    Falls back to a flat single line if only flat words are present.
     """
+    import pysubs2
     from pathlib import Path
-    import tempfile
 
-    # 4-second offset for intro sequence
     INTRO_OFFSET = 4.0
-
-    # 4-second outro period (silence)
-    OUTRO_DURATION = 4.0
-
-    # Calculate the maximum subtitle time based on ASR data
-    # Find the latest end time in the ASR data
-    max_end_time = 0
-    segments = asr_data.get("segments", [])
-    for segment in segments:
-        words = segment.get("words", [])
-        for word_data in words:
-            end_time = word_data.get("end", 0)
-            if end_time > max_end_time:
-                max_end_time = end_time
-
-    # Maximum subtitle time is the latest ASR time + intro offset
-    # Subtitles should end when the main content ends (before outro silence)
-    max_subtitle_time = max_end_time + INTRO_OFFSET
-
-    # Ensure output directory exists
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
 
-    with open(out_path, "w", encoding="utf-8") as f:
-        # Write ASS header
-        f.write("[Script Info]\n")
-        f.write("Title: Generated Subtitles\n")
-        f.write("ScriptType: v4.00+\n")
-        f.write("WrapStyle: 1\n")
-        f.write("ScaledBorderAndShadow: yes\n")
-        f.write("YCbCr Matrix: TV.601\n\n")
+    segments = asr_data.get("segments") or []
+    if not segments and asr_data.get("words"):
+        segments = [{"words": asr_data["words"]}]
 
-        # Write styles section
-        f.write("[V4+ Styles]\n")
-        f.write(
-            "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding\n"
+    subs = pysubs2.SSAFile()
+    subs.info["Title"] = "hn.fm captions"
+    subs.info["PlayResX"] = "1024"
+    subs.info["PlayResY"] = "1024"
+    subs.info["ScaledBorderAndShadow"] = "yes"
+
+    style = pysubs2.SSAStyle()
+    style.fontname = "DejaVu Sans"
+    style.fontsize = 52
+    style.bold = True
+    style.primarycolor = pysubs2.Color(80, 230, 255)      # active word = cyan
+    style.secondarycolor = pysubs2.Color(255, 255, 255)   # upcoming = white
+    style.outlinecolor = pysubs2.Color(0, 0, 0)
+    style.backcolor = pysubs2.Color(0, 0, 0, 160)
+    style.outline = 3.5
+    style.shadow = 1.5
+    style.alignment = pysubs2.Alignment.BOTTOM_CENTER
+    style.marginl = 80
+    style.marginr = 80
+    style.marginv = 90
+    subs.styles["Caption"] = style
+
+    for seg in segments:
+        words = [w for w in (seg.get("words") or []) if (w.get("word") or "").strip()]
+        if not words:
+            continue
+        seg_start = float(words[0].get("start", 0)) + INTRO_OFFSET
+        seg_end = float(words[-1].get("end", 0)) + INTRO_OFFSET
+        if seg_end <= seg_start:
+            seg_end = seg_start + 0.6
+
+        parts = []
+        for i, w in enumerate(words):
+            w_start = float(w.get("start", 0))
+            nxt = float(words[i + 1].get("start", 0)) if i + 1 < len(words) else float(w.get("end", w_start))
+            dur_cs = max(1, round((nxt - w_start) * 100))
+            token = (w.get("word") or "").strip().replace("{", "(").replace("}", ")")
+            parts.append("{\\kf%d}%s " % (dur_cs, token))
+
+        text = "{\\fad(120,80)}" + "".join(parts).strip()
+        subs.append(
+            pysubs2.SSAEvent(
+                start=int(seg_start * 1000),
+                end=int(seg_end * 1000),
+                style="Caption",
+                text=text,
+            )
         )
-        # Speaker00: White text with orange border
-        f.write(
-            "Style: Speaker00,DejaVu Sans,36,&H00FFFFFF,&H000000FF,&H00008CFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n"
-        )
-        # Speaker01: Orange text with white border
-        f.write(
-            "Style: Speaker01,DejaVu Sans,36,&H00008CFF,&H000000FF,&H00FFFFFF,&H80000000,1,0,0,0,100,100,0,0,1,2,2,2,10,10,10,1\n\n"
-        )
 
-        # Write events section
-        f.write("[Events]\n")
-        f.write(
-            "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text\n"
-        )
-
-        segments = asr_data.get("segments", [])
-
-        for segment in segments:
-            words = segment.get("words", [])
-
-            for word_data in words:
-                word = word_data.get("word", "").strip()
-                start_time = word_data.get("start", 0)
-                end_time = word_data.get("end", 0)
-                speaker = word_data.get("speaker", "SPEAKER_00")
-
-                if not word or start_time >= end_time:
-                    continue
-
-                # Add intro offset to timing
-                adjusted_start = start_time + INTRO_OFFSET
-                adjusted_end = end_time + INTRO_OFFSET
-
-                # Ensure subtitles don't extend beyond the main content (before outro)
-                if adjusted_start >= max_subtitle_time:
-                    continue
-
-                # Cap the end time to the maximum subtitle time
-                if adjusted_end > max_subtitle_time:
-                    adjusted_end = max_subtitle_time
-
-                # Convert times to ASS format (H:MM:SS.cc)
-                start_ass = _seconds_to_ass_time(adjusted_start)
-                end_ass = _seconds_to_ass_time(adjusted_end)
-
-                # Determine style based on speaker
-                style = "Speaker01" if speaker == "SPEAKER_01" else "Speaker00"
-
-                # Write subtitle entry
-                f.write(f"Dialogue: 0,{start_ass},{end_ass},{style},,0,0,0,,{word}\n")
+    subs.save(out_path)
 
 
 def _seconds_to_ass_time(seconds: float) -> str:

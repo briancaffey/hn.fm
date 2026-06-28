@@ -441,15 +441,34 @@ def build_segment_audio(
                     asr_path = asr_json_path(outputs_dir, item_id, run, seg)
                     write_json(asr_path, asr_result)
 
-                    # Update Segment with ASR path
+                    # QA: compare what was narrated to the script (a receipt)
+                    qa = None
                     seg_obj = get_segment(item_id, run, seg, redis_client=redis_client)
                     if seg_obj:
+                        try:
+                            from ..audio.asr_service import asr_qa_report
+
+                            qa = asr_qa_report(
+                                asr_result.get("text", ""), seg_obj.script or ""
+                            )
+                            write_json(
+                                asr_path.replace("asr.json", "asr_qa.json"), qa
+                            )
+                            logger.info(
+                                f"🔎 ASR QA: {qa['verdict']} (ratio={qa['ratio']}, "
+                                f"{qa['heard_words']}/{qa['script_words']} words)"
+                            )
+                        except Exception as qa_err:
+                            logger.warning(f"ASR QA failed: {qa_err}")
                         seg_obj.asr_json_path = asr_path
+                        seg_obj.asr_qa = qa
                         save_segment(
                             seg_obj, redis_client=redis_client, outputs_root=outputs_dir
                         )
 
                     result_dict["asr"] = "ok"
+                    if qa:
+                        result_dict["asr_qa"] = f"{qa['verdict']} {qa['ratio']}"
                     logger.info(
                         f"ASR processing completed for segment {item_id}:{run}:{seg}"
                     )
@@ -570,15 +589,34 @@ def build_segment_audio(
                     asr_path = asr_json_path(outputs_dir, item_id, run, seg)
                     write_json(asr_path, asr_result)
 
-                    # Update Segment with ASR path
+                    # QA: compare what was narrated to the script (a receipt)
+                    qa = None
                     seg_obj = get_segment(item_id, run, seg, redis_client=redis_client)
                     if seg_obj:
+                        try:
+                            from ..audio.asr_service import asr_qa_report
+
+                            qa = asr_qa_report(
+                                asr_result.get("text", ""), seg_obj.script or ""
+                            )
+                            write_json(
+                                asr_path.replace("asr.json", "asr_qa.json"), qa
+                            )
+                            logger.info(
+                                f"🔎 ASR QA: {qa['verdict']} (ratio={qa['ratio']}, "
+                                f"{qa['heard_words']}/{qa['script_words']} words)"
+                            )
+                        except Exception as qa_err:
+                            logger.warning(f"ASR QA failed: {qa_err}")
                         seg_obj.asr_json_path = asr_path
+                        seg_obj.asr_qa = qa
                         save_segment(
                             seg_obj, redis_client=redis_client, outputs_root=outputs_dir
                         )
 
                     result_dict["asr"] = "ok"
+                    if qa:
+                        result_dict["asr_qa"] = f"{qa['verdict']} {qa['ratio']}"
                     logger.info(
                         f"ASR processing completed for segment {item_id}:{run}:{seg}"
                     )

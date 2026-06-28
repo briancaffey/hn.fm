@@ -155,6 +155,11 @@ class Segment(BaseModel):
         default=None, description="Human-readable theme name for this take"
     )
 
+    # ASR quality check (transcript-vs-script) receipt
+    asr_qa: Optional[dict] = Field(
+        default=None, description="ASR QA report: ratio/verdict/mismatches"
+    )
+
     # Audio fields
     sections_total: int = Field(default=0, description="Total number of audio sections")
     audio_combined_path: Optional[str] = Field(

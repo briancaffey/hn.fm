@@ -11,6 +11,95 @@ from ..utils.config import config_manager
 logger = logging.getLogger(__name__)
 
 
+def _normalize_asr(raw: dict) -> dict:
+    """Normalize OpenAI/Nemotron transcription output to the shape the rest of
+    the pipeline expects: a flat `words` list plus caption-sized `segments`
+    (each with its own words). Grouping breaks on sentence punctuation, a word
+    cap, or a time gap so subtitle lines are readable.
+    """
+    words = []
+    for w in raw.get("words", []) or []:
+        word = (w.get("word") or w.get("text") or "").strip()
+        if not word:
+            continue
+        words.append(
+            {"word": word, "start": float(w.get("start", 0)), "end": float(w.get("end", 0))}
+        )
+
+    segments = []
+    cur = []
+    MAX_WORDS = 7
+    MAX_DUR = 3.2
+    for w in words:
+        if cur:
+            span = w["end"] - cur[0]["start"]
+            gap = w["start"] - cur[-1]["end"]
+            if len(cur) >= MAX_WORDS or span > MAX_DUR or gap > 0.7:
+                segments.append(_seg_from_words(cur))
+                cur = []
+        cur.append(w)
+        if cur[-1]["word"].endswith((".", "!", "?")) and len(cur) >= 3:
+            segments.append(_seg_from_words(cur))
+            cur = []
+    if cur:
+        segments.append(_seg_from_words(cur))
+
+    return {
+        "text": raw.get("text", " ".join(w["word"] for w in words)),
+        "language": raw.get("language", "en"),
+        "duration": raw.get("duration", words[-1]["end"] if words else 0),
+        "words": words,
+        "segments": segments,
+    }
+
+
+def _seg_from_words(ws: list) -> dict:
+    return {
+        "start": ws[0]["start"],
+        "end": ws[-1]["end"],
+        "text": " ".join(w["word"] for w in ws),
+        "words": list(ws),
+    }
+
+
+def asr_qa_report(transcript: str, script: str) -> dict:
+    """Compare what was actually narrated (ASR transcript) to the script text.
+
+    A low-effort quality gate: high ratio = the TTS faithfully spoke the script;
+    drift can mean dropped lines, mispronunciations, or TTS artifacts worth
+    fixing. Returns a small report suitable as a UI receipt.
+    """
+    import re
+    import difflib
+
+    def norm(t: str):
+        t = re.sub(r"\[S[12]\]", " ", t or "")
+        t = re.sub(r"[^a-z0-9' ]", " ", t.lower())
+        return t.split()
+
+    a, b = norm(script), norm(transcript)
+    sm = difflib.SequenceMatcher(None, a, b)
+    ratio = round(sm.ratio(), 3)
+    verdict = "good" if ratio >= 0.9 else ("ok" if ratio >= 0.75 else "drift")
+    mismatches = []
+    for tag, i1, i2, j1, j2 in sm.get_opcodes():
+        if tag != "equal" and len(mismatches) < 10:
+            mismatches.append(
+                {
+                    "op": tag,
+                    "script": " ".join(a[i1:i2])[:80],
+                    "heard": " ".join(b[j1:j2])[:80],
+                }
+            )
+    return {
+        "ratio": ratio,
+        "verdict": verdict,
+        "script_words": len(a),
+        "heard_words": len(b),
+        "mismatches": mismatches,
+    }
+
+
 class ASRService:
     """Service for processing audio through WhisperX ASR."""
 
@@ -68,7 +157,7 @@ class ASRService:
             True if service is healthy, False otherwise
         """
         try:
-            response = requests.get(f"{self.base_url}/health", timeout=10)
+            response = requests.get(f"{self.base_url}/healthz", timeout=10)
             return response.status_code == 200
         except Exception as e:
             logger.debug(f"Health check failed: {e}")
@@ -84,7 +173,7 @@ class ASRService:
             requests.exceptions.RequestException: If health check fails
         """
         try:
-            response = requests.get(f"{self.base_url}/health", timeout=10)
+            response = requests.get(f"{self.base_url}/healthz", timeout=10)
             response.raise_for_status()
             return response.json()
         except Exception as e:
@@ -200,42 +289,32 @@ class ASRService:
             try:
                 logger.debug(f"🎙️ Starting ASR processing in worker thread...")
 
-                # Prepare the request
-                files = {"audio_file": open(audio_file_path, "rb")}
+                # Nemotron-ASR speaks the OpenAI transcription API with
+                # word-level timestamps (verbose_json).
+                files = {"file": open(audio_file_path, "rb")}
                 data = {
-                    "model_size": model_size,
+                    "model": os.getenv("ASR_MODEL", "nemotron"),
+                    "response_format": "verbose_json",
+                    "timestamp_granularities[]": "word",
                 }
 
-                # Add HF token if available
-                if self.hf_token:
-                    data["hf_token"] = self.hf_token
-
-                # Add speaker constraints if specified
-                if min_speakers is not None:
-                    data["min_speakers"] = min_speakers
-                if max_speakers is not None:
-                    data["max_speakers"] = max_speakers
-
                 try:
-                    # Make the request
                     response = requests.post(
-                        f"{self.base_url}/process-audio",
+                        f"{self.base_url}/v1/audio/transcriptions",
                         files=files,
                         data=data,
                         timeout=self.timeout_seconds,
                     )
-
                     response.raise_for_status()
-                    results = response.json()
+                    results = _normalize_asr(response.json())
                     result_queue.put(results)
                     logger.debug(f"🎙️ ASR worker thread completed successfully")
 
                 except Exception as e:
                     exception_queue.put(e)
                 finally:
-                    # Always close the file
-                    if "audio_file" in files and hasattr(files["audio_file"], "close"):
-                        files["audio_file"].close()
+                    if "file" in files and hasattr(files["file"], "close"):
+                        files["file"].close()
 
             except Exception as e:
                 logger.error(f"🎙️ ASR worker thread failed: {e}")
