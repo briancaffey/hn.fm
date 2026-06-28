@@ -1116,8 +1116,9 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
     from ..utils.segment_utils import (
         get_segment, get_segment_image, save_segment_image,
         list_section_numbers, load_section_and_image, img_dir,
-        split_script_into_sections,
     )
+    from ..audio.audio_utils import split_script_into_sections
+    from ..utils.run_utils import get_run
     from ..content.art_direction import format_dims
     from ..content.meta_sequencer import plan_segment
     from ..video.ltx_service import make_motion_clip, clip_target_seconds

@@ -170,10 +170,30 @@ def _critic_revise(plan, sections, summary):
     return plan
 
 
+def _fallback_plan(sections):
+    """Deterministic plan when the LLM is unavailable — never all-static.
+
+    Add one LTX 'video' on the wordiest section (most to animate) so a failed
+    plan still has variety. Hyperframes need LLM-authored content, so we skip
+    them here rather than invent text.
+    """
+    n = len(sections)
+    if n == 0:
+        return []
+    longest = max(range(n), key=lambda i: len(sections[i].split()))
+    plan = [{"index": i + 1, "template": "image_sequence", "why": "fallback"} for i in range(n)]
+    if n >= 2:
+        plan[longest]["template"] = "video"
+    logger.warning(f"meta plan: LLM unavailable → deterministic fallback (video on §{longest+1})")
+    return plan
+
+
 def plan_segment(sections, summary, theme_name, source_images=None,
                  max_video=2, max_hyper=2):
     """Full plan: LLM → guardrails → critic → guardrails again (critic-safe)."""
-    raw = _llm_plan(sections, summary, theme_name, source_images) or []
+    raw = _llm_plan(sections, summary, theme_name, source_images)
+    if not raw:
+        return _apply_guardrails(_fallback_plan(sections), len(sections), max_video, max_hyper)
     plan = _apply_guardrails(raw, len(sections), max_video, max_hyper)
     plan = _critic_revise(plan, sections, summary)
     plan = _apply_guardrails(plan, len(sections), max_video, max_hyper)
