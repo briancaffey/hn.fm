@@ -427,60 +427,54 @@ def alignment_from_sections(
         return None
 
 
-def generate_image_prompt_v1(line_text: str, run_summary: str) -> str:
-    """
-    Call image_prompt_generator.py / LLM endpoint.
-    System message (exact):
-      "You are an expert visual prompt writer for generative images.
-       Reasoning: high. Think carefully and pick concrete nouns, vivid setting,
-       era/lighting/camera, and a single clear subject that best illustrates the text."
-    User content template:
-      "Context summary:\n{run_summary}\n\nLine to illustrate:\n{line_text}\n\n
-       Write ONE image prompt (no preamble). Use: subject, setting, key props,
-       mood, era/time of day, composition, camera/lens, lighting."
-    Return plain string. Raise on error/empty.
+def generate_image_prompt_v1(line_text: str, run_summary: str, theme=None, shot_hint: str = "") -> str:
+    """Write a vivid SCENE for one line, then apply the take's visual THEME.
+
+    The LLM invents the scene (subject/action/composition/shot) but does NOT pick
+    an art style — the theme's style block is appended deterministically so every
+    shot in a take is stylistically cohesive while scenes stay varied. `theme` is
+    an `art_direction.Theme` (or None for a neutral look). Returns a plain string.
     """
     try:
         from ..content.llm_service import LLMService
+        from ..content.art_direction import compose_prompt
         from ..utils.config import config_manager
 
-        # Get LLM configuration
         llm_config = config_manager.get("llm", {})
-
-        # Initialize LLM service
         if llm_config.get("enabled", False):
-            base_url = llm_config.get("base_url")
-            model = llm_config.get("model", "gpt-oss")
-            llm_service = LLMService(base_url=base_url, model=model)
+            llm_service = LLMService(
+                base_url=llm_config.get("base_url"),
+                model=llm_config.get("model", "gpt-oss"),
+            )
         else:
             llm_service = LLMService()
 
-        system_prompt = """You are an expert visual prompt writer for generative images.
-Reasoning: high. Think carefully and pick concrete nouns, vivid setting,
-era/lighting/camera, and a single clear subject that best illustrates the text."""
+        system_prompt = (
+            "You are a cinematic art director writing ONE image prompt to illustrate a "
+            "line of a tech podcast. Invent a striking, SPECIFIC scene: a clear subject "
+            "doing something, a concrete setting, evocative props, and a deliberate shot "
+            "(vary it — wide establishing, macro detail, overhead, dramatic portrait, "
+            "over-the-shoulder, conceptual metaphor). Be visually surprising and avoid "
+            "clichés (no generic 'person looking at a laptop/phone' unless truly apt). "
+            "Describe ONLY the scene and composition — do NOT mention art style, medium, "
+            "or rendering (that is added separately). 1-2 sentences, no preamble, no quotes."
+        )
+        user_prompt = (
+            f"Episode context:\n{run_summary}\n\n"
+            f"Line to illustrate:\n{line_text}\n\n"
+            f"{('Shot direction: ' + shot_hint + chr(10)) if shot_hint else ''}"
+            f"Write the scene now."
+        )
 
-        user_prompt = f"""Context summary:
-{run_summary}
-
-Line to illustrate:
-{line_text}
-
-Write ONE image prompt (no preamble). Use: subject, setting, key props,
-mood, era/time of day, composition, camera/lens, lighting."""
-
-        # Generate the prompt using LLM
-        combined_prompt = f"{system_prompt}\n\n{user_prompt}"
-        response = llm_service.generate_content(combined_prompt)
-
+        response = llm_service.generate_content(f"{system_prompt}\n\n{user_prompt}")
         if not response:
             raise RuntimeError("LLM returned empty response")
 
-        # Clean up the response
-        prompt = response.strip()
-        if prompt.startswith('"') and prompt.endswith('"'):
-            prompt = prompt[1:-1]
+        scene = response.strip()
+        if scene.startswith('"') and scene.endswith('"'):
+            scene = scene[1:-1]
 
-        return prompt
+        return compose_prompt(scene, theme)
 
     except Exception as e:
         raise RuntimeError(f"Failed to generate image prompt: {e}")

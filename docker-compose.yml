@@ -49,6 +49,10 @@ x-common-env: &common-env
   ASR_MODEL_SIZE: ${ASR_MODEL_SIZE:-large-v2}
   ASR_TIMEOUT_SECONDS: ${ASR_TIMEOUT_SECONDS:-300}
   ASR_MAX_ATTEMPTS: ${ASR_MAX_ATTEMPTS:-1}
+  ASR_ENABLED: ${ASR_ENABLED:-true}
+  # ACE-Step music
+  ACESTEP_BASE_URL: ${ACESTEP_BASE_URL:-http://host.docker.internal:8015}
+  MUSIC_ENABLED: ${MUSIC_ENABLED:-false}
   # TTS backend selection + Magpie voices
   TTS_BACKEND: ${TTS_BACKEND:-magpie}
   MAGPIE_S1_VOICE: ${MAGPIE_S1_VOICE:-Magpie-Multilingual.EN-US.Mia}

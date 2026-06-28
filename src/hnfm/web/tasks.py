@@ -684,12 +684,39 @@ def build_segment_images(
         run_summary = processed_run.summary
         logger.info(f"Using run summary: {run_summary[:100]}...")
 
+        # Art direction: pick a cohesive visual theme for this take. Stable per
+        # take, varied across takes; honor a pre-set theme (multi-take override).
+        from ..content.art_direction import get_theme, pick_theme
+
+        theme = get_theme(segment.style_theme) or pick_theme(
+            seed=item_id + run * 131 + seg * 977
+        )
+        segment.style_theme = theme.key
+        segment.style_theme_name = theme.name
+        redis_client.set(segment.key, segment.model_dump_json())
+        logger.info(f"🎨 Take theme: {theme.name} ({theme.key})")
+
+        # Cycle shot types so compositions vary within the take.
+        SHOTS = [
+            "wide establishing shot",
+            "extreme macro detail",
+            "high overhead / top-down view",
+            "dramatic low-angle hero shot",
+            "over-the-shoulder perspective",
+            "symbolic conceptual metaphor",
+            "intimate close-up",
+            "dynamic dutch-angle composition",
+        ]
+
         # 5) Loop through sections and generate images
         for i, text in enumerate(sections, start=1):
             logger.info(f"Processing section {i}/{len(sections)}: {text[:50]}...")
 
-            # Generate prompt
-            prompt = generate_image_prompt_v1(text, run_summary)
+            # Generate prompt (varied scene + the take's theme)
+            shot_hint = SHOTS[(i - 1) % len(SHOTS)]
+            prompt = generate_image_prompt_v1(
+                text, run_summary, theme=theme, shot_hint=shot_hint
+            )
             logger.info(f"Generated prompt: {prompt[:100]}...")
 
             # Generate image

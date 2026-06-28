@@ -1,429 +1,108 @@
-"""System health checker for hn.fm pipeline."""
+"""System health checker for hn.fm — driven by the dynamic service registry.
 
-import requests
-import logging
+Reads `service_registry.get_service_specs()` (env-driven) so the Services page
+always reflects what's actually wired, and updates between runs when you change
+env vars. Disabled services report "disabled" (not a red error); optional
+services that are offline don't fail the overall health.
+"""
+
+import os
 import time
+import logging
+import requests
 from typing import Dict, List, Tuple
 from dataclasses import dataclass
-from pathlib import Path
+
+from .service_registry import get_service_specs, ServiceSpec
 
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class ServiceStatus:
-    """Represents the status of a service."""
-
     name: str
     url: str
-    status: str  # "online", "offline", "error"
+    status: str  # "online" | "offline" | "disabled" | "error"
     response_time: float
     error_message: str = None
     details: Dict = None
 
 
 class SystemChecker:
-    """Checks the health of all required services."""
+    """Checks the health of every service in the registry."""
 
     def __init__(self):
-        """Initialize the system checker."""
-        self.timeout = 10  # seconds
+        self.timeout = 8
 
     def check_all_services(self) -> Tuple[bool, List[ServiceStatus]]:
-        """Check all required services.
-
-        Returns:
-            Tuple of (all_healthy, list_of_service_statuses)
-        """
-        services = [
-            ("Local LLM", self._check_local_llm),
-            ("Firecrawl", self._check_firecrawl),
-            ("DIA TTS API", self._check_gradio_tts),
-            ("Studio Voice", self._check_studio_voice),
-            ("ASR Service", self._check_asr_service),
-            ("Image Generation", self._check_image_generation),
-        ]
-
-        results = []
+        results: List[ServiceStatus] = []
         all_healthy = True
-
-        for service_name, check_func in services:
-            try:
-                status = check_func()
-                results.append(status)
-                if status.status != "online":
-                    all_healthy = False
-            except Exception as e:
-                logger.error(f"Error checking {service_name}: {e}")
-                status = ServiceStatus(
-                    name=service_name,
-                    url="unknown",
-                    status="error",
-                    response_time=0.0,
-                    error_message=str(e),
-                )
-                results.append(status)
+        for spec in get_service_specs():
+            status = self._check(spec)
+            results.append(status)
+            # Only required services that aren't online break overall health.
+            if status.status not in ("online", "disabled") and not spec.optional:
                 all_healthy = False
-
         return all_healthy, results
 
-    def _check_local_llm(self) -> ServiceStatus:
-        """Check local LLM service."""
-        from ..utils.config import config_manager
+    def _check(self, spec: ServiceSpec) -> ServiceStatus:
+        details = {"role": spec.role}
+        if spec.note:
+            details["note"] = spec.note
 
-        base_url = config_manager.get("llm.base_url")
-        if not base_url:
+        if not spec.enabled:
             return ServiceStatus(
-                name="Local LLM",
+                name=spec.name,
+                url=spec.base_url or "—",
+                status="disabled",
+                response_time=0.0,
+                details=details,
+            )
+
+        if not spec.base_url:
+            return ServiceStatus(
+                name=spec.name,
                 url="not configured",
                 status="offline",
                 response_time=0.0,
-                error_message="LLM base URL not configured",
+                error_message="base URL not configured",
+                details=details,
             )
+
+        url = spec.base_url + spec.health_path
+        headers = {}
+        if spec.auth_env and os.getenv(spec.auth_env):
+            headers["Authorization"] = f"Bearer {os.getenv(spec.auth_env)}"
 
         try:
-            start_time = time.time()
-            # Handle both cases: base_url with or without /v1
-            if base_url.endswith("/v1"):
-                models_url = f"{base_url}/models"
-            else:
-                models_url = f"{base_url}/v1/models"
-
-            response = requests.get(models_url, timeout=self.timeout)
-            response_time = time.time() - start_time
-
-            if response.status_code == 200:
-                models = response.json().get("data", [])
-                model_names = [model.get("id", "unknown") for model in models]
-                return ServiceStatus(
-                    name="Local LLM",
-                    url=base_url,
-                    status="online",
-                    response_time=response_time,
-                    details={"models": model_names},
-                )
-            else:
-                return ServiceStatus(
-                    name="Local LLM",
-                    url=base_url,
-                    status="offline",
-                    response_time=response_time,
-                    error_message=f"HTTP {response.status_code}",
-                )
-
-        except requests.exceptions.RequestException as e:
+            t0 = time.time()
+            r = requests.get(url, headers=headers, timeout=self.timeout)
+            dt = round(time.time() - t0, 3)
+            ok = r.status_code == 200
+            if ok and spec.expect_json_key:
+                try:
+                    body = r.json()
+                    ok = spec.expect_json_key in body
+                    if ok and spec.expect_json_key == "data":
+                        details["models"] = [
+                            m.get("id") for m in body.get("data", [])
+                        ][:6]
+                except Exception:
+                    ok = False
             return ServiceStatus(
-                name="Local LLM",
-                url=base_url,
-                status="offline",
-                response_time=0.0,
-                error_message=str(e),
-            )
-
-    def _check_firecrawl(self) -> ServiceStatus:
-        """Check Firecrawl service."""
-        from ..utils.config import config_manager
-
-        base_url = config_manager.get("apis.firecrawl.base_url")
-        if not base_url:
-            return ServiceStatus(
-                name="Firecrawl",
-                url="not configured",
-                status="offline",
-                response_time=0.0,
-                error_message="Firecrawl base URL not configured",
-            )
-
-        try:
-            start_time = time.time()
-            # Try a simple GET request to the root endpoint
-            response = requests.get(base_url, timeout=self.timeout)
-            response_time = time.time() - start_time
-
-            if response.status_code == 200:
-                return ServiceStatus(
-                    name="Firecrawl",
-                    url=base_url,
-                    status="online",
-                    response_time=response_time,
-                    details={
-                        "response": (
-                            response.text[:100] + "..."
-                            if len(response.text) > 100
-                            else response.text
-                        )
-                    },
-                )
-            else:
-                return ServiceStatus(
-                    name="Firecrawl",
-                    url=base_url,
-                    status="offline",
-                    response_time=response_time,
-                    error_message=f"HTTP {response.status_code}",
-                )
-
-        except requests.exceptions.RequestException as e:
-            return ServiceStatus(
-                name="Firecrawl",
-                url=base_url,
-                status="offline",
-                response_time=0.0,
-                error_message=str(e),
-            )
-
-    def _check_gradio_tts(self) -> ServiceStatus:
-        """Check DIA TTS API service."""
-        from ..utils.config import config_manager
-
-        base_url = config_manager.get("tts.base_url")
-        if not base_url:
-            return ServiceStatus(
-                name="DIA TTS API",
-                url="not configured",
-                status="offline",
-                response_time=0.0,
-                error_message="TTS base URL not configured",
-            )
-
-        try:
-            start_time = time.time()
-            # Try to access the DIA API health endpoint
-            health_url = f"{base_url.rstrip('/')}/health"
-            response = requests.get(health_url, timeout=self.timeout)
-            response_time = time.time() - start_time
-
-            if response.status_code == 200:
-                health_data = response.json()
-                return ServiceStatus(
-                    name="DIA TTS API",
-                    url=base_url,
-                    status="online",
-                    response_time=response_time,
-                    details={"health": health_data},
-                )
-            else:
-                return ServiceStatus(
-                    name="DIA TTS API",
-                    url=base_url,
-                    status="offline",
-                    response_time=response_time,
-                    error_message=f"HTTP {response.status_code}",
-                )
-
-        except requests.exceptions.RequestException as e:
-            return ServiceStatus(
-                name="DIA TTS API",
-                url=base_url,
-                status="offline",
-                response_time=0.0,
-                error_message=str(e),
-            )
-
-    def _check_studio_voice(self) -> ServiceStatus:
-        """Check Studio Voice service."""
-        from ..utils.config import config_manager
-
-        # Get the HTTP health endpoint URL from config
-        health_url = config_manager.get("studio_voice.http_health_url")
-        if not health_url:
-            # Fallback to environment variable
-            import os
-
-            health_url = os.getenv("STUDIO_VOICE_HTTP_HEALTH_URL")
-
-        if not health_url:
-            return ServiceStatus(
-                name="Studio Voice",
-                url="not configured",
-                status="offline",
-                response_time=0.0,
-                error_message="Studio Voice HTTP health URL not configured",
-            )
-
-        try:
-            start_time = time.time()
-            response = requests.get(health_url, timeout=self.timeout)
-            response_time = time.time() - start_time
-
-            if response.status_code == 200:
-                return ServiceStatus(
-                    name="Studio Voice",
-                    url=health_url,
-                    status="online",
-                    response_time=response_time,
-                    details={
-                        "health_endpoint": health_url,
-                        "response": (
-                            response.text[:100] + "..."
-                            if len(response.text) > 100
-                            else response.text
-                        ),
-                    },
-                )
-            else:
-                return ServiceStatus(
-                    name="Studio Voice",
-                    url=health_url,
-                    status="offline",
-                    response_time=response_time,
-                    error_message=f"HTTP {response.status_code}",
-                )
-
-        except requests.exceptions.RequestException as e:
-            return ServiceStatus(
-                name="Studio Voice",
-                url=health_url,
-                status="offline",
-                response_time=0.0,
-                error_message=str(e),
-            )
-
-    def _check_asr_service(self) -> ServiceStatus:
-        """Check ASR service (WhisperX)."""
-        from ..utils.config import config_manager
-
-        base_url = config_manager.get("asr.base_url")
-        if not base_url:
-            return ServiceStatus(
-                name="ASR Service",
-                url="not configured",
-                status="offline",
-                response_time=0.0,
-                error_message="ASR base URL not configured",
-            )
-
-        try:
-            start_time = time.time()
-            response = requests.get(f"{base_url}/health", timeout=self.timeout)
-            response_time = time.time() - start_time
-
-            if response.status_code == 200:
-                return ServiceStatus(
-                    name="ASR Service",
-                    url=base_url,
-                    status="online",
-                    response_time=response_time,
-                    details={
-                        "health_endpoint": f"{base_url}/health",
-                        "response": (
-                            response.text[:100] + "..."
-                            if len(response.text) > 100
-                            else response.text
-                        ),
-                    },
-                )
-            else:
-                return ServiceStatus(
-                    name="ASR Service",
-                    url=base_url,
-                    status="offline",
-                    response_time=response_time,
-                    error_message=f"HTTP {response.status_code}",
-                )
-
-        except requests.exceptions.RequestException as e:
-            return ServiceStatus(
-                name="ASR Service",
-                url=base_url,
-                status="offline",
-                response_time=0.0,
-                error_message=str(e),
-            )
-
-    def _check_image_generation(self) -> ServiceStatus:
-        """Check Image Generation service (NIM or InvokeAI)."""
-        try:
-            from ..image.image_service_factory import ImageServiceFactory
-        except ImportError as e:
-            return ServiceStatus(
-                name="Image Generation",
-                url="unknown",
-                status="error",
-                response_time=0.0,
-                error_message=f"Failed to import ImageServiceFactory: {str(e)}",
-            )
-
-        # Get service name and health check URL from factory first
-        try:
-            service_name = ImageServiceFactory.get_service_name()
-            health_url = ImageServiceFactory.get_health_check_url()
-        except Exception as e:
-            return ServiceStatus(
-                name="Image Generation",
-                url="unknown",
-                status="error",
-                response_time=0.0,
-                error_message=f"Failed to get service configuration: {str(e)}",
-            )
-
-        if not health_url:
-            return ServiceStatus(
-                name=service_name,
-                url="not configured",
-                status="offline",
-                response_time=0.0,
-                error_message="Image generation service not configured",
-            )
-
-        try:
-            start_time = time.time()
-            response = requests.get(health_url, timeout=self.timeout)
-            response_time = time.time() - start_time
-
-            if response.status_code == 200:
-                return ServiceStatus(
-                    name=service_name,
-                    url=health_url,
-                    status="online",
-                    response_time=response_time,
-                    details={
-                        "health_endpoint": health_url,
-                        "response": (
-                            response.text[:100] + "..."
-                            if len(response.text) > 100
-                            else response.text
-                        ),
-                    },
-                )
-            else:
-                return ServiceStatus(
-                    name=service_name,
-                    url=health_url,
-                    status="offline",
-                    response_time=response_time,
-                    error_message=f"HTTP {response.status_code}",
-                )
-
-        except requests.exceptions.Timeout:
-            return ServiceStatus(
-                name=service_name,
-                url=health_url,
-                status="offline",
-                response_time=0.0,
-                error_message="Request timed out",
-            )
-        except requests.exceptions.ConnectionError:
-            return ServiceStatus(
-                name=service_name,
-                url=health_url,
-                status="offline",
-                response_time=0.0,
-                error_message="Connection failed - service may be down",
+                name=spec.name,
+                url=spec.base_url,
+                status="online" if ok else "offline",
+                response_time=dt,
+                error_message=None if ok else f"HTTP {r.status_code}",
+                details=details,
             )
         except requests.exceptions.RequestException as e:
             return ServiceStatus(
-                name=service_name,
-                url=health_url,
+                name=spec.name,
+                url=spec.base_url,
                 status="offline",
                 response_time=0.0,
-                error_message=f"Request failed: {str(e)}",
-            )
-        except Exception as e:
-            return ServiceStatus(
-                name=service_name,
-                url=health_url,
-                status="error",
-                response_time=0.0,
-                error_message=f"Unexpected error: {str(e)}",
+                error_message=str(e)[:120],
+                details=details,
             )
