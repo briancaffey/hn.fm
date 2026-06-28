@@ -326,6 +326,27 @@ async def get_single_item(
         raise HTTPException(status_code=500, detail="Failed to get item")
 
 
+@app.get("/api/metrics", tags=["metrics"])
+async def list_metrics(limit: int = 200):
+    """All pipeline metrics records (newest first) for the observability dashboard."""
+    from ..utils import metrics
+    try:
+        return {"records": metrics.all_records(limit=limit)}
+    except Exception as e:
+        logger.error(f"metrics list failed: {e}")
+        return {"records": []}
+
+
+@app.get("/api/metrics/{item_id}/{run}/{seg}", tags=["metrics"])
+async def get_metrics(item_id: int, run: int, seg: int):
+    """Single run's metric breakdown."""
+    from ..utils import metrics
+    rec = metrics.get_record(item_id, run, seg)
+    if not rec:
+        raise HTTPException(status_code=404, detail="metrics not found")
+    return rec
+
+
 @app.post("/api/hn/single-task-pipeline", tags=["hacker-news"])
 async def start_single_task_pipeline(
     request: dict = Body(...), redis_client: redis.Redis = Depends(get_redis_client)

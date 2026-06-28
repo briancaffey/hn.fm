@@ -45,6 +45,13 @@ const colorMode = useColorMode()
                 Services
               </NuxtLink>
               <NuxtLink
+                to="/observability"
+                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
+                active-class="text-orange-600"
+              >
+                Observability
+              </NuxtLink>
+              <NuxtLink
                 to="/admin"
                 class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
                 active-class="text-orange-600"

@@ -96,6 +96,15 @@ class LLMService:
                 }
             response = self.client.chat.completions.create(**create_kwargs)
 
+            # Record token usage against the current pipeline stage (non-fatal).
+            try:
+                u = getattr(response, "usage", None)
+                if u:
+                    from ..utils.metrics import record_tokens
+                    record_tokens(getattr(u, "prompt_tokens", 0), getattr(u, "completion_tokens", 0))
+            except Exception:
+                pass
+
             # Check if response is valid and has the expected structure
             if not response or not hasattr(response, "choices") or not response.choices:
                 # Check if this is an error response

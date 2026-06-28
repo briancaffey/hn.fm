@@ -1119,6 +1119,7 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
     )
     from ..audio.audio_utils import split_script_into_sections
     from ..utils.run_utils import get_run
+    from ..utils import metrics
     from ..content.art_direction import format_dims
     from ..content.meta_sequencer import plan_segment
     from ..video.ltx_service import make_motion_clip, clip_target_seconds
@@ -1169,6 +1170,9 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
                 si.video_clip_seconds = target
                 save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
                 made["video"] += 1
+                metrics.count(item_id, run, seg, "ltx_clips")
+            else:
+                metrics.count(item_id, run, seg, "ltx_failures")
         elif t == "hyperframe" and hf_enabled:
             from ..hyperframes.produce import produce_hyperframe_clip
 
@@ -1182,6 +1186,16 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
                 si.video_clip_seconds = hf_dur
                 save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
                 made["hyperframe"] += 1
+                metrics.count(item_id, run, seg, "hyperframes")
+            else:
+                metrics.count(item_id, run, seg, "hyperframe_failures")
+    # plan composition (what the director chose) for the dashboard
+    plan_counts = {}
+    for p in plan:
+        plan_counts[p["template"]] = plan_counts.get(p["template"], 0) + 1
+    metrics.count(item_id, run, seg, "sections", len(plan))
+    metrics.count(item_id, run, seg, "planned_video", plan_counts.get("video", 0))
+    metrics.count(item_id, run, seg, "planned_hyperframe", plan_counts.get("hyperframe", 0))
     logger.info(f"🎬 meta-sequence executed: {made}")
     return {"status": "ok", **made}
 
@@ -1222,26 +1236,42 @@ def full_pipeline(
 
         run = next_run_id(item_id, redis_client=redis_client)
 
+        import time as _time
+        from ..utils import metrics
+
         logger.info(f"📝 Step 1/5: Processing run {run} for item {item_id}")
         # Step 1: Process HN item run (with continue_chain=False)
+        _t = _time.time()
         run_result = process_hn_item_run(item_id, run, continue_chain=False)
+        _scrape_s = _time.time() - _t
         logger.info(f"✅ Run processing completed: {run_result}")
 
         # Step 1b: ingest real source images from the article (optional, non-fatal)
+        _t = _time.time()
+        _src_count = 0
         try:
             src_img_result = ingest_source_images(item_id, run)
+            _src_count = (src_img_result or {}).get("count", 0)
             logger.info(f"📸 Source images: {src_img_result}")
         except Exception as _se:
             logger.warning(f"source images skipped (non-fatal): {_se}")
+        _srcimg_s = _time.time() - _t
 
         # Get next segment ID
         from ..utils.segment_utils import next_seg_id
 
         seg = next_seg_id(item_id, run, redis_client=redis_client)
 
+        # Begin metrics for this run
+        metrics.init(item_id, run, seg, theme=style_theme, fmt=aspect_format)
+        metrics.record_seconds(item_id, run, seg, "scrape", _scrape_s)
+        metrics.record_seconds(item_id, run, seg, "source_images", _srcimg_s)
+        metrics.count(item_id, run, seg, "source_images", _src_count)
+
         logger.info(f"📝 Step 2/5: Generating segment {seg} for run {run}")
         # Step 2: Generate segment (with continue_chain=False)
-        segment_result = generate_segment(item_id, run, seg, continue_chain=False)
+        with metrics.stage(item_id, run, seg, "script"):
+            segment_result = generate_segment(item_id, run, seg, continue_chain=False)
         logger.info(f"✅ Segment generation completed: {segment_result}")
 
         # Apply requested take format/theme (multi-take / multi-format)
@@ -1261,28 +1291,35 @@ def full_pipeline(
 
         logger.info(f"📝 Step 3/5: Building audio for segment {seg}")
         # Step 3: Build segment audio (with continue_chain=False)
-        audio_result = build_segment_audio(
-            item_id, run, seg, "all", None, None, continue_chain=False
-        )
+        with metrics.stage(item_id, run, seg, "audio"):
+            audio_result = build_segment_audio(
+                item_id, run, seg, "all", None, None, continue_chain=False
+            )
         logger.info(f"✅ Audio building completed: {audio_result}")
 
         logger.info(f"📝 Step 4/5: Building images for segment {seg}")
         # Step 4: Build segment images (with continue_chain=False)
-        images_result = build_segment_images(item_id, run, seg, continue_chain=False)
+        with metrics.stage(item_id, run, seg, "images"):
+            images_result = build_segment_images(item_id, run, seg, continue_chain=False)
+        metrics.count(item_id, run, seg, "images", (images_result or {}).get("images", 0))
         logger.info(f"✅ Image building completed: {images_result}")
 
         # Step 4b: agentic meta-sequence — plan + produce per-section media
         # (LTX video / hyperframes); falls back to LTX-only heuristic. Non-fatal.
         try:
-            plan_result = build_segment_media_plan(item_id, run, seg)
+            with metrics.stage(item_id, run, seg, "media_plan"):
+                plan_result = build_segment_media_plan(item_id, run, seg)
             logger.info(f"🎬 Media plan: {plan_result}")
         except Exception as _ve:
             logger.warning(f"media plan skipped (non-fatal): {_ve}")
 
         logger.info(f"📝 Step 5/5: Generating video for segment {seg}")
         # Step 5: Generate segment video (with continue_chain=False)
-        video_result = generate_segment_video(item_id, run, seg, continue_chain=False)
+        with metrics.stage(item_id, run, seg, "video"):
+            video_result = generate_segment_video(item_id, run, seg, continue_chain=False)
         logger.info(f"✅ Video generation completed: {video_result}")
+
+        metrics.finalize(item_id, run, seg, status="ok")
 
         logger.info(
             f"🎉 Full pipeline completed successfully for item {item_id}, run {run}, seg {seg}"
