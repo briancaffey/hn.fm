@@ -1,0 +1,93 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@500&display=swap" rel="stylesheet">
+<style>
+  :root{--orange:#f97316;--ink:#0f1115;--mut:#9aa0aa}
+  *{box-sizing:border-box;margin:0;padding:0;font-family:'Space Grotesk',sans-serif}
+  body{background:#222}
+  .card{position:relative;background:radial-gradient(120% 120% at 0% 0%, #1b1f27 0%, #0f1115 60%);
+        color:#fff;overflow:hidden;padding:64px}
+  #wide{width:1200px;height:630px}
+  #sq{width:1080px;height:1080px}
+  #perf{width:1080px;height:1080px}
+  .pill{display:inline-block;background:var(--orange);color:#111;font-weight:700;border-radius:8px;padding:4px 12px;font-size:22px}
+  .kick{color:var(--orange);font-weight:600;letter-spacing:.28em;text-transform:uppercase}
+  .glow{position:absolute;border-radius:50%;filter:blur(80px);opacity:.35}
+  .o1{width:340px;height:340px;background:var(--orange);right:-80px;top:-80px}
+  .o2{width:300px;height:300px;background:#0ea5e9;left:-100px;bottom:-120px;opacity:.22}
+  .chip{display:inline-block;border:1px solid #333;color:#cfd3da;border-radius:30px;padding:5px 13px;font-size:18px;margin:3px}
+  .step{display:flex;align-items:center;gap:10px}
+  .dot{width:13px;height:13px;border-radius:3px;flex:none}
+  .arrow{color:#444;font-size:22px}
+  .barwrap{display:flex;height:40px;border-radius:8px;overflow:hidden;width:100%}
+</style></head><body>
+
+<!-- WIDE 1200x630 — OG / Twitter / LinkedIn -->
+<div class="card" id="wide">
+  <div class="glow o1"></div><div class="glow o2"></div>
+  <div style="display:flex;justify-content:space-between;align-items:center">
+    <span class="kick" style="font-size:18px">hn.fm · pipeline</span><span class="pill">hn.fm</span>
+  </div>
+  <div style="font-size:62px;font-weight:700;letter-spacing:-.03em;line-height:1.04;margin-top:40px">
+    A Hacker News link →<br><span style="color:var(--orange)">an AI-directed video</span>
+  </div>
+  <div style="margin-top:22px;font-size:22px;color:var(--mut);max-width:880px">
+    8 inference models · one linear pipeline · an agent that decides how each beat is told.
+  </div>
+  <div style="position:absolute;left:64px;bottom:54px;display:flex;align-items:center;gap:6px;font-size:17px;color:#cfd3da;flex-wrap:wrap">
+    <b>fetch</b><span class="arrow">›</span><b>scrape</b><span class="arrow">›</span><b>script</b><span class="arrow">›</span>
+    <b>audio</b><span class="arrow">›</span><b style="color:var(--orange)">images</b><span class="arrow">›</span>
+    <b style="color:var(--orange)">direct</b><span class="arrow">›</span><b>assemble</b>
+  </div>
+</div>
+
+<!-- SQUARE 1080x1080 — the flow -->
+<div class="card" id="sq">
+  <div class="glow o1"></div><div class="glow o2"></div>
+  <span class="pill">hn.fm</span>
+  <div style="font-size:58px;font-weight:700;letter-spacing:-.03em;line-height:1.05;margin-top:34px">
+    How a story<br>becomes a <span style="color:var(--orange)">video</span>
+  </div>
+  <div style="margin-top:40px;display:flex;flex-direction:column;gap:18px;font-size:30px;font-weight:500">
+    <div class="step"><span class="dot" style="background:#64748b"></span>Fetch &amp; scrape the article <span style="color:var(--mut);font-size:20px">· Firecrawl</span></div>
+    <div class="step"><span class="dot" style="background:#a855f7"></span>Write a 2-host script <span style="color:var(--mut);font-size:20px">· Nemotron</span></div>
+    <div class="step"><span class="dot" style="background:#22c55e"></span>Narrate &amp; time it <span style="color:var(--mut);font-size:20px">· Magpie + ASR</span></div>
+    <div class="step"><span class="dot" style="background:#f97316"></span>Cinematic images + sequences <span style="color:var(--mut);font-size:20px">· FLUX.2</span></div>
+    <div class="step"><span class="dot" style="background:#eab308"></span>Director plans each section <span style="color:var(--mut);font-size:20px">· LTX · HyperFrames</span></div>
+    <div class="step"><span class="dot" style="background:#ef4444"></span>Subtitles + music + encode <span style="color:var(--mut);font-size:20px">· ffmpeg + ACE-Step</span></div>
+  </div>
+  <div style="position:absolute;left:64px;bottom:54px;font-size:22px;color:var(--mut)">turning the front page into watchable stories</div>
+</div>
+
+<!-- SQUARE 1080x1080 — the director -->
+<div class="card" id="perf">
+  <div class="glow o1"></div><div class="glow o2"></div>
+  <span class="pill">hn.fm</span>
+  <div style="font-size:54px;font-weight:700;letter-spacing:-.03em;line-height:1.05;margin-top:34px">
+    An agent <span style="color:var(--orange)">directs</span><br>every section
+  </div>
+  <div style="margin-top:36px;display:flex;flex-direction:column;gap:20px">
+    <div style="border:1px solid #2a2f3a;border-radius:16px;padding:24px 26px">
+      <div style="font-size:34px;font-weight:700;color:#f97316">🖼️ image sequence</div>
+      <div style="font-size:23px;color:var(--mut);margin-top:4px">a root image, then AI edits that evolve it — the default</div></div>
+    <div style="border:1px solid #2a2f3a;border-radius:16px;padding:24px 26px">
+      <div style="font-size:34px;font-weight:700;color:#ef4444">🎞️ motion clip</div>
+      <div style="font-size:23px;color:var(--mut);margin-top:4px">image-to-video for a hero moment — LTX-2</div></div>
+    <div style="border:1px solid #2a2f3a;border-radius:16px;padding:24px 26px">
+      <div style="font-size:34px;font-weight:700;color:#eab308">✨ kinetic text</div>
+      <div style="font-size:23px;color:var(--mut);margin-top:4px">beautiful animated HTML for structured beats — HyperFrames</div></div>
+  </div>
+  <div style="position:absolute;left:64px;bottom:50px;font-size:22px;color:var(--mut)">plan → guardrails → critic → produce</div>
+</div>
+
+<script>
+  // ?c=wide|sq|perf -> show only that card at top-left for a clean screenshot
+  var c = new URLSearchParams(location.search).get('c');
+  if (c) {
+    ['wide','sq','perf'].forEach(function(id){
+      var el = document.getElementById(id);
+      if (id !== c) el.style.display = 'none';
+    });
+    document.body.style.background = '#0f1115';
+  }
+</script>
+</body></html>

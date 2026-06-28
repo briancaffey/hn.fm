@@ -1,0 +1,332 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#161616; --bg:#ffffff; --muted:#6b7280; --line:#e7e7ea; --soft:#f6f6f7;
+    --orange:#f97316; --orange-d:#ea580c;
+    --scrape:#64748b; --source:#0ea5e9; --script:#a855f7; --audio:#22c55e;
+    --images:#f97316; --plan:#eab308; --video:#ef4444;
+  }
+  @page{size:A4;margin:0}
+  *{box-sizing:border-box;margin:0;padding:0}
+  .seqdot{display:inline-block;width:10px;height:10px;border-radius:2px}
+  html{font-family:'Space Grotesk',system-ui,sans-serif;color:var(--ink);font-size:14px;line-height:1.5}
+  code,.mono{font-family:'IBM Plex Mono',monospace}
+  .page{width:210mm;min-height:296mm;padding:18mm 16mm;margin:0 auto;background:var(--bg);
+        position:relative;page-break-after:always}
+  .page:last-child{page-break-after:auto}
+  h1{font-size:34px;font-weight:700;letter-spacing:-.03em;line-height:1.05}
+  h2{font-size:21px;font-weight:700;letter-spacing:-.02em;margin:0 0 10px;
+     padding-bottom:6px;border-bottom:2px solid var(--orange)}
+  h3{font-size:15px;font-weight:600;margin:14px 0 5px}
+  p{margin:0 0 8px} .muted{color:var(--muted)} .small{font-size:12px}
+  .accent{color:var(--orange-d)}
+  .kicker{font-size:11px;font-weight:600;letter-spacing:.26em;text-transform:uppercase;color:var(--orange-d)}
+  .chip{display:inline-block;font-size:10.5px;font-weight:600;padding:2px 7px;border-radius:20px;
+        background:var(--soft);border:1px solid var(--line);margin:1px}
+  .chip.svc{background:#fff7ed;border-color:#fed7aa;color:var(--orange-d)}
+  .lead{font-size:15px;color:#333}
+  .grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+  .card{border:1px solid var(--line);border-radius:10px;padding:11px 13px;background:#fff}
+  .soft{background:var(--soft)}
+  .num{font-size:26px;font-weight:700;letter-spacing:-.02em}
+  /* flow stage card */
+  .stage{border:1px solid var(--line);border-left:5px solid var(--s,#999);border-radius:10px;
+         padding:11px 14px;margin:0;background:#fff;position:relative}
+  .stage .lbl{display:flex;align-items:baseline;gap:8px;margin-bottom:3px}
+  .stage .stg-no{font-weight:700;color:var(--s,#999);font-size:13px}
+  .stage .task{font-family:'IBM Plex Mono',monospace;font-size:11.5px;color:#444;background:var(--soft);
+        padding:1px 6px;border-radius:5px}
+  .arrow{text-align:center;color:#bbb;font-size:16px;line-height:1;margin:4px 0}
+  .io{font-size:11.5px;color:#555;margin-top:4px}
+  .io b{color:var(--ink)}
+  .prompt{font-family:'IBM Plex Mono',monospace;font-size:10.5px;background:#0f1115;color:#e6e6e6;
+          border-radius:8px;padding:9px 11px;margin:6px 0;white-space:pre-wrap;line-height:1.45}
+  .prompt .c{color:#fdba74}
+  table{width:100%;border-collapse:collapse;font-size:12px}
+  th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{font-size:10.5px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted)}
+  .bar{height:9px;border-radius:5px;background:var(--soft);overflow:hidden;display:inline-block;width:100%}
+  .bar>span{display:block;height:100%}
+  .legend span{font-size:10.5px;margin-right:10px;white-space:nowrap}
+  .legend i{display:inline-block;width:9px;height:9px;border-radius:2px;margin-right:3px;vertical-align:middle}
+  .foot{position:absolute;bottom:9mm;left:16mm;right:16mm;display:flex;justify-content:space-between;
+        font-size:10px;color:#aaa;border-top:1px solid var(--line);padding-top:5px}
+  .pill{display:inline-block;background:var(--ink);color:#fff;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600}
+  .tag{display:inline-block;border:1px solid var(--line);border-radius:6px;padding:1px 6px;font-size:11px;margin:1px}
+</style>
+</head>
+<body>
+
+<!-- ============ COVER ============ -->
+<div class="page" style="display:flex;flex-direction:column;justify-content:center">
+  <div class="kicker">hn.fm · pipeline architecture</div>
+  <h1 style="font-size:46px;margin:14px 0 6px">From a Hacker News link<br>to an <span class="accent">AI-directed video</span></h1>
+  <p class="lead" style="max-width:135mm;margin-top:8px">
+    A complete walk through hn.fm's generation pipeline — the inference services, the
+    Celery orchestration, the prompts, and the agentic "director" that decides how each
+    beat of a story is told. Followed end-to-end with one real generation.
+  </p>
+  <div style="margin-top:26px;display:flex;gap:10px;flex-wrap:wrap">
+    <span class="chip svc">HN Firebase API</span><span class="chip svc">Firecrawl</span>
+    <span class="chip svc">Nemotron (LLM + Vision + ASR)</span><span class="chip svc">FLUX.2 Klein</span>
+    <span class="chip svc">Magpie TTS</span><span class="chip svc">ACE-Step</span>
+    <span class="chip svc">LTX-2</span><span class="chip svc">HyperFrames</span>
+  </div>
+  <div style="margin-top:34px" class="grid3">
+    <div class="card soft"><div class="num accent">8</div><div class="small muted">inference services, one Celery worker</div></div>
+    <div class="card soft"><div class="num accent">7</div><div class="small muted">pipeline stages, strictly linear</div></div>
+    <div class="card soft"><div class="num accent">3</div><div class="small muted">ways to tell a section: sequence · motion · kinetic text</div></div>
+  </div>
+  <div style="position:absolute;bottom:18mm;left:16mm" class="small muted">
+    Generated <span class="mono">2026-06-28</span> · self-documenting (see "How this was made")
+  </div>
+  <div style="position:absolute;top:18mm;right:16mm" class="pill">hn.fm</div>
+</div>
+
+<!-- ============ THE BIG PICTURE ============ -->
+<div class="page">
+  <div class="kicker">overview</div>
+  <h2>The big picture</h2>
+  <p class="muted">A story ID enters; a finished MP4 leaves. Everything runs in <b>one Celery worker, one stage
+  at a time, one service call at a time</b> — state lives in Redis, artifacts on disk. No step runs in
+  parallel with another; this keeps a shared GPU cluster sane and the process easy to reason about.</p>
+
+  <div style="margin-top:12px;display:flex;flex-direction:column;gap:0">
+    <div class="stage" style="--s:var(--scrape)"><div class="lbl"><span class="stg-no">0</span><b>Fetch</b><span class="task">hn_fetch_item</span></div>
+      <div class="io"><b>HN Firebase API</b> → store the item (title, URL) in Redis.</div></div>
+    <div class="arrow">▼</div>
+    <div class="stage" style="--s:var(--scrape)"><div class="lbl"><span class="stg-no">1</span><b>Scrape &amp; summarize</b><span class="task">process_hn_item_run</span></div>
+      <div class="io"><span class="chip svc">Firecrawl</span><span class="chip svc">Nemotron LLM</span> &nbsp;article → clean text → <b>summary, tags, emoji, haiku</b>.</div></div>
+    <div class="arrow">▼</div>
+    <div class="stage" style="--s:var(--source)"><div class="lbl"><span class="stg-no">1b</span><b>Source images</b><span class="task">ingest_source_images</span></div>
+      <div class="io"><span class="chip svc">Firecrawl HTML</span><span class="chip svc">Nemotron Vision</span> &nbsp;pull real article images → rank by alt → downscale → describe.</div></div>
+    <div class="arrow">▼</div>
+    <div class="stage" style="--s:var(--script)"><div class="lbl"><span class="stg-no">2</span><b>Script</b><span class="task">generate_segment</span></div>
+      <div class="io"><span class="chip svc">Nemotron LLM</span> &nbsp;two-host <span class="mono">[S1]/[S2]</span> podcast dialogue from the summary + article.</div></div>
+    <div class="arrow">▼</div>
+    <div class="stage" style="--s:var(--audio)"><div class="lbl"><span class="stg-no">3</span><b>Audio</b><span class="task">build_segment_audio</span></div>
+      <div class="io"><span class="chip svc">Magpie TTS</span><span class="chip svc">Nemotron ASR</span> &nbsp;speak each line (2 voices) → transcribe for word timings → QA vs script.</div></div>
+    <div class="arrow">▼</div>
+    <div class="stage" style="--s:var(--images)"><div class="lbl"><span class="stg-no">4</span><b>Images &amp; sequences</b><span class="task">build_segment_images</span></div>
+      <div class="io"><span class="chip svc">Nemotron LLM</span><span class="chip svc">FLUX.2 Klein</span> &nbsp;per section: write a cinematic prompt → render a root image → image-to-image <b>edit it into a short evolving sequence</b>.</div></div>
+    <div class="arrow">▼</div>
+    <div class="stage" style="--s:var(--plan)"><div class="lbl"><span class="stg-no">4b</span><b>The director</b><span class="task">build_segment_media_plan</span></div>
+      <div class="io"><span class="chip svc">Nemotron LLM</span><span class="chip svc">LTX-2</span><span class="chip svc">HyperFrames</span> &nbsp;plan a <b>template per section</b> (sequence / motion clip / kinetic-text) → produce the special clips.</div></div>
+    <div class="arrow">▼</div>
+    <div class="stage" style="--s:var(--video)"><div class="lbl"><span class="stg-no">5</span><b>Assemble</b><span class="task">generate_segment_video</span></div>
+      <div class="io"><span class="chip svc">ACE-Step</span><span class="chip svc">ffmpeg</span> &nbsp;build the timeline → burn animated subtitles → mix a music bed → encode the MP4.</div></div>
+  </div>
+
+  <div class="foot"><span>hn.fm · pipeline architecture</span><span>The big picture</span></div>
+</div>
+
+<!-- ============ SERVICES + ORCHESTRATION ============ -->
+<div class="page">
+  <div class="kicker">infrastructure</div>
+  <h2>The inference services</h2>
+  <p class="muted">All models run on a home Kubernetes (k3s) cluster as cluster-internal services, reached
+  from the local stack over tunnels. One LLM family — <b>Nemotron</b> — does triple duty (text, vision, speech-to-text).</p>
+  <table style="margin-top:6px">
+    <tr><th>Service</th><th>Role in the pipeline</th><th>Interface</th></tr>
+    <tr><td><b>HN Firebase</b></td><td>Source of stories (id → title, url)</td><td class="mono small">REST</td></tr>
+    <tr><td><b>Firecrawl</b></td><td>Scrape the article to markdown + pull its images</td><td class="mono small">/v1/scrape</td></tr>
+    <tr><td><b>Nemotron LLM</b></td><td>Summary, script, image prompts, the director's plan</td><td class="mono small">OpenAI /v1 (LiteLLM)</td></tr>
+    <tr><td><b>Nemotron Vision</b></td><td>Describe real source images; spot-check frames</td><td class="mono small">OpenAI /v1 (image_url)</td></tr>
+    <tr><td><b>Nemotron ASR</b></td><td>Word-level timestamps for animated subtitles + QA</td><td class="mono small">/v1/audio/transcriptions</td></tr>
+    <tr><td><b>FLUX.2 Klein</b></td><td>Text-to-image (root) &amp; image-to-image (sequence edits)</td><td class="mono small">/v1/images/generations · /edits</td></tr>
+    <tr><td><b>Magpie TTS</b></td><td>Two-voice narration ([S1] Mia / [S2] Jason)</td><td class="mono small">/v1/audio/synthesize</td></tr>
+    <tr><td><b>ACE-Step</b></td><td>Instrumental music bed (theme-matched)</td><td class="mono small">/v1/chat/completions (audio)</td></tr>
+    <tr><td><b>LTX-2</b></td><td>Image-to-video motion clips (hero moments)</td><td class="mono small">/generate</td></tr>
+    <tr><td><b>HyperFrames</b></td><td>HTML+GSAP → MP4 kinetic-text clips (render sidecar)</td><td class="mono small">/render (Node+Chromium)</td></tr>
+  </table>
+
+  <h2 style="margin-top:20px">Orchestration model</h2>
+  <div class="grid2" style="margin-top:6px">
+    <div class="card"><h3 style="margin-top:0">One worker, linear</h3>
+      <p class="small muted">A single Celery worker (<span class="mono">concurrency=1</span>) runs <span class="mono">full_pipeline</span> — which calls each stage in sequence, not as async sub-tasks. Within a stage, calls are sequential too (e.g. images render one section at a time). So the cluster only ever serves one request at a time.</p></div>
+    <div class="card"><h3 style="margin-top:0">Redis is the state</h3>
+      <p class="small muted">No SQL. Keys hold the run, the segment (script, plan, flags), per-section sections &amp; images, source images, and a <span class="mono">metrics</span> record. Artifacts (audio, images, clips, the MP4) live on a shared <span class="mono">outputs/</span> volume.</p></div>
+  </div>
+  <div class="card soft" style="margin-top:10px">
+    <h3 style="margin-top:0">Why everything is non-fatal</h3>
+    <p class="small muted">A shared GPU can hiccup. Every optional service (source images, LTX, HyperFrames, music) is wrapped so a failure degrades gracefully — a missing motion clip just falls back to the image sequence — and the video still finishes.</p>
+  </div>
+  <div class="foot"><span>hn.fm · pipeline architecture</span><span>Services &amp; orchestration</span></div>
+</div>
+
+<!-- ============ PROMPTS / STAGE DETAIL ============ -->
+<div class="page">
+  <div class="kicker">the prompts</div>
+  <h2>What each model is asked</h2>
+  <p class="muted">Prompts are summarized. The pattern throughout: a tight <b>system role</b> + the story context, asking for one specific, structured thing.</p>
+
+  <h3 class="accent">① Summary &amp; metadata <span class="muted small">— Nemotron LLM</span></h3>
+  <div class="prompt"><span class="c"># role</span> Summarize this article for a tech-news short.
+Return a crisp summary, a 1-2 sentence hook, 2-6 tags, 4 emoji, and a haiku.
+<span class="c"># input</span> {cleaned article text}</div>
+
+  <h3 class="accent">② Script <span class="muted small">— Nemotron LLM → generate_script_v1</span></h3>
+  <div class="prompt"><span class="c"># role</span> Write a two-host podcast script about this story.
+Alternate speakers tagged [S1] and [S2]; natural, punchy, accurate.
+One idea per line; conversational; no stage directions.
+<span class="c"># input</span> {summary} + {article}</div>
+
+  <h3 class="accent">③ Image prompt (per section) <span class="muted small">— Nemotron LLM → generate_image_prompt_v1</span></h3>
+  <div class="prompt"><span class="c"># role</span> You are a cinematic art director writing ONE image prompt.
+Invent a striking, SPECIFIC scene: a clear subject doing something,
+a concrete setting, evocative props, a deliberate shot type.
+Describe ONLY scene + composition — do NOT mention art style.
+<span class="c"># then (deterministic)</span> append the take's THEME style block
+   so every shot in the video is stylistically cohesive.</div>
+
+  <h3 class="accent">④ The director's plan <span class="muted small">— Nemotron LLM → meta_sequencer</span></h3>
+  <div class="prompt"><span class="c"># role</span> You are the director. For each narration section choose:
+   image_sequence (default) · video (a hero motion moment) ·
+   hyperframe (structured kinetic text: keypoints/bigstat/quote/compare).
+<span class="c"># taste</span> interesting, educational, funny, unexpected, original.
+   most sections stay sequences; sprinkle ≤2 video &amp; ≤2 hyperframe;
+   never two specials back-to-back.
+<span class="c"># return</span> JSON: one {template, recipe?, content?} per section.</div>
+  <p class="small muted">A deterministic <b>guardrail</b> pass then enforces the caps/spacing, and a second LLM <b>critic</b> scores the plan on the taste rubric and revises weak spots.</p>
+
+  <h3 class="accent">⑤ Vision &amp; ASR <span class="muted small">— Nemotron</span></h3>
+  <div class="prompt"><span class="c"># vision</span> Describe this image in 1-2 sentences: subjects, mood.
+<span class="c"># asr</span> Transcribe with word-level timestamps (for karaoke subtitles).</div>
+  <div class="foot"><span>hn.fm · pipeline architecture</span><span>The prompts</span></div>
+</div>
+
+<!-- ============ THE DIRECTOR (diagram) ============ -->
+<div class="page">
+  <div class="kicker">the agentic core</div>
+  <h2>The director: how a section becomes a shot</h2>
+  <p class="muted">Stage 4b is where hn.fm stops being a fixed template and starts making choices. It runs
+  <b>plan → guardrails → critic → guardrails</b>, then produces only the special clips.</p>
+
+  <div style="margin-top:14px;display:flex;align-items:stretch;gap:10px">
+    <div class="card" style="flex:1;border-top:4px solid var(--plan)"><h3 style="margin-top:0">1 · Plan</h3>
+      <p class="small muted">LLM reads all sections + summary + theme + available source images, assigns a template to each.</p></div>
+    <div style="align-self:center;color:#bbb">→</div>
+    <div class="card" style="flex:1;border-top:4px solid var(--scrape)"><h3 style="margin-top:0">2 · Guardrails</h3>
+      <p class="small muted">Deterministic: caps (≤2 each), no two specials adjacent, sequence is the floor. Fixes violations.</p></div>
+    <div style="align-self:center;color:#bbb">→</div>
+    <div class="card" style="flex:1;border-top:4px solid var(--script)"><h3 style="margin-top:0">3 · Critic</h3>
+      <p class="small muted">A second LLM scores interest/originality, flags repetition, suggests swaps. Guardrails run again.</p></div>
+  </div>
+
+  <h3 style="margin-top:20px">The three ways to tell a section</h3>
+  <div class="grid3" style="margin-top:6px">
+    <div class="card" style="border-top:4px solid var(--images)"><h3 style="margin-top:0">🖼️ image_sequence</h3>
+      <p class="small muted">The default. A root image, then FLUX <b>image-to-image edits</b> that evolve it — shown in quick cadence. Most sections.</p></div>
+    <div class="card" style="border-top:4px solid var(--video)"><h3 style="margin-top:0">🎞️ video</h3>
+      <p class="small muted">An <b>LTX-2</b> motion clip from the section's still + a motion prompt, lightly stretched. A hero moment.</p></div>
+    <div class="card" style="border-top:4px solid var(--plan)"><h3 style="margin-top:0">✨ hyperframe</h3>
+      <p class="small muted"><b>HyperFrames</b> kinetic text (keypoints / bigstat / quote / compare) over the image — for structured beats.</p></div>
+  </div>
+  <p class="small muted" style="margin-top:10px">Every special clip is folded into the timeline as a <span class="mono">video_clip_path</span> with <b>partial coverage</b>: it plays its natural length, then the image sequence fills the rest of the section — so no downstream step needs to know which kind it was.</p>
+  <div class="foot"><span>hn.fm · pipeline architecture</span><span>The director</span></div>
+</div>
+
+<!-- ============ WORKED EXAMPLE ============ -->
+<div class="page">
+  <div class="kicker">worked example · a real generation</div>
+  <h2>"These Are the Most Beautiful Equations"</h2>
+  <p class="small muted">Source: <span class="mono">scientificamerican.com</span> · theme <b>Technical Blueprint</b> · 16:9 · 21 sections.
+  Tags <span class="tag">mathematics</span><span class="tag">equations</span><span class="tag">geometry</span> &nbsp;🧮 🎨 📐 🔢</p>
+
+  <h3>① Summary <span class="muted small">(Nemotron)</span></h3>
+  <div class="card soft small">Mathematicians view equations as artistic expressions of beauty — valuing simplicity, unexpected connections, and profound insights. The Loewner equation links complex analysis to statistical mechanics; Gauss-Bonnet ties curvature to topology…</div>
+
+  <h3>② Script <span class="muted small">(two-host dialogue)</span></h3>
+  <div class="prompt">[S1] Welcome to Proof Positive, your science podcast.
+[S2] Today we're exploring the most beautiful equations mathematicians love.
+[S1] To them, equations are like art — simple, surprising, or deeply insightful.
+[S2] Let's start with the Loewner differential equation…</div>
+
+  <h3>③ A real image prompt <span class="muted small">(§1, before the theme block)</span></h3>
+  <div class="prompt">A mathematician in a sunlit study stands before a massive chalkboard,
+meticulously drawing a single elegant equation that weaves together the
+Gauss-Bonnet formula and the Euler product, with a vintage compass…
+<span class="c">→ + "Technical Blueprint" style appended deterministically</span></div>
+
+  <h3>④ The director's plan <span class="muted small">(21 sections)</span></h3>
+  <div class="card" style="padding:9px 12px">
+    <div style="display:flex;gap:3px;flex-wrap:wrap;margin-bottom:6px">
+      <span class="seqdot" style="background:var(--images)"></span>
+    </div>
+    <div class="mono small" style="letter-spacing:1px;line-height:1.8">
+      §1 <b style="color:var(--images)">SEQ</b> · §2 <b style="color:var(--plan)">HYPER</b> · §3-9 <b style="color:var(--images)">SEQ</b> · §10 <b style="color:var(--video)">VIDEO</b> · §11-18 <b style="color:var(--images)">SEQ</b> · §19 <b style="color:var(--video)">VIDEO</b> · §20-21 <b style="color:var(--images)">SEQ</b>
+    </div>
+    <p class="small muted" style="margin-top:8px;margin-bottom:0">→ 18 sequences, 2 motion clips, 1 hyperframe. The hyperframe content the LLM wrote for §2:</p>
+    <div class="prompt" style="margin-bottom:0">keypoints · kicker "Math is art" · title "The Art of Equations"
+ • Simple beauty in complex forms
+ • Surprising connections across fields
+ • Deep insights in minimal expressions</div>
+  </div>
+
+  <h3>⑤ Real source images <span class="muted small">(Nemotron-described, from the article)</span></h3>
+  <div class="small card soft">4 chalkboard photos pulled &amp; described, e.g. <i>"a complex mathematical formula for the partition function p(n) written in white chalk on a dark blackboard."</i></div>
+  <div class="foot"><span>hn.fm · pipeline architecture</span><span>Worked example</span></div>
+</div>
+
+<!-- ============ PERFORMANCE ============ -->
+<div class="page">
+  <div class="kicker">performance · a representative render</div>
+  <h2>Where the time &amp; tokens go</h2>
+  <p class="muted">Measured per stage by the built-in metrics (visible live on the <span class="mono">/observability</span> dashboard).
+  One ~3-minute, 19-section video:</p>
+
+  <div class="card" style="margin-top:8px">
+    <div style="display:flex;justify-content:space-between"><b>Total render</b><b class="accent">429s (~7 min) · ~13k tokens</b></div>
+    <div class="bar" style="margin:10px 0 8px">
+      <span style="width:2%;background:var(--scrape)"></span><span style="width:0.5%;background:var(--source)"></span><span style="width:2%;background:var(--script)"></span><span style="width:5%;background:var(--audio)"></span><span style="width:51%;background:var(--images)"></span><span style="width:18%;background:var(--plan)"></span><span style="width:21%;background:var(--video)"></span>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--scrape)"></i>scrape 9s</span>
+      <span><i style="background:var(--source)"></i>source 0.2s</span>
+      <span><i style="background:var(--script)"></i>script 10s</span>
+      <span><i style="background:var(--audio)"></i>audio 21s</span>
+      <span><i style="background:var(--images)"></i>images 220s</span>
+      <span><i style="background:var(--plan)"></i>media_plan 79s</span>
+      <span><i style="background:var(--video)"></i>assemble 90s</span>
+    </div>
+  </div>
+
+  <div class="grid3" style="margin-top:12px">
+    <div class="card"><div class="num" style="color:var(--images)">51%</div><div class="small muted"><b>images</b> — the bottleneck. ~57 sequential FLUX calls (19 sections × root + edits).</div></div>
+    <div class="card"><div class="num" style="color:var(--video)">21%</div><div class="small muted"><b>assemble</b> — ffmpeg concat of ~30 timeline segments + subtitle burn + music mix.</div></div>
+    <div class="card"><div class="num" style="color:var(--plan)">18%</div><div class="small muted"><b>media_plan</b> — mostly one LTX clip (~70s) + plan &amp; critic LLM calls.</div></div>
+  </div>
+
+  <div class="card soft" style="margin-top:12px">
+    <h3 style="margin-top:0">Levers</h3>
+    <p class="small muted">Fewer sequence frames (<span class="mono">SEQ_MAX_FRAMES</span>) cuts the 51% chunk most. Tokens concentrate in image-prompt generation. LTX reliability (a shared GPU) is the main reason a planned <i>video</i> sometimes drops to a sequence.</p>
+  </div>
+  <div class="foot"><span>hn.fm · pipeline architecture</span><span>Performance</span></div>
+</div>
+
+<!-- ============ METHODOLOGY ============ -->
+<div class="page">
+  <div class="kicker">reproducibility</div>
+  <h2>How this document was made</h2>
+  <p class="muted">So we can regenerate it as the pipeline evolves.</p>
+  <ol class="small" style="margin:8px 0 0 18px;line-height:1.7">
+    <li>Pulled the prompt templates from source (<span class="mono">segment_utils</span>, <span class="mono">meta_sequencer</span>) and summarized them.</li>
+    <li>Pulled a <b>real recent generation</b> from Redis (script, image prompts, the director's plan, hyperframe content, source-image descriptions).</li>
+    <li>Pulled <b>real stage timings &amp; token counts</b> from the metrics record (<span class="mono">/api/metrics</span>).</li>
+    <li>Authored this as a single on-brand <b>HTML</b> file (<span class="mono">pipeline-guide/pipeline.html</span>) — diagrams are CSS/flex, no external libs.</li>
+    <li>Rendered to <b>PDF</b> and <b>social PNGs</b> with headless Chromium (the HyperFrames render sidecar):
+      <span class="mono">chromium --headless --print-to-pdf</span> / <span class="mono">--screenshot</span>.</li>
+  </ol>
+  <p class="small muted" style="margin-top:14px">Artifacts live in <span class="mono">pipeline-guide/</span>: <span class="mono">pipeline.pdf</span>, <span class="mono">pipeline.html</span>, and <span class="mono">assets/*.png</span> (square + wide social cards). Re-run: edit the HTML, re-render.</p>
+  <div style="margin-top:40px;text-align:center" class="muted small">hn.fm — turning the front page into watchable stories.</div>
+  <div class="foot"><span>hn.fm · pipeline architecture</span><span>Reproducibility</span></div>
+</div>
+
+</body>
+</html>
