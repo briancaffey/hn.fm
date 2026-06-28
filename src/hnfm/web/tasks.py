@@ -1101,6 +1101,90 @@ def build_segment_motion_clips(item_id: int, run: int, seg: int) -> Dict[str, an
     return {"status": "ok", "clips": made}
 
 
+def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]:
+    """Agentic meta-sequencer: plan per-section template, then produce the media.
+
+    Falls back to the LTX-only heuristic when META_SEQUENCER_ENABLED is off.
+    image_sequence sections need no work (build_segment_images already made them);
+    'video' → LTX motion clip, 'hyperframe' → HyperFrames kinetic-text clip. Both
+    play their length and the image sequence fills the rest (partial coverage).
+    """
+    if os.getenv("META_SEQUENCER_ENABLED", "false").lower() != "true":
+        return build_segment_motion_clips(item_id, run, seg)
+
+    import json as _json
+    from ..utils.segment_utils import (
+        get_segment, get_segment_image, save_segment_image,
+        list_section_numbers, load_section_and_image, img_dir,
+        split_script_into_sections,
+    )
+    from ..content.art_direction import format_dims
+    from ..content.meta_sequencer import plan_segment
+    from ..video.ltx_service import make_motion_clip, clip_target_seconds
+
+    redis_client = get_redis_client()
+    outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
+
+    segment = get_segment(item_id, run, seg, redis_client=redis_client)
+    if not segment:
+        return {"status": "error", "reason": "no segment"}
+    theme_key = getattr(segment, "style_theme", None) or "default"
+    theme_name = getattr(segment, "style_theme_name", None) or theme_key
+    w, h = format_dims(getattr(segment, "aspect_format", None) or "16:9")
+    sections = split_script_into_sections(segment.script)
+
+    pr = get_run(item_id, run, redis_client=redis_client)
+    summary = (pr.summary if pr else "") or ""
+    src_raw = redis_client.get(f"hnfm:item:{item_id}:run:{run}:source_images")
+    source_images = _json.loads(src_raw) if src_raw else []
+
+    plan = plan_segment(
+        sections, summary, theme_name, source_images,
+        max_video=int(os.getenv("META_MAX_VIDEO", "2")),
+        max_hyper=int(os.getenv("META_MAX_HYPER", "2")),
+    )
+    segment.meta_plan = plan
+    redis_client.set(segment.key, segment.model_dump_json())
+
+    made = {"video": 0, "hyperframe": 0}
+    hf_enabled = os.getenv("HYPERFRAMES_ENABLED", "false").lower() == "true"
+    for p in plan:
+        t = p.get("template")
+        if t not in ("video", "hyperframe"):
+            continue
+        idx = p["index"]
+        si = get_segment_image(item_id, run, seg, idx, redis_client=redis_client)
+        if not si or not si.image_path or not os.path.exists(si.image_path):
+            continue
+        data = load_section_and_image(item_id, run, seg, idx, redis_client=redis_client)
+        dur = (data.get("duration_ms") or 0) / 1000.0
+        out_dir = img_dir(outputs_root, item_id, run, seg, idx)
+
+        if t == "video":
+            target = clip_target_seconds(dur)
+            clip = os.path.join(out_dir, "motion.mp4")
+            if make_motion_clip(si.image_path, si.prompt, clip, target, w, h, idx=idx):
+                si.video_clip_path = clip
+                si.video_clip_seconds = target
+                save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
+                made["video"] += 1
+        elif t == "hyperframe" and hf_enabled:
+            from ..hyperframes.produce import produce_hyperframe_clip
+
+            hf_dur = min(dur if dur > 0 else 5.0, float(os.getenv("HF_MAX_SECONDS", "5")))
+            clip = produce_hyperframe_clip(
+                out_dir, p.get("recipe", "keypoints"), p.get("content", {}),
+                theme_key, w, h, hf_dur, bg_image=si.image_path,
+            )
+            if clip:
+                si.video_clip_path = clip
+                si.video_clip_seconds = hf_dur
+                save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
+                made["hyperframe"] += 1
+    logger.info(f"🎬 meta-sequence executed: {made}")
+    return {"status": "ok", **made}
+
+
 @celery_app.task(
     name="hnfm.web.tasks.full_pipeline", time_limit=10800, soft_time_limit=10800
 )
@@ -1186,12 +1270,13 @@ def full_pipeline(
         images_result = build_segment_images(item_id, run, seg, continue_chain=False)
         logger.info(f"✅ Image building completed: {images_result}")
 
-        # Step 4b: LTX-2 motion clips for key sections (optional, non-fatal)
+        # Step 4b: agentic meta-sequence — plan + produce per-section media
+        # (LTX video / hyperframes); falls back to LTX-only heuristic. Non-fatal.
         try:
-            clips_result = build_segment_motion_clips(item_id, run, seg)
-            logger.info(f"🎞️ Motion clips: {clips_result}")
+            plan_result = build_segment_media_plan(item_id, run, seg)
+            logger.info(f"🎬 Media plan: {plan_result}")
         except Exception as _ve:
-            logger.warning(f"motion clips skipped (non-fatal): {_ve}")
+            logger.warning(f"media plan skipped (non-fatal): {_ve}")
 
         logger.info(f"📝 Step 5/5: Generating video for segment {seg}")
         # Step 5: Generate segment video (with continue_chain=False)

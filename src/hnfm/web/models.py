@@ -162,6 +162,10 @@ class Segment(BaseModel):
     asr_qa: Optional[dict] = Field(
         default=None, description="ASR QA report: ratio/verdict/mismatches"
     )
+    # Agentic meta-sequence plan (per-section template choices) receipt
+    meta_plan: Optional[List[Dict[str, Any]]] = Field(
+        default=None, description="Per-section template plan from the meta-sequencer"
+    )
 
     # Audio fields
     sections_total: int = Field(default=0, description="Total number of audio sections")

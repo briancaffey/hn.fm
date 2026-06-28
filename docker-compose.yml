@@ -64,6 +64,11 @@ x-common-env: &common-env
   # HyperFrames render sidecar
   HYPERFRAMES_BASE_URL: ${HYPERFRAMES_BASE_URL:-http://hyperframes:8088}
   HYPERFRAMES_ENABLED: ${HYPERFRAMES_ENABLED:-false}
+  HF_MAX_SECONDS: ${HF_MAX_SECONDS:-5}
+  # Agentic meta-sequencer (per-section template director)
+  META_SEQUENCER_ENABLED: ${META_SEQUENCER_ENABLED:-false}
+  META_MAX_VIDEO: ${META_MAX_VIDEO:-2}
+  META_MAX_HYPER: ${META_MAX_HYPER:-2}
   # TTS backend selection + Magpie voices
   TTS_BACKEND: ${TTS_BACKEND:-magpie}
   MAGPIE_S1_VOICE: ${MAGPIE_S1_VOICE:-Magpie-Multilingual.EN-US.Mia}
