@@ -684,21 +684,48 @@ def build_timeline(
         total = int(data["duration_ms"] or 0)
         si = get_segment_image(item_id, run, seg, index, redis_client=redis_client)
 
-        # If this section has an LTX motion clip, use it for the whole slot.
+        # If this section has an LTX motion clip, play it for its (lightly
+        # stretched) length, then fill the rest of the section with the image
+        # sequence — so motion stays natural instead of heavily slowed.
         clip = getattr(si, "video_clip_path", None) if si else None
         if clip and Path(clip).exists():
+            clip_ms = int((getattr(si, "video_clip_seconds", None) or 0) * 1000) or total
+            clip_ms = max(0, min(clip_ms, total))
             timeline.append(
                 {
                     "index": data["index"],
                     "image_path": data["image_path"],
                     "video_path": clip,
                     "start_ms": cumulative_start,
-                    "duration_ms": total,
+                    "duration_ms": clip_ms,
                     "text": data["text"],
                     "type": "video",
                 }
             )
-            cumulative_start += total
+            cumulative_start += clip_ms
+
+            remaining = total - clip_ms
+            if remaining > 400:
+                tail = [
+                    p for p in (getattr(si, "sequence_paths", None) or []) if p
+                ] or [data["image_path"]]
+                m = max(1, len(tail))
+                per = max(400, remaining // m)
+                for k, fp in enumerate(tail):
+                    d = (remaining - per * (m - 1)) if k == m - 1 else per
+                    if d <= 0:
+                        d = per
+                    timeline.append(
+                        {
+                            "index": data["index"],
+                            "image_path": fp,
+                            "start_ms": cumulative_start,
+                            "duration_ms": d,
+                            "text": data["text"],
+                            "type": "content",
+                        }
+                    )
+                    cumulative_start += d
             continue
 
         # Otherwise expand an image sequence (root + edits) across the slot so

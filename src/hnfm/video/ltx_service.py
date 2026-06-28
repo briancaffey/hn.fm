@@ -26,14 +26,29 @@ MOTION_DIRECTIVES = [
     "smooth crane-up reveal, calm drifting motion",
 ]
 
-# LTX native clip is capped short; the stretch fills the rest of the section.
-MAX_NATIVE_SECONDS = float(os.getenv("LTX_MAX_NATIVE_SECONDS", "4.0"))
+# LTX native clip is a real 3-4s clip; we stretch it only a little (if at all)
+# and let the rest of the section fall back to the image sequence.
+MAX_NATIVE_SECONDS = float(os.getenv("LTX_MAX_NATIVE_SECONDS", "3.5"))
+# Cap how much we slow the clip down — keep motion natural (1.0 = no stretch).
+MAX_STRETCH = float(os.getenv("LTX_MAX_STRETCH", "1.4"))
 LTX_FPS = int(os.getenv("LTX_FPS", "24"))
 OUT_FPS = int(os.getenv("LTX_OUT_FPS", "24"))
 LTX_STEPS = int(os.getenv("LTX_STEPS", "20"))
 # Interpolation mode for the stretch: "blend" (fast, soft) or "mci"
 # (motion-compensated, smoother but very CPU-heavy on long stretches).
 INTERP_MODE = os.getenv("LTX_INTERP_MODE", "blend")
+
+
+def clip_target_seconds(section_seconds: float) -> float:
+    """How long the LTX clip should play for in a section of `section_seconds`.
+
+    A real 3-4s clip stretched at most MAX_STRETCH; never longer than the section.
+    The remaining section time is filled by the image sequence.
+    """
+    longest = MAX_NATIVE_SECONDS * MAX_STRETCH
+    if section_seconds <= 0:
+        return MAX_NATIVE_SECONDS
+    return float(min(section_seconds, longest))
 
 
 def _base_url() -> str:
@@ -69,18 +84,25 @@ def generate_clip(prompt: str, image_path: str, out_path: str, width: int, heigh
             "height": height,
             "num_inference_steps": LTX_STEPS,
         }
-        r = requests.post(
-            f"{_base_url()}/generate",
-            json=payload,
-            timeout=int(os.getenv("LTX_TIMEOUT_SECONDS", "600")),
-        )
-        if r.status_code != 200 or not r.content:
-            logger.warning(f"LTX {r.status_code}: {r.text[:160]}")
-            return False
-        os.makedirs(os.path.dirname(out_path), exist_ok=True)
-        with open(out_path, "wb") as f:
-            f.write(r.content)
-        return True
+        attempts = int(os.getenv("LTX_RETRIES", "2")) + 1
+        last = ""
+        for a in range(attempts):
+            try:
+                r = requests.post(
+                    f"{_base_url()}/generate",
+                    json=payload,
+                    timeout=int(os.getenv("LTX_TIMEOUT_SECONDS", "600")),
+                )
+                if r.status_code == 200 and r.content:
+                    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+                    with open(out_path, "wb") as f:
+                        f.write(r.content)
+                    return True
+                last = f"HTTP {r.status_code}: {r.text[:120]}"
+            except Exception as e:
+                last = str(e)[:120]
+            logger.warning(f"LTX attempt {a+1}/{attempts} failed ({last})")
+        return False
     except Exception as e:
         logger.warning(f"LTX generate failed (non-fatal): {e}")
         return False

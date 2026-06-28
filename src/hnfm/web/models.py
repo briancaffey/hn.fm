@@ -246,6 +246,10 @@ class SegmentImage(BaseModel):
         default=None,
         description="Optional LTX-2 motion clip (stretched) used for this section",
     )
+    video_clip_seconds: Optional[float] = Field(
+        default=None,
+        description="Playback length of the motion clip; the rest of the section uses images",
+    )
     start_ms: Optional[int] = Field(
         default=None, description="Alignment start time in milliseconds"
     )

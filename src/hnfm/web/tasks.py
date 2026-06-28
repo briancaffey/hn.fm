@@ -1022,7 +1022,7 @@ def build_segment_motion_clips(item_id: int, run: int, seg: int) -> Dict[str, an
         img_dir,
     )
     from ..content.art_direction import format_dims
-    from ..video.ltx_service import make_motion_clip
+    from ..video.ltx_service import make_motion_clip, clip_target_seconds
 
     redis_client = get_redis_client()
     outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
@@ -1048,11 +1048,14 @@ def build_segment_motion_clips(item_id: int, run: int, seg: int) -> Dict[str, an
     chosen = sorted(rows, key=lambda r: r[2], reverse=True)[:n_clips]
     made = 0
     for j, (idx, si, dur) in enumerate(chosen):
-        target = max(2.0, dur if dur > 0 else 5.0)
+        # A real 3-4s clip, stretched only a little; the rest of the section
+        # falls back to the image sequence (handled in build_timeline).
+        target = clip_target_seconds(dur)
         clip_out = os.path.join(img_dir(outputs_root, item_id, run, seg, idx), "motion.mp4")
-        logger.info(f"🎞️ LTX motion clip: section {idx} -> {target:.1f}s")
+        logger.info(f"🎞️ LTX motion clip: section {idx} ({dur:.1f}s) -> clip {target:.1f}s")
         if make_motion_clip(si.image_path, si.prompt, clip_out, target, w, h, idx=j):
             si.video_clip_path = clip_out
+            si.video_clip_seconds = target
             save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
             made += 1
         else:
