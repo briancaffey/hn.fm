@@ -1230,7 +1230,7 @@ def generate_segment_video(
             timeline=timeline,
             subtitles_path=subtitle_path,
             output_path=output_video_path,
-            size=(1024, 1024),
+            size=(1280, 720),
             fps=30,
         )
 

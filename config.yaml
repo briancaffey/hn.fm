@@ -93,8 +93,8 @@ asr:
 image_generation:
   backend: "${IMAGE_GENERATION_BACKEND}"  # "NIM" or "INVOKEAI"
   base_url: "${IMAGE_GENERATION_BASE_URL}"
-  default_height: 1024
-  default_width: 1024
+  default_height: 720
+  default_width: 1280
   default_cfg_scale: 1.0
   default_mode: "base"
   default_steps: 50

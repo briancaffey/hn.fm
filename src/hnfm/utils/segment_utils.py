@@ -758,13 +758,13 @@ def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
 
     subs = pysubs2.SSAFile()
     subs.info["Title"] = "hn.fm captions"
-    subs.info["PlayResX"] = "1024"
-    subs.info["PlayResY"] = "1024"
+    subs.info["PlayResX"] = "1280"
+    subs.info["PlayResY"] = "720"
     subs.info["ScaledBorderAndShadow"] = "yes"
 
     style = pysubs2.SSAStyle()
     style.fontname = "DejaVu Sans"
-    style.fontsize = 52
+    style.fontsize = 44
     style.bold = True
     style.primarycolor = pysubs2.Color(80, 230, 255)      # active word = cyan
     style.secondarycolor = pysubs2.Color(255, 255, 255)   # upcoming = white
@@ -775,7 +775,7 @@ def write_ass_from_asr(asr_data: dict, out_path: str) -> None:
     style.alignment = pysubs2.Alignment.BOTTOM_CENTER
     style.marginl = 80
     style.marginr = 80
-    style.marginv = 90
+    style.marginv = 60
     subs.styles["Caption"] = style
 
     for seg in segments:
