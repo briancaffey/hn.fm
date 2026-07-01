@@ -1,25 +1,17 @@
 """Audio utilities for segment section generation"""
 
-import json
 import os
 import wave
-from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
-import redis
 
+from ..db import repo
 from ..web.models import Segment, SegmentSection
 
 
-# Redis key helpers
 def k_sec(item_id: int, run: int, seg: int, section: int) -> str:
-    """Generate Redis key for a section"""
+    """Legacy entity key string (kept on the Pydantic models / API responses)"""
     return f"hnfm:seg:{item_id}:{run}:{seg}:sec:{section}"
-
-
-def k_sec_list(item_id: int, run: int, seg: int) -> str:
-    """Generate Redis key for section list (ordered)"""
-    return f"hnfm:seg:{item_id}:{run}:{seg}:sec:list"
 
 
 # Disk path helpers
@@ -138,19 +130,16 @@ def studio_voice_clean_inplace(wav_path: str) -> None:
         f.write(enhanced_audio)
 
 
-def save_section_meta(
-    meta: SegmentSection, *, redis_client: redis.Redis, outputs_root: str
-) -> None:
+def save_section_meta(meta: SegmentSection, *, outputs_root: str) -> None:
     """
-    Save section metadata to Redis and disk.
+    Save section metadata to Postgres and disk.
 
     Args:
         meta: Section metadata object
-        redis_client: Redis client
         outputs_root: Root outputs directory
     """
-    # Save to Redis
-    redis_client.set(meta.key, meta.model_dump_json())
+    # Save to Postgres
+    repo.save_section(meta)
 
     # Ensure directory exists
     meta_dir = sec_dir(outputs_root, meta.item_id, meta.run, meta.seg, meta.section)
@@ -163,54 +152,37 @@ def save_section_meta(
     with open(meta_file, "w", encoding="utf-8") as f:
         f.write(meta.model_dump_json())
 
+    # Publish the section audio to the object store (non-fatal)
+    from ..storage import object_store
+
+    object_store.publish_file(meta.audio_path)
+
 
 def get_section_meta(
-    item_id: int, run: int, seg: int, section: int, *, redis_client: redis.Redis
+    item_id: int, run: int, seg: int, section: int
 ) -> Optional[SegmentSection]:
     """
-    Get section metadata from Redis.
-
-    Args:
-        item_id: Item ID
-        run: Run number
-        seg: Segment number
-        section: Section number
-        redis_client: Redis client
+    Get section metadata from Postgres.
 
     Returns:
         Section metadata or None if not found
     """
-    key = k_sec(item_id, run, seg, section)
-    data = redis_client.get(key)
-
-    if not data:
-        return None
-
-    try:
-        return SegmentSection.model_validate_json(data)
-    except Exception:
-        return None
+    return repo.get_section(item_id, run, seg, section)
 
 
-def list_section_numbers(
-    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
-) -> List[int]:
+def list_section_numbers(item_id: int, run: int, seg: int) -> List[int]:
     """
     List section numbers for a segment in order.
-
-    Args:
-        item_id: Item ID
-        run: Run number
-        seg: Segment number
-        redis_client: Redis client
 
     Returns:
         List of section numbers in ascending order
     """
-    key = k_sec_list(item_id, run, seg)
-    section_strings = redis_client.lrange(key, 0, -1)
+    return repo.list_section_numbers(item_id, run, seg)
 
-    return [int(section_str) for section_str in section_strings]
+
+def delete_sections(item_id: int, run: int, seg: int) -> None:
+    """Remove all section records for a segment (rebuild-all clears first)."""
+    repo.delete_sections(item_id, run, seg)
 
 
 def stitch_sections_to_wav(section_paths: List[str], out_path: str) -> int:
@@ -280,11 +252,10 @@ def update_segment_audio_status(
     combined_path: str,
     ready: bool,
     *,
-    redis_client: redis.Redis,
     outputs_root: str,
 ) -> None:
     """
-    Update segment audio status in Redis and disk.
+    Update segment audio status in Postgres and disk.
 
     Args:
         item_id: Item ID
@@ -293,13 +264,12 @@ def update_segment_audio_status(
         sections_total: Total number of sections
         combined_path: Path to combined audio file
         ready: Whether audio is ready
-        redis_client: Redis client
         outputs_root: Root outputs directory
     """
-    from ..utils.segment_utils import k_seg, get_segment
+    from ..utils.segment_utils import get_segment, save_segment
 
     # Load existing segment
-    segment = get_segment(item_id, run, seg, redis_client=redis_client)
+    segment = get_segment(item_id, run, seg)
     if not segment:
         raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
 
@@ -308,16 +278,13 @@ def update_segment_audio_status(
     segment.audio_combined_path = combined_path
     segment.audio_ready = ready
 
-    # Save to Redis
-    redis_client.set(segment.key, segment.model_dump_json())
+    # Save to Postgres and disk
+    save_segment(segment, outputs_root=outputs_root)
 
-    # Save to disk
-    seg_path = seg_root(outputs_root, item_id, run, seg)
-    Path(seg_path).mkdir(parents=True, exist_ok=True)
+    # Publish the combined audio to the object store (non-fatal)
+    from ..storage import object_store
 
-    segment_file = os.path.join(seg_path, "segment.json")
-    with open(segment_file, "w", encoding="utf-8") as f:
-        f.write(segment.model_dump_json())
+    object_store.publish_file(combined_path)
 
 
 def _get_audio_duration_ms(wav_path: str) -> int:

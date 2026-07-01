@@ -3,13 +3,12 @@
 import pytest
 import tempfile
 import os
-from unittest.mock import Mock, patch, mock_open
+from unittest.mock import Mock, patch
 from datetime import datetime
 
 from ..audio.audio_utils import (
     split_script_into_sections,
     k_sec,
-    k_sec_list,
     sec_audio_path,
     combined_audio_path,
     _get_audio_duration_ms,
@@ -63,17 +62,12 @@ class TestScriptSplitting:
 
 
 class TestKeyHelpers:
-    """Test Redis key and path helper functions"""
+    """Test legacy key and path helper functions"""
 
     def test_k_sec(self):
-        """Test section key generation"""
+        """Test legacy section key generation (still used on API models)"""
         key = k_sec(123, 1, 2, 3)
         assert key == "hnfm:seg:123:1:2:sec:3"
-
-    def test_k_sec_list(self):
-        """Test section list key generation"""
-        key = k_sec_list(123, 1, 2)
-        assert key == "hnfm:seg:123:1:2:sec:list"
 
     def test_sec_audio_path(self):
         """Test section audio path generation"""
@@ -99,7 +93,6 @@ class TestAudioDuration:
 
             # Create a simple WAV file (1 second, 44.1kHz, 16-bit, mono)
             import wave
-            import struct
 
             sample_rate = 44100
             duration_seconds = 1.0
@@ -127,25 +120,53 @@ class TestAudioDuration:
 
 
 class TestSectionMetadata:
-    """Test section metadata operations"""
+    """Test section metadata operations against the test database"""
 
-    @patch("redis.Redis")
-    @patch("pathlib.Path.mkdir")
-    def test_save_get_list_section_meta_roundtrip(self, mock_mkdir, mock_redis_class):
-        """Test saving, getting, and listing section metadata"""
+    def test_save_get_list_delete_section_meta_roundtrip(self, outputs_root):
+        """Test saving, getting, listing, and deleting section metadata"""
         from ..audio.audio_utils import (
             save_section_meta,
             get_section_meta,
             list_section_numbers,
+            delete_sections,
+            sec_meta_path,
         )
-        from ..web.models import SegmentSection
+        from ..db import repo
+        from ..web.models import HNItem, ProcessedRun, Segment, SegmentSection
 
-        # Setup mock Redis client
-        mock_redis = Mock()
-        mock_redis_class.return_value = mock_redis
+        now = datetime.utcnow()
+
+        # Sections require their segment, which requires its run and item
+        repo.upsert_item(HNItem(id=123))
+        repo.save_run(
+            ProcessedRun(
+                key="hnfm:item:123:run:1",
+                item_id=123,
+                run=1,
+                created_at=now,
+                source_url="https://example.com",
+                content_raw="Raw",
+                content_clean="Clean",
+                summary="Summary",
+                short_description="Short",
+                tags=["tag"],
+                emoji=["🎧", "📰", "🔥", "🚀"],
+                haiku="haiku",
+            )
+        )
+        repo.save_segment(
+            Segment(
+                key="hnfm:seg:123:1:2",
+                item_id=123,
+                run=1,
+                seg=2,
+                created_at=now,
+                processed_run_key="hnfm:item:123:run:1",
+                script="[S1] Test text",
+            )
+        )
 
         # Create test section metadata
-        now = datetime.utcnow()
         section_meta = SegmentSection(
             key="hnfm:seg:123:1:2:sec:1",
             item_id=123,
@@ -160,29 +181,24 @@ class TestSectionMetadata:
             updated_at=now,
         )
 
-        # Mock Redis operations
-        mock_redis.set.return_value = True
-        mock_redis.get.return_value = section_meta.model_dump_json().encode()
-        mock_redis.lrange.return_value = [b"1"]
-
-        # Test save
-        with patch("builtins.open", mock_open()):
-            save_section_meta(
-                section_meta, redis_client=mock_redis, outputs_root="/outputs"
-            )
-
-        # Verify Redis set was called
-        mock_redis.set.assert_called_once()
+        # Test save (DB + disk mirror)
+        save_section_meta(section_meta, outputs_root=outputs_root)
+        assert os.path.exists(sec_meta_path(outputs_root, 123, 1, 2, 1))
 
         # Test get
-        retrieved_meta = get_section_meta(123, 1, 2, 1, redis_client=mock_redis)
+        retrieved_meta = get_section_meta(123, 1, 2, 1)
         assert retrieved_meta is not None
         assert retrieved_meta.text == "Test text"
         assert retrieved_meta.duration_ms == 1000
 
         # Test list
-        section_numbers = list_section_numbers(123, 1, 2, redis_client=mock_redis)
+        section_numbers = list_section_numbers(123, 1, 2)
         assert section_numbers == [1]
+
+        # Test delete_sections clears the segment's sections
+        delete_sections(123, 1, 2)
+        assert list_section_numbers(123, 1, 2) == []
+        assert get_section_meta(123, 1, 2, 1) is None
 
 
 class TestAudioStitching:

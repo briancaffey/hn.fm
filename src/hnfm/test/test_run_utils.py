@@ -1,13 +1,12 @@
-"""Tests for run utilities."""
+"""Tests for run utilities (Postgres-backed via the sqlite test DB)."""
 
 import json
 import os
-import tempfile
-import pytest
 from datetime import datetime
-from unittest.mock import patch, MagicMock
-import fakeredis
 
+import pytest
+
+from ..db import repo
 from ..utils.run_utils import (
     next_run_id,
     scrape_url_firecrawl,
@@ -16,12 +15,27 @@ from ..utils.run_utils import (
     save_processed_run,
     list_runs_for_item,
     get_run,
-    get_run_key,
-    get_run_seq_key,
-    get_runs_list_key,
     get_run_disk_path,
 )
-from ..web.models import ProcessedRun
+from ..web.models import HNItem, ProcessedRun
+
+
+def make_processed_run(item_id: int, run: int, summary: str = "Summary") -> ProcessedRun:
+    """Build a valid ProcessedRun for tests (key is recomputed on read)."""
+    return ProcessedRun(
+        key=f"hnfm:item:{item_id}:run:{run}",
+        item_id=item_id,
+        run=run,
+        created_at=datetime.utcnow(),
+        source_url="https://example.com",
+        content_raw="Raw content",
+        content_clean="Clean content",
+        summary=summary,
+        short_description="A short description",
+        tags=["tag1", "tag2"],
+        emoji=["🎧", "📰", "🔥", "🚀"],
+        haiku="an article read\nsummarized in a few lines\ntests still pass today",
+    )
 
 
 class TestRunUtils:
@@ -29,17 +43,15 @@ class TestRunUtils:
 
     def test_next_run_id_increments(self):
         """Test that next_run_id increments properly."""
-        fake_redis = fakeredis.FakeRedis(decode_responses=True)
-
-        # New item: INCR returns 1, then 2
-        run1 = next_run_id(123, redis_client=fake_redis)
+        # New item: counter returns 1, then 2
+        run1 = next_run_id(123)
         assert run1 == 1
 
-        run2 = next_run_id(123, redis_client=fake_redis)
+        run2 = next_run_id(123)
         assert run2 == 2
 
         # Different item should start from 1
-        run3 = next_run_id(456, redis_client=fake_redis)
+        run3 = next_run_id(456)
         assert run3 == 1
 
     def test_clean_content(self):
@@ -76,96 +88,70 @@ class TestRunUtils:
             # This is also acceptable - the function should handle errors gracefully
             pass
 
-    def test_save_processed_run_persists_everywhere(self):
-        """Test that save_processed_run persists to Redis and disk."""
-        fake_redis = fakeredis.FakeRedis(decode_responses=True)
+    def test_save_processed_run_persists_everywhere(self, outputs_root):
+        """Test that save_processed_run persists to the DB and disk."""
+        # A run row requires its parent hn_item
+        repo.upsert_item(HNItem(id=123))
 
-        with tempfile.TemporaryDirectory() as temp_dir:
-            # Create a test ProcessedRun
-            processed_run = ProcessedRun(
-                key="hnfm:item:123:run:1",
-                item_id=123,
-                run=1,
-                created_at=datetime.utcnow(),
-                source_url="https://example.com",
-                content_raw="Raw content",
-                content_clean="Clean content",
-                summary="Summary",
-            )
+        processed_run = make_processed_run(123, 1)
 
-            # Save the run
-            save_processed_run(
-                processed_run, redis_client=fake_redis, outputs_root=temp_dir
-            )
+        # Save the run
+        save_processed_run(processed_run, outputs_root=outputs_root)
 
-            # Assert Redis key exists
-            run_key = get_run_key(123, 1)
-            assert fake_redis.exists(run_key)
+        # Assert the run is readable back via the public function
+        saved = get_run(123, 1)
+        assert saved is not None
+        assert saved.item_id == 123
+        assert saved.run == 1
+        assert saved.summary == "Summary"
 
-            # Assert run is in the runs list
-            runs_list_key = get_runs_list_key(123)
-            assert fake_redis.llen(runs_list_key) == 1
-            assert fake_redis.lrange(runs_list_key, 0, -1) == ["1"]
+        # Assert the run shows up in the runs list
+        assert list_runs_for_item(123) == [1]
 
-            # Assert file exists
-            disk_path = get_run_disk_path(123, 1, temp_dir)
-            assert os.path.exists(disk_path)
+        # Assert file exists
+        disk_path = get_run_disk_path(outputs_root, 123, 1)
+        assert os.path.exists(disk_path)
 
-            # Verify file content
-            with open(disk_path, "r") as f:
-                saved_data = json.load(f)
-                assert saved_data["item_id"] == 123
-                assert saved_data["run"] == 1
-                assert saved_data["summary"] == "Summary"
+        # Verify file content
+        with open(disk_path, "r") as f:
+            saved_data = json.load(f)
+            assert saved_data["item_id"] == 123
+            assert saved_data["run"] == 1
+            assert saved_data["summary"] == "Summary"
 
-    def test_list_runs_for_item_newest_first(self):
+    def test_list_runs_for_item_newest_first(self, outputs_root):
         """Test that list_runs_for_item returns newest first."""
-        fake_redis = fakeredis.FakeRedis(decode_responses=True)
+        repo.upsert_item(HNItem(id=123))
 
-        # Seed runs list with LPUSH 2 then 1 (newest first)
-        # LPUSH adds to the left, so lpush("2", "1") results in ["1", "2"] with "1" being newest
-        runs_list_key = get_runs_list_key(123)
-        fake_redis.lpush(runs_list_key, "2", "1")
+        # Save runs 1 and 2 — run 2 is the newest
+        save_processed_run(make_processed_run(123, 1), outputs_root=outputs_root)
+        save_processed_run(make_processed_run(123, 2), outputs_root=outputs_root)
 
-        # Test listing - should return newest first
-        runs = list_runs_for_item(123, redis_client=fake_redis)
-        assert runs == [1, 2]  # "1" is newest (pushed last)
+        # Test listing - should return newest (highest run number) first
+        runs = list_runs_for_item(123)
+        assert runs == [2, 1]
 
-    def test_list_runs_for_item_with_pagination(self):
+    def test_list_runs_for_item_with_pagination(self, outputs_root):
         """Test pagination in list_runs_for_item."""
-        fake_redis = fakeredis.FakeRedis(decode_responses=True)
+        repo.upsert_item(HNItem(id=123))
 
-        # Seed with multiple runs
-        # lpush("5", "4", "3", "2", "1") results in ["1", "2", "3", "4", "5"] with "1" being newest
-        runs_list_key = get_runs_list_key(123)
-        fake_redis.lpush(runs_list_key, "5", "4", "3", "2", "1")
+        # Seed with multiple runs; newest-first order is [5, 4, 3, 2, 1]
+        for run in [1, 2, 3, 4, 5]:
+            save_processed_run(make_processed_run(123, run), outputs_root=outputs_root)
 
-        # Test pagination - offset 1, limit 2 should return [2, 3]
-        runs = list_runs_for_item(123, redis_client=fake_redis, offset=1, limit=2)
-        assert runs == [2, 3]
+        # Test pagination - offset 1, limit 2 should return [4, 3]
+        runs = list_runs_for_item(123, offset=1, limit=2)
+        assert runs == [4, 3]
 
     def test_get_run_roundtrip(self):
         """Test get_run roundtrip."""
-        fake_redis = fakeredis.FakeRedis(decode_responses=True)
+        repo.upsert_item(HNItem(id=123))
 
-        # Create and save a run
-        processed_run = ProcessedRun(
-            key="hnfm:item:123:run:1",
-            item_id=123,
-            run=1,
-            created_at=datetime.utcnow(),
-            source_url="https://example.com",
-            content_raw="Raw content",
-            content_clean="Clean content",
-            summary="Summary",
-        )
-
-        # Save to Redis
-        run_key = get_run_key(123, 1)
-        fake_redis.set(run_key, processed_run.model_dump_json())
+        # Save a run directly through the repo
+        repo.save_run(make_processed_run(123, 1))
 
         # Retrieve and verify
-        retrieved_run = get_run(123, 1, redis_client=fake_redis)
+        retrieved_run = get_run(123, 1)
         assert retrieved_run is not None
         assert retrieved_run.item_id == 123
         assert retrieved_run.run == 1
@@ -173,19 +159,11 @@ class TestRunUtils:
 
     def test_get_run_missing(self):
         """Test get_run with missing run."""
-        fake_redis = fakeredis.FakeRedis(decode_responses=True)
-
-        retrieved_run = get_run(123, 999, redis_client=fake_redis)
+        retrieved_run = get_run(123, 999)
         assert retrieved_run is None
-
-    def test_redis_key_helpers(self):
-        """Test Redis key helper functions."""
-        assert get_run_key(123, 1) == "hnfm:item:123:run:1"
-        assert get_run_seq_key(123) == "hnfm:item:123:run_seq"
-        assert get_runs_list_key(123) == "hnfm:item:123:runs"
 
     def test_disk_path_helper(self):
         """Test disk path helper function."""
-        path = get_run_disk_path(123, 1, "/outputs")
+        path = get_run_disk_path("/outputs", 123, 1)
         expected = "/outputs/hn/item/123/runs/1/processed.json"
         assert path == expected

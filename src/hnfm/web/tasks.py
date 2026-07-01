@@ -1,19 +1,19 @@
 """Celery tasks for Hacker News operations"""
 
 import os
-import json
 import logging
 from typing import Dict
-import redis
 from datetime import datetime
 
 from .celery_app import celery_app
-from ..utils.hn_utils import exists_item, get_item_json_and_store
+from ..db import repo, steps
+from ..utils.hn_utils import exists_item, get_item, get_item_json_and_store
 from ..utils.run_utils import (
     scrape_url_firecrawl,
     clean_content,
     summarize_text_v1,
     save_processed_run,
+    get_run,
 )
 from ..content.content_enrichment import (
     generate_short_description,
@@ -37,10 +37,10 @@ from ..audio.audio_utils import (
     save_section_meta,
     get_section_meta,
     list_section_numbers,
+    delete_sections,
     stitch_sections_to_wav,
     update_segment_audio_status,
     k_sec,
-    k_sec_list,
     sec_audio_path,
     combined_audio_path,
 )
@@ -49,29 +49,12 @@ from ..audio.asr_service import ASRService
 logger = logging.getLogger(__name__)
 
 
-def get_redis_client(decode_responses=False):
-    """Get Redis client with configuration from environment variables."""
-    redis_host = os.getenv("REDIS_HOST", "localhost")
-    redis_port = int(os.getenv("REDIS_PORT", "6379"))
-    redis_db = int(os.getenv("REDIS_DB", "0"))
-
-    return redis.Redis(
-        host=redis_host,
-        port=redis_port,
-        db=redis_db,
-        decode_responses=decode_responses,
-    )
-
-
 @celery_app.task(name="hnfm.web.tasks.hn_fetch_item")
 def hn_fetch_item(item_id: int) -> Dict[str, any]:
     """Fetch and store a Hacker News item"""
     try:
-        # Get Redis client
-        redis_client = get_redis_client()
-
         # Check if item already exists
-        if exists_item(item_id, redis_client=redis_client):
+        if exists_item(item_id):
             logger.info(f"Item {item_id} already exists, skipping")
             return {"status": "exists", "id": item_id}
 
@@ -79,9 +62,7 @@ def hn_fetch_item(item_id: int) -> Dict[str, any]:
         outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
 
         # Fetch and store the item
-        get_item_json_and_store(
-            item_id, redis_client=redis_client, outputs_dir=outputs_dir
-        )
+        get_item_json_and_store(item_id, outputs_dir=outputs_dir)
 
         logger.info(f"Successfully fetched and stored item {item_id}")
         return {"status": "fetched", "id": item_id}
@@ -101,8 +82,8 @@ def process_hn_item_run(
     Process a HN item run: scrape, clean, summarize, and store.
 
     Steps:
-    1) GET hn:item:{item_id} from Redis. If missing → raise.
-    2) Parse JSON; read item['url']. If missing → raise.
+    1) Load the HN item from the database. If missing → raise.
+    2) Read item.url. If missing → raise.
     3) content_raw = scrape_url_firecrawl(url)
     4) content_clean = clean_content(content_raw)
     5) summary = summarize_text_v1(content_clean)
@@ -112,28 +93,23 @@ def process_hn_item_run(
     9) return {"status": "ok", "item_id": item_id, "run": run}
     """
     try:
-        # Get Redis client
-        redis_client = get_redis_client()
-
         # Get next run ID if not provided
         if run is None:
             from ..utils.run_utils import next_run_id
 
-            run = next_run_id(item_id, redis_client=redis_client)
+            run = next_run_id(item_id)
 
         # Get outputs directory
         outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
 
-        # Step 1: Get the HN item from Redis
-        item_key = f"hnfm:item:{item_id}"
-        item_json = redis_client.get(item_key)
+        # Step 1: Get the HN item
+        item = get_item(item_id)
 
-        if not item_json:
-            raise RuntimeError(f"Item {item_id} not found in Redis")
+        if not item:
+            raise RuntimeError(f"Item {item_id} not found in database")
 
-        # Step 2: Parse JSON and get URL
-        item_data = json.loads(item_json)
-        url = item_data.get("url")
+        # Step 2: Get URL
+        url = item.url
 
         if not url:
             raise RuntimeError(f"Item {item_id} has no URL")
@@ -141,28 +117,37 @@ def process_hn_item_run(
         # Step 3: Scrape content (non-fatal: degrade to HN title/text on failure
         # so paywalled/blocked URLs don't kill the whole pipeline)
         logger.info(f"Scraping content from {url}")
-        try:
-            content_raw = scrape_url_firecrawl(url)
-        except Exception as scrape_err:
-            logger.warning(
-                f"⚠️ Scrape failed ({scrape_err}); falling back to HN title/text"
-            )
-            _title = item_data.get("title", "") or ""
-            _text = item_data.get("text", "") or ""
-            content_raw = (f"{_title}\n\n{_text}").strip() or _title or url
-            if len(content_raw) < 40:
-                content_raw = (
-                    f"This Hacker News story is titled '{_title}'. "
-                    f"The linked source could not be retrieved, so discuss the topic "
-                    f"based on the title and general knowledge."
+        with steps.step(item_id, run, None, "scrape", "scrape", {"url": url}) as st:
+            try:
+                content_raw = scrape_url_firecrawl(url)
+                st.set(chars=len(content_raw), fallback=False)
+            except Exception as scrape_err:
+                logger.warning(
+                    f"⚠️ Scrape failed ({scrape_err}); falling back to HN title/text"
                 )
+                _title = item.title or ""
+                _text = item.text or ""
+                content_raw = (f"{_title}\n\n{_text}").strip() or _title or url
+                if len(content_raw) < 40:
+                    content_raw = (
+                        f"This Hacker News story is titled '{_title}'. "
+                        f"The linked source could not be retrieved, so discuss the topic "
+                        f"based on the title and general knowledge."
+                    )
+                st.set(chars=len(content_raw), fallback=True,
+                       fallback_reason=str(scrape_err))
 
         # Step 4: Clean content
         content_clean = clean_content(content_raw)
 
         # Step 5: Summarize content
         logger.info(f"Summarizing content for item {item_id}, run {run}")
-        summary = summarize_text_v1(content_clean)
+        with steps.step(
+            item_id, run, None, "summary", "summary",
+            {"content_chars": len(content_clean)},
+        ) as st:
+            summary = summarize_text_v1(content_clean)
+            st.set(summary=summary)
 
         # Step 6: Generate additional content fields. These are cosmetic metadata
         # — a flaky LLM response must NOT fail the whole video. Each falls back.
@@ -174,12 +159,14 @@ def process_hn_item_run(
                 return default
 
         logger.info(f"Generating metadata for item {item_id}, run {run}")
-        short_description = _safe(lambda: generate_short_description(summary),
-                                  (summary or "")[:160], "short_description")
-        tags = _safe(lambda: generate_tags(summary), ["tech", "news"], "tags")
-        emoji = _safe(lambda: generate_emoji(summary), ["📰", "✨", "🔥", "💡"], "emoji")
-        haiku = _safe(lambda: generate_haiku(content_clean),
-                      "A story unfolds\nthrough pixels and quiet code\ninsight takes its form", "haiku")
+        with steps.step(item_id, run, None, "enrich", "enrich", {}) as st:
+            short_description = _safe(lambda: generate_short_description(summary),
+                                      (summary or "")[:160], "short_description")
+            tags = _safe(lambda: generate_tags(summary), ["tech", "news"], "tags")
+            emoji = _safe(lambda: generate_emoji(summary), ["📰", "✨", "🔥", "💡"], "emoji")
+            haiku = _safe(lambda: generate_haiku(content_clean),
+                          "A story unfolds\nthrough pixels and quiet code\ninsight takes its form", "haiku")
+            st.set(short_description=short_description, tags=tags, emoji=emoji, haiku=haiku)
 
         # Step 7: Build ProcessedRun
         processed_run = ProcessedRun(
@@ -197,10 +184,8 @@ def process_hn_item_run(
             haiku=haiku,
         )
 
-        # Step 8: Save to Redis and disk
-        save_processed_run(
-            processed_run, redis_client=redis_client, outputs_root=outputs_dir
-        )
+        # Step 8: Save to Postgres and disk
+        save_processed_run(processed_run, outputs_root=outputs_dir)
 
         logger.info(f"Successfully processed run {run} for item {item_id}")
 
@@ -230,7 +215,7 @@ def generate_segment(
     Generate a script segment for a specific run.
 
     Steps:
-    1) Load ProcessedRun from Redis: GET "hnfm:item:{item_id}:run:{run}".
+    1) Load ProcessedRun from the database.
        - If missing → raise.
     2) Extract content_clean and summary.
        - If missing/empty → raise.
@@ -241,40 +226,41 @@ def generate_segment(
     7) return {"status":"ok","item_id":item_id,"run":run,"seg":seg}
     """
     try:
-        # Get Redis client
-        redis_client = get_redis_client()
-
         # Get next segment ID if not provided
         if seg is None:
             from ..utils.segment_utils import next_seg_id
 
-            seg = next_seg_id(item_id, run, redis_client=redis_client)
+            seg = next_seg_id(item_id, run)
 
         # Get outputs directory
         outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
 
-        # Step 1: Load ProcessedRun from Redis
+        # Step 1: Load ProcessedRun
         processed_run_key = f"hnfm:item:{item_id}:run:{run}"
-        processed_run_json = redis_client.get(processed_run_key)
+        processed_run = get_run(item_id, run)
 
-        if not processed_run_json:
-            raise RuntimeError(f"ProcessedRun {processed_run_key} not found in Redis")
+        if not processed_run:
+            raise RuntimeError(f"ProcessedRun {item_id}:{run} not found in database")
 
-        # Step 2: Parse JSON and extract content_clean and summary
-        processed_run_data = json.loads(processed_run_json)
-        content_clean = processed_run_data.get("content_clean", "")
-        summary = processed_run_data.get("summary", "")
+        # Step 2: Extract content_clean and summary
+        content_clean = processed_run.content_clean
+        summary = processed_run.summary
 
         if not content_clean or not summary:
             raise RuntimeError(
-                f"ProcessedRun {processed_run_key} missing content_clean or summary"
+                f"ProcessedRun {item_id}:{run} missing content_clean or summary"
             )
 
         # Step 3: Generate script
         logger.info(
             f"Generating script for segment {seg} of run {run} for item {item_id}"
         )
-        script = generate_script_v1(content_clean, summary)
+        with steps.step(
+            item_id, run, seg, "script", "script",
+            {"summary": summary, "content_chars": len(content_clean)},
+        ) as st:
+            script = generate_script_v1(content_clean, summary)
+            st.set(script=script)
 
         # Step 4: Build Segment
         segment = Segment(
@@ -288,7 +274,7 @@ def generate_segment(
         )
 
         # Step 5: Save segment
-        save_segment(segment, redis_client=redis_client, outputs_root=outputs_dir)
+        save_segment(segment, outputs_root=outputs_dir)
 
         logger.info(
             f"Successfully generated segment {seg} for run {run} of item {item_id}"
@@ -339,14 +325,11 @@ def build_segment_audio(
         Status dictionary
     """
     try:
-        # Get Redis client
-        redis_client = get_redis_client()
-
         # Get outputs directory
         outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
 
         # Step 1: Load Segment (must exist)
-        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        segment = get_segment(item_id, run, seg)
         if not segment:
             raise RuntimeError(f"Segment {item_id}:{run}:{seg} not found")
 
@@ -360,9 +343,8 @@ def build_segment_audio(
             sections_text = split_script_into_sections(segment.script)
             logger.info(f"Script split into {len(sections_text)} sections")
 
-            # Step 2b: Clear existing section list
-            section_key = k_sec_list(item_id, run, seg)
-            redis_client.delete(section_key)  # Clear existing sections
+            # Step 2b: Clear existing sections
+            delete_sections(item_id, run, seg)
 
             # Step 2c: Generate all audio sections first
             section_metas = []
@@ -371,10 +353,17 @@ def build_segment_audio(
 
                 # Generate audio
                 out_wav = sec_audio_path(outputs_dir, item_id, run, seg, idx)
-                duration = tts_synthesize_to_wav(text, out_wav)
+                with steps.step(
+                    item_id, run, seg, "audio", f"audio/sec_{idx}",
+                    {"text": text,
+                     "backend": os.getenv("TTS_BACKEND", "magpie"),
+                     "voice": os.getenv("TTS_DEFAULT_VOICE", "notebooklm")},
+                ) as st:
+                    duration = tts_synthesize_to_wav(text, out_wav)
 
-                # Clean with studio-voice
-                studio_voice_clean_inplace(out_wav)
+                    # Clean with studio-voice
+                    studio_voice_clean_inplace(out_wav)
+                    st.set(audio_path=out_wav, duration_ms=duration)
 
                 # Create metadata (don't save yet)
                 meta = SegmentSection(
@@ -392,26 +381,24 @@ def build_segment_audio(
                 )
                 section_metas.append(meta)
 
-            # Step 2d: Save all section metadata to Redis
+            # Step 2d: Save all section metadata
             for meta in section_metas:
-                # Add section to the list
-                redis_client.rpush(section_key, str(meta.section))
-                # Save section metadata
-                save_section_meta(
-                    meta, redis_client=redis_client, outputs_root=outputs_dir
-                )
+                save_section_meta(meta, outputs_root=outputs_dir)
 
             # Step 2e: Get all section paths in order and stitch together
-            section_numbers = list_section_numbers(
-                item_id, run, seg, redis_client=redis_client
-            )
+            section_numbers = list_section_numbers(item_id, run, seg)
             paths = [
                 sec_audio_path(outputs_dir, item_id, run, seg, s)
                 for s in section_numbers
             ]
 
             combined_path = combined_audio_path(outputs_dir, item_id, run, seg)
-            total_ms = stitch_sections_to_wav(paths, combined_path)
+            with steps.step(
+                item_id, run, seg, "audio", "audio/stitch",
+                {"sections": section_numbers},
+            ) as st:
+                total_ms = stitch_sections_to_wav(paths, combined_path)
+                st.set(combined_path=combined_path, total_ms=total_ms)
 
             # Step 2f: Update segment status
             update_segment_audio_status(
@@ -421,7 +408,6 @@ def build_segment_audio(
                 sections_total=len(paths),
                 combined_path=combined_path,
                 ready=True,
-                redis_client=redis_client,
                 outputs_root=outputs_dir,
             )
 
@@ -437,17 +423,22 @@ def build_segment_audio(
             # Check if combined audio exists for ASR
             if os.path.exists(combined_path):
                 try:
-                    # Run ASR
-                    asr_service = ASRService()
-                    asr_result = asr_service.process_audio(combined_path)
+                    with steps.step(
+                        item_id, run, seg, "audio", "audio/asr",
+                        {"combined_path": combined_path},
+                    ) as _st:
+                        # Run ASR
+                        asr_service = ASRService()
+                        asr_result = asr_service.process_audio(combined_path)
 
-                    # Persist ASR JSON
-                    asr_path = asr_json_path(outputs_dir, item_id, run, seg)
-                    write_json(asr_path, asr_result)
+                        # Persist ASR JSON
+                        asr_path = asr_json_path(outputs_dir, item_id, run, seg)
+                        write_json(asr_path, asr_result)
+                        _st.set(asr_json_path=asr_path)
 
                     # QA: compare what was narrated to the script (a receipt)
                     qa = None
-                    seg_obj = get_segment(item_id, run, seg, redis_client=redis_client)
+                    seg_obj = get_segment(item_id, run, seg)
                     if seg_obj:
                         try:
                             from ..audio.asr_service import asr_qa_report
@@ -466,9 +457,7 @@ def build_segment_audio(
                             logger.warning(f"ASR QA failed: {qa_err}")
                         seg_obj.asr_json_path = asr_path
                         seg_obj.asr_qa = qa
-                        save_segment(
-                            seg_obj, redis_client=redis_client, outputs_root=outputs_dir
-                        )
+                        save_segment(seg_obj, outputs_root=outputs_dir)
 
                     result_dict["asr"] = "ok"
                     if qa:
@@ -512,9 +501,7 @@ def build_segment_audio(
 
             # Step 3a: Get text (override or existing)
             if text_override is None:
-                existing_meta = get_section_meta(
-                    item_id, run, seg, section, redis_client=redis_client
-                )
+                existing_meta = get_section_meta(item_id, run, seg, section)
                 if not existing_meta:
                     raise RuntimeError(
                         f"Section {section} not found and no text override provided"
@@ -525,10 +512,18 @@ def build_segment_audio(
 
             # Step 3b: Generate audio
             out_wav = sec_audio_path(outputs_dir, item_id, run, seg, section)
-            duration = tts_synthesize_to_wav(text, out_wav)
+            with steps.step(
+                item_id, run, seg, "audio", f"audio/sec_{section}",
+                {"text": text,
+                 "backend": os.getenv("TTS_BACKEND", "magpie"),
+                 "voice": os.getenv("TTS_DEFAULT_VOICE", "notebooklm"),
+                 "text_override": text_override is not None},
+            ) as st:
+                duration = tts_synthesize_to_wav(text, out_wav)
 
-            # Step 3c: Clean with studio-voice
-            studio_voice_clean_inplace(out_wav)
+                # Step 3c: Clean with studio-voice
+                studio_voice_clean_inplace(out_wav)
+                st.set(audio_path=out_wav, duration_ms=duration)
 
             # Step 3d: Create and save metadata
             meta = SegmentSection(
@@ -544,18 +539,21 @@ def build_segment_audio(
                 created_at=datetime.utcnow(),
                 updated_at=datetime.utcnow(),
             )
-            save_section_meta(meta, redis_client=redis_client, outputs_root=outputs_dir)
+            save_section_meta(meta, outputs_root=outputs_dir)
 
             # Step 3e: Re-stitch all sections
-            section_numbers = list_section_numbers(
-                item_id, run, seg, redis_client=redis_client
-            )
+            section_numbers = list_section_numbers(item_id, run, seg)
             paths = [
                 sec_audio_path(outputs_dir, item_id, run, seg, s)
                 for s in section_numbers
             ]
             combined_path = combined_audio_path(outputs_dir, item_id, run, seg)
-            total_ms = stitch_sections_to_wav(paths, combined_path)
+            with steps.step(
+                item_id, run, seg, "audio", "audio/stitch",
+                {"sections": section_numbers},
+            ) as st:
+                total_ms = stitch_sections_to_wav(paths, combined_path)
+                st.set(combined_path=combined_path, total_ms=total_ms)
 
             # Step 3f: Update segment status
             update_segment_audio_status(
@@ -565,7 +563,6 @@ def build_segment_audio(
                 sections_total=len(paths),
                 combined_path=combined_path,
                 ready=True,
-                redis_client=redis_client,
                 outputs_root=outputs_dir,
             )
 
@@ -585,17 +582,22 @@ def build_segment_audio(
             # Check if combined audio exists for ASR
             if os.path.exists(combined_path):
                 try:
-                    # Run ASR
-                    asr_service = ASRService()
-                    asr_result = asr_service.process_audio(combined_path)
+                    with steps.step(
+                        item_id, run, seg, "audio", "audio/asr",
+                        {"combined_path": combined_path},
+                    ) as _st:
+                        # Run ASR
+                        asr_service = ASRService()
+                        asr_result = asr_service.process_audio(combined_path)
 
-                    # Persist ASR JSON
-                    asr_path = asr_json_path(outputs_dir, item_id, run, seg)
-                    write_json(asr_path, asr_result)
+                        # Persist ASR JSON
+                        asr_path = asr_json_path(outputs_dir, item_id, run, seg)
+                        write_json(asr_path, asr_result)
+                        _st.set(asr_json_path=asr_path)
 
                     # QA: compare what was narrated to the script (a receipt)
                     qa = None
-                    seg_obj = get_segment(item_id, run, seg, redis_client=redis_client)
+                    seg_obj = get_segment(item_id, run, seg)
                     if seg_obj:
                         try:
                             from ..audio.asr_service import asr_qa_report
@@ -614,9 +616,7 @@ def build_segment_audio(
                             logger.warning(f"ASR QA failed: {qa_err}")
                         seg_obj.asr_json_path = asr_path
                         seg_obj.asr_qa = qa
-                        save_segment(
-                            seg_obj, redis_client=redis_client, outputs_root=outputs_dir
-                        )
+                        save_segment(seg_obj, outputs_root=outputs_dir)
 
                     result_dict["asr"] = "ok"
                     if qa:
@@ -691,14 +691,11 @@ def build_segment_images(
         from ..utils.run_utils import get_run
         from .models import SegmentImage
 
-        # Get Redis client
-        redis_client = get_redis_client()
-
         # Get outputs directory
         outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
 
         # 1) Load Segment; require non-empty script
-        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        segment = get_segment(item_id, run, seg)
         if not segment:
             raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
 
@@ -710,14 +707,14 @@ def build_segment_images(
         logger.info(f"Split script into {len(sections)} sections for images")
 
         # 3) Determine alignment (optional)
-        align = alignment_from_sections(item_id, run, seg, redis_client=redis_client)
+        align = alignment_from_sections(item_id, run, seg)
         if align:
             logger.info(f"Found alignment data: {len(align)} sections")
         else:
             logger.info("No alignment data available")
 
         # 4) Load ProcessedRun summary
-        processed_run = get_run(segment.item_id, segment.run, redis_client=redis_client)
+        processed_run = get_run(segment.item_id, segment.run)
         if not processed_run:
             raise RuntimeError(
                 f"ProcessedRun not found: {segment.item_id}:{segment.run}"
@@ -735,7 +732,7 @@ def build_segment_images(
         )
         segment.style_theme = theme.key
         segment.style_theme_name = theme.name
-        redis_client.set(segment.key, segment.model_dump_json())
+        save_segment(segment, outputs_root=outputs_root)
 
         # Aspect format for this take -> image/video/subtitle dimensions
         from ..content.art_direction import format_dims
@@ -762,14 +759,24 @@ def build_segment_images(
 
             # Generate prompt (varied scene + the take's theme)
             shot_hint = SHOTS[(i - 1) % len(SHOTS)]
-            prompt = generate_image_prompt_v1(
-                text, run_summary, theme=theme, shot_hint=shot_hint
-            )
+            with steps.step(
+                item_id, run, seg, "images", f"images/{i}/prompt",
+                {"line_text": text, "shot_hint": shot_hint, "theme": theme.key},
+            ) as st:
+                prompt = generate_image_prompt_v1(
+                    text, run_summary, theme=theme, shot_hint=shot_hint
+                )
+                st.set(prompt=prompt)
             logger.info(f"Generated prompt: {prompt[:100]}...")
 
             # Generate the root frame (text-to-image) at the take's format
             out = img_path(outputs_root, item_id, run, seg, i)
-            generate_image_from_prompt(prompt, out, width=_w, height=_h)
+            with steps.step(
+                item_id, run, seg, "images", f"images/{i}/root",
+                {"prompt": prompt, "width": _w, "height": _h},
+            ) as st:
+                generate_image_from_prompt(prompt, out, width=_w, height=_h)
+                st.set(image_path=out)
             logger.info(f"Generated image: {out}")
 
             # Alignment (start/duration) — drives sequence length + timeline
@@ -814,10 +821,16 @@ def build_segment_images(
                                 f"{directive}. Keep the same scene, characters and "
                                 f"{(theme.name if theme else '')} style; coherent, high quality."
                             )
-                            svc.generate_and_save_edit(
-                                edit_prompt, prev, fdir, fname, width=_w, height=_h,
-                            )
-                            fp = os.path.join(fdir, fname)
+                            with steps.step(
+                                item_id, run, seg, "images", f"images/{i}/frame_{k}",
+                                {"edit_prompt": edit_prompt, "source_frame": prev,
+                                 "width": _w, "height": _h},
+                            ) as st:
+                                svc.generate_and_save_edit(
+                                    edit_prompt, prev, fdir, fname, width=_w, height=_h,
+                                )
+                                fp = os.path.join(fdir, fname)
+                                st.set(image_path=fp)
                             sequence_paths.append(fp)
                             prev = fp
                         except Exception as se:
@@ -845,8 +858,8 @@ def build_segment_images(
                 updated_at=datetime.utcnow(),
             )
 
-            # Save to Redis and disk
-            save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
+            # Save to Postgres and disk
+            save_segment_image(si, outputs_root=outputs_root)
             logger.info(f"Saved image {i} metadata")
 
         # 6) Update segment image status
@@ -856,7 +869,6 @@ def build_segment_images(
             seg,
             total=len(sections),
             ready=True,
-            redis_client=redis_client,
             outputs_root=outputs_root,
         )
 
@@ -925,19 +937,14 @@ def rebuild_single_image(
         from ..utils.run_utils import get_run
         from .models import SegmentImage
 
-        # Get Redis client
-        redis_client = get_redis_client()
-
         # Get outputs directory
         outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
 
         # 1) Load existing SegmentImage or create shell
-        existing_image = get_segment_image(
-            item_id, run, seg, index, redis_client=redis_client
-        )
+        existing_image = get_segment_image(item_id, run, seg, index)
 
         # Load segment for script access
-        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        segment = get_segment(item_id, run, seg)
         if not segment:
             raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
 
@@ -961,9 +968,7 @@ def rebuild_single_image(
             prompt = prompt_override
         else:
             # Load ProcessedRun summary for context
-            processed_run = get_run(
-                segment.item_id, segment.run, redis_client=redis_client
-            )
+            processed_run = get_run(segment.item_id, segment.run)
             if not processed_run:
                 raise RuntimeError(
                     f"ProcessedRun not found: {segment.item_id}:{segment.run}"
@@ -974,11 +979,20 @@ def rebuild_single_image(
 
         # 4) Generate image
         out = img_path(outputs_root, item_id, run, seg, index)
-        generate_image_from_prompt(prompt, out)
+        with steps.step(
+            item_id, run, seg, "images", f"images/{index}/root",
+            {"prompt": prompt, "line_text": line_text,
+             "prompt_override": prompt_override is not None,
+             "line_override": line_override is not None},
+        ) as st:
+            generate_image_from_prompt(prompt, out)
+            st.set(image_path=out)
+        # A regenerated root invalidates its sequence frames and the video
+        steps.mark_stale(item_id, run, seg, steps.stale_patterns_for(f"images/{index}/root"))
         logger.info(f"Regenerated image: {out}")
 
         # 5) Compute alignment if available
-        align = alignment_from_sections(item_id, run, seg, redis_client=redis_client)
+        align = alignment_from_sections(item_id, run, seg)
         start_ms, duration_ms = (
             align[index - 1] if align and index <= len(align) else (None, None)
         )
@@ -1001,7 +1015,7 @@ def rebuild_single_image(
             updated_at=datetime.utcnow(),
         )
 
-        save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
+        save_segment_image(si, outputs_root=outputs_root)
         logger.info(f"Saved regenerated image {index} metadata")
 
         # 7) Return result
@@ -1023,19 +1037,17 @@ def rebuild_single_image(
 def ingest_source_images(item_id: int, run: int) -> Dict[str, any]:
     """Pull, rank, describe and store the best real images from the article.
 
-    Stored under redis key `hnfm:item:{id}:run:{run}:source_images` + a JSON on
-    disk. Gated on SOURCE_IMAGES_ENABLED; always non-fatal.
+    Stored on the run row (runs.source_images) + a JSON on disk.
+    Gated on SOURCE_IMAGES_ENABLED; always non-fatal.
     """
     if os.getenv("SOURCE_IMAGES_ENABLED", "false").lower() != "true":
         return {"status": "skipped", "reason": "SOURCE_IMAGES_ENABLED!=true"}
 
     import json as _json
     from ..scraper.source_images import ingest
-    from ..utils.run_utils import get_run
 
-    redis_client = get_redis_client()
     outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
-    pr = get_run(item_id, run, redis_client=redis_client)
+    pr = get_run(item_id, run)
     if not pr or not getattr(pr, "source_url", None):
         return {"status": "skipped", "reason": "no run/url"}
 
@@ -1046,9 +1058,7 @@ def ingest_source_images(item_id: int, run: int) -> Dict[str, any]:
         pr.source_url, pr.summary or "", out_dir,
         top_n=int(os.getenv("SOURCE_IMAGES_TOP_N", "4")),
     )
-    redis_client.set(
-        f"hnfm:item:{item_id}:run:{run}:source_images", _json.dumps(results)
-    )
+    repo.set_run_source_images(item_id, run, results)
     try:
         os.makedirs(out_dir, exist_ok=True)
         with open(os.path.join(out_dir, "source_images.json"), "w") as f:
@@ -1080,22 +1090,21 @@ def build_segment_motion_clips(item_id: int, run: int, seg: int) -> Dict[str, an
     from ..content.art_direction import format_dims
     from ..video.ltx_service import make_motion_clip, clip_target_seconds
 
-    redis_client = get_redis_client()
     outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
     n_clips = int(os.getenv("VIDEO_CLIPS_PER_SEGMENT", "2"))
 
-    segment = get_segment(item_id, run, seg, redis_client=redis_client)
+    segment = get_segment(item_id, run, seg)
     if not segment:
         return {"status": "error", "reason": "no segment"}
     w, h = format_dims(getattr(segment, "aspect_format", None) or "16:9")
 
     # Collect sections with a root image + their real (audio) durations.
     rows = []
-    for idx in list_section_numbers(item_id, run, seg, redis_client=redis_client):
-        si = get_segment_image(item_id, run, seg, idx, redis_client=redis_client)
+    for idx in list_section_numbers(item_id, run, seg):
+        si = get_segment_image(item_id, run, seg, idx)
         if not si or not si.image_path or not os.path.exists(si.image_path):
             continue
-        data = load_section_and_image(item_id, run, seg, idx, redis_client=redis_client)
+        data = load_section_and_image(item_id, run, seg, idx)
         dur = (data.get("duration_ms") or 0) / 1000.0
         rows.append((idx, si, dur))
     if not rows:
@@ -1112,7 +1121,7 @@ def build_segment_motion_clips(item_id: int, run: int, seg: int) -> Dict[str, an
         if make_motion_clip(si.image_path, si.prompt, clip_out, target, w, h, idx=j):
             si.video_clip_path = clip_out
             si.video_clip_seconds = target
-            save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
+            save_segment_image(si, outputs_root=outputs_root)
             made += 1
         else:
             logger.warning(f"motion clip failed for section {idx} (non-fatal)")
@@ -1130,22 +1139,19 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
     if os.getenv("META_SEQUENCER_ENABLED", "false").lower() != "true":
         return build_segment_motion_clips(item_id, run, seg)
 
-    import json as _json
     from ..utils.segment_utils import (
-        get_segment, get_segment_image, save_segment_image,
+        get_segment, save_segment, get_segment_image, save_segment_image,
         list_section_numbers, load_section_and_image, img_dir,
     )
     from ..audio.audio_utils import split_script_into_sections
-    from ..utils.run_utils import get_run
     from ..utils import metrics
     from ..content.art_direction import format_dims
     from ..content.meta_sequencer import plan_segment
     from ..video.ltx_service import make_motion_clip, clip_target_seconds
 
-    redis_client = get_redis_client()
     outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
 
-    segment = get_segment(item_id, run, seg, redis_client=redis_client)
+    segment = get_segment(item_id, run, seg)
     if not segment:
         return {"status": "error", "reason": "no segment"}
     theme_key = getattr(segment, "style_theme", None) or "default"
@@ -1153,18 +1159,24 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
     w, h = format_dims(getattr(segment, "aspect_format", None) or "16:9")
     sections = split_script_into_sections(segment.script)
 
-    pr = get_run(item_id, run, redis_client=redis_client)
+    pr = get_run(item_id, run)
     summary = (pr.summary if pr else "") or ""
-    src_raw = redis_client.get(f"hnfm:item:{item_id}:run:{run}:source_images")
-    source_images = _json.loads(src_raw) if src_raw else []
+    source_images = repo.get_run_source_images(item_id, run)
 
-    plan = plan_segment(
-        sections, summary, theme_name, source_images,
-        max_video=int(os.getenv("META_MAX_VIDEO", "2")),
-        max_hyper=int(os.getenv("META_MAX_HYPER", "2")),
-    )
+    with steps.step(
+        item_id, run, seg, "media_plan", "media_plan/plan",
+        {"sections": len(sections), "theme": theme_name,
+         "max_video": int(os.getenv("META_MAX_VIDEO", "2")),
+         "max_hyper": int(os.getenv("META_MAX_HYPER", "2"))},
+    ) as _st:
+        plan = plan_segment(
+            sections, summary, theme_name, source_images,
+            max_video=int(os.getenv("META_MAX_VIDEO", "2")),
+            max_hyper=int(os.getenv("META_MAX_HYPER", "2")),
+        )
+        _st.set(plan=plan)
     segment.meta_plan = plan
-    redis_client.set(segment.key, segment.model_dump_json())
+    save_segment(segment, outputs_root=outputs_root)
 
     made = {"video": 0, "hyperframe": 0}
     hf_enabled = os.getenv("HYPERFRAMES_ENABLED", "false").lower() == "true"
@@ -1173,40 +1185,54 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
         if t not in ("video", "hyperframe"):
             continue
         idx = p["index"]
-        si = get_segment_image(item_id, run, seg, idx, redis_client=redis_client)
+        si = get_segment_image(item_id, run, seg, idx)
         if not si or not si.image_path or not os.path.exists(si.image_path):
             continue
-        data = load_section_and_image(item_id, run, seg, idx, redis_client=redis_client)
+        data = load_section_and_image(item_id, run, seg, idx)
         dur = (data.get("duration_ms") or 0) / 1000.0
         out_dir = img_dir(outputs_root, item_id, run, seg, idx)
 
         if t == "video":
             target = clip_target_seconds(dur)
             clip = os.path.join(out_dir, "motion.mp4")
-            if make_motion_clip(si.image_path, si.prompt, clip, target, w, h, idx=idx):
-                si.video_clip_path = clip
-                si.video_clip_seconds = target
-                save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
-                made["video"] += 1
-                metrics.count(item_id, run, seg, "ltx_clips")
-            else:
-                metrics.count(item_id, run, seg, "ltx_failures")
+            with steps.step(
+                item_id, run, seg, "media_plan", f"media_plan/clip_{idx}",
+                {"template": "video", "prompt": si.prompt,
+                 "target_seconds": target, "width": w, "height": h},
+            ) as _st:
+                if make_motion_clip(si.image_path, si.prompt, clip, target, w, h, idx=idx):
+                    si.video_clip_path = clip
+                    si.video_clip_seconds = target
+                    save_segment_image(si, outputs_root=outputs_root)
+                    made["video"] += 1
+                    metrics.count(item_id, run, seg, "ltx_clips")
+                    _st.set(clip_path=clip, seconds=target)
+                else:
+                    metrics.count(item_id, run, seg, "ltx_failures")
+                    _st.soft_fail("LTX motion clip generation failed")
         elif t == "hyperframe" and hf_enabled:
             from ..hyperframes.produce import produce_hyperframe_clip
 
             hf_dur = min(dur if dur > 0 else 5.0, float(os.getenv("HF_MAX_SECONDS", "5")))
-            clip = produce_hyperframe_clip(
-                out_dir, p.get("recipe", "keypoints"), p.get("content", {}),
-                theme_key, w, h, hf_dur, bg_image=si.image_path,
-            )
-            if clip:
-                si.video_clip_path = clip
-                si.video_clip_seconds = hf_dur
-                save_segment_image(si, redis_client=redis_client, outputs_root=outputs_root)
-                made["hyperframe"] += 1
-                metrics.count(item_id, run, seg, "hyperframes")
-            else:
-                metrics.count(item_id, run, seg, "hyperframe_failures")
+            with steps.step(
+                item_id, run, seg, "media_plan", f"media_plan/clip_{idx}",
+                {"template": "hyperframe", "recipe": p.get("recipe", "keypoints"),
+                 "content": p.get("content", {}), "seconds": hf_dur},
+            ) as _st:
+                clip = produce_hyperframe_clip(
+                    out_dir, p.get("recipe", "keypoints"), p.get("content", {}),
+                    theme_key, w, h, hf_dur, bg_image=si.image_path,
+                )
+                if clip:
+                    si.video_clip_path = clip
+                    si.video_clip_seconds = hf_dur
+                    save_segment_image(si, outputs_root=outputs_root)
+                    made["hyperframe"] += 1
+                    metrics.count(item_id, run, seg, "hyperframes")
+                    _st.set(clip_path=clip, seconds=hf_dur)
+                else:
+                    metrics.count(item_id, run, seg, "hyperframe_failures")
+                    _st.soft_fail("HyperFrames clip generation failed")
     # plan composition (what the director chose) for the dashboard
     plan_counts = {}
     for p in plan:
@@ -1246,13 +1272,10 @@ def full_pipeline(
     try:
         logger.info(f"🚀 Starting full pipeline for item {item_id}")
 
-        # Get Redis client
-        redis_client = get_redis_client()
-
         # Get next run ID
         from ..utils.run_utils import next_run_id
 
-        run = next_run_id(item_id, redis_client=redis_client)
+        run = next_run_id(item_id)
 
         import time as _time
         from ..utils import metrics
@@ -1278,7 +1301,7 @@ def full_pipeline(
         # Get next segment ID
         from ..utils.segment_utils import next_seg_id
 
-        seg = next_seg_id(item_id, run, redis_client=redis_client)
+        seg = next_seg_id(item_id, run)
 
         # Begin metrics for this run
         metrics.init(item_id, run, seg, theme=style_theme, fmt=aspect_format)
@@ -1294,15 +1317,15 @@ def full_pipeline(
 
         # Apply requested take format/theme (multi-take / multi-format)
         if aspect_format or style_theme:
-            from ..utils.segment_utils import get_segment
-
-            _seg = get_segment(item_id, run, seg, redis_client=redis_client)
+            _seg = get_segment(item_id, run, seg)
             if _seg:
                 if aspect_format:
                     _seg.aspect_format = aspect_format
                 if style_theme:
                     _seg.style_theme = style_theme
-                redis_client.set(_seg.key, _seg.model_dump_json())
+                save_segment(
+                    _seg, outputs_root=os.getenv("OUTPUTS_DIR", "/app/outputs")
+                )
                 logger.info(
                     f"🎛️ Take format={_seg.aspect_format} theme={_seg.style_theme}"
                 )
@@ -1393,13 +1416,10 @@ def generate_segment_video(
         # Get configuration
         outputs_root = os.getenv("OUTPUTS_ROOT", "outputs")
 
-        # Get Redis client (with decode_responses=True for this function)
-        redis_client = get_redis_client(decode_responses=True)
-
         logger.info(f"🎬 Starting video generation for segment {item_id}:{run}:{seg}")
 
         # 1) Load Segment and validate prerequisites
-        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        segment = get_segment(item_id, run, seg)
         if not segment:
             raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
 
@@ -1420,7 +1440,7 @@ def generate_segment_video(
         # 2) Build timeline from sections and images
         from ..utils.segment_utils import build_timeline
 
-        timeline = build_timeline(item_id, run, seg, redis_client=redis_client)
+        timeline = build_timeline(item_id, run, seg)
 
         if not timeline:
             raise RuntimeError(
@@ -1590,17 +1610,24 @@ def generate_segment_video(
 
         output_video_path = video_path(outputs_root, item_id, run, seg)
 
-        result = video_generator.create_video(
-            audio_path=combined_audio_path,
-            timeline=timeline,
-            subtitles_path=subtitle_path,
-            output_path=output_video_path,
-            size=(_vw, _vh),
-            fps=30,
-        )
+        with steps.step(
+            item_id, run, seg, "video", "video/assemble",
+            {"format": _fmt, "width": _vw, "height": _vh, "fps": 30,
+             "timeline_items": len(timeline),
+             "music": os.getenv("MUSIC_ENABLED", "false")},
+        ) as st:
+            result = video_generator.create_video(
+                audio_path=combined_audio_path,
+                timeline=timeline,
+                subtitles_path=subtitle_path,
+                output_path=output_video_path,
+                size=(_vw, _vh),
+                fps=30,
+            )
 
-        if not result.get("success"):
-            raise RuntimeError(f"Video generation failed: {result}")
+            if not result.get("success"):
+                raise RuntimeError(f"Video generation failed: {result}")
+            st.set(video_path=output_video_path, subtitles_path=subtitle_path)
 
         logger.info(f"🎥 Video generated successfully: {output_video_path}")
 
@@ -1623,7 +1650,6 @@ def generate_segment_video(
             item_id=item_id,
             run=run,
             seg=seg,
-            redis_client=redis_client,
             outputs_root=outputs_root,
             video_path_str=output_video_path,
             subtitles_path_str=subtitle_path,
@@ -1653,3 +1679,113 @@ def generate_segment_video(
             f"❌ Video generation failed for segment {item_id}:{run}:{seg}: {e}"
         )
         raise
+
+
+@celery_app.task(
+    name="hnfm.web.tasks.rerun_step", time_limit=3600, soft_time_limit=3600
+)
+def rerun_step(step_id: int, overrides: dict = None) -> Dict:
+    """Re-execute one audit-trail step, optionally with edited inputs.
+
+    Routes onto the existing rebuild machinery. Marks downstream steps stale
+    (display + explicit rebuild, never an automatic cascade). The original
+    step is superseded implicitly when the re-executed unit records its new
+    ok-step for the same step_key (latest-wins in steps._finish).
+    """
+    overrides = overrides or {}
+    old = steps.get_step(step_id)
+    if not old:
+        raise RuntimeError(f"Step {step_id} not found")
+
+    item_id, run, seg = old["item_id"], old["run"], old["seg"]
+    key = old["step_key"]
+    old_inputs = old.get("inputs") or {}
+    outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
+
+    if not steps.rerun_supported(key):
+        raise RuntimeError(f"Rerun not supported for step '{key}'")
+
+    stale_count = steps.mark_stale(item_id, run, seg, steps.stale_patterns_for(key))
+    logger.info(f"🔁 Rerunning step {step_id} ({key}); {stale_count} steps marked stale")
+
+    if key == "script":
+        pr = get_run(item_id, run)
+        segment = get_segment(item_id, run, seg)
+        if not pr or not segment:
+            raise RuntimeError(f"Run/segment not found for {item_id}:{run}:{seg}")
+        from ..utils.segment_utils import _clean_script_for_tts
+
+        if overrides.get("script"):
+            with steps.step(
+                item_id, run, seg, "script", "script",
+                {"summary": pr.summary, "manual_override": True},
+            ) as st:
+                script = _clean_script_for_tts(overrides["script"])
+                st.set(script=script)
+        else:
+            with steps.step(
+                item_id, run, seg, "script", "script",
+                {"summary": pr.summary,
+                 "content_chars": len(pr.content_clean or "")},
+            ) as st:
+                script = generate_script_v1(pr.content_clean, pr.summary)
+                st.set(script=script)
+        segment.script = script
+        save_segment(segment, outputs_root=outputs_dir)
+        return {"status": "ok", "step_key": key, "stale": stale_count}
+
+    if key.startswith("audio/sec_"):
+        section = int(key.rsplit("_", 1)[-1])
+        result = build_segment_audio(
+            item_id, run, seg, mode="one", section=section,
+            text_override=overrides.get("text"),
+        )
+        return {"status": "ok", "step_key": key, "stale": stale_count, "result": result}
+
+    if key.startswith("images/") and key.endswith("/root"):
+        index = int(key.split("/")[1])
+        # Rerun-as-was reuses the recorded prompt; pass regenerate_prompt to
+        # have the LLM write a fresh one instead.
+        prompt_override = overrides.get("prompt")
+        if prompt_override is None and not overrides.get("regenerate_prompt"):
+            prompt_override = old_inputs.get("prompt")
+        result = rebuild_single_image(
+            item_id, run, seg, index,
+            prompt_override=prompt_override,
+            line_override=overrides.get("line_text"),
+        )
+        return {"status": "ok", "step_key": key, "stale": stale_count, "result": result}
+
+    if key == "audio/asr":
+        segment = get_segment(item_id, run, seg)
+        if not segment or not segment.audio_combined_path:
+            raise RuntimeError("Segment audio not ready for ASR")
+        with steps.step(
+            item_id, run, seg, "audio", "audio/asr",
+            {"combined_path": segment.audio_combined_path},
+        ) as st:
+            asr_service = ASRService()
+            asr_result = asr_service.process_audio(segment.audio_combined_path)
+            asr_path = asr_json_path(outputs_dir, item_id, run, seg)
+            write_json(asr_path, asr_result)
+            qa = None
+            try:
+                from ..audio.asr_service import asr_qa_report
+
+                qa = asr_qa_report(asr_result.get("text", ""), segment.script or "")
+                write_json(asr_path.replace("asr.json", "asr_qa.json"), qa)
+            except Exception as qa_err:
+                logger.warning(f"ASR QA failed: {qa_err}")
+            segment.asr_json_path = asr_path
+            segment.asr_qa = qa
+            save_segment(segment, outputs_root=outputs_dir)
+            st.set(asr_json_path=asr_path)
+        return {"status": "ok", "step_key": key, "stale": stale_count}
+
+    if key == "media_plan/plan":
+        result = build_segment_media_plan(item_id, run, seg)
+        return {"status": "ok", "step_key": key, "stale": stale_count, "result": result}
+
+    # Unreachable: rerun_supported() gated above covers exactly these kinds
+    result = generate_segment_video(item_id, run, seg)
+    return {"status": "ok", "step_key": key, "stale": stale_count, "result": result}

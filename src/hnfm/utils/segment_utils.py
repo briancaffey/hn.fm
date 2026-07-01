@@ -3,37 +3,21 @@
 import json
 import os
 import shutil
-from datetime import datetime
 from pathlib import Path
 from typing import Optional, List
-import redis
 
+from ..db import repo
 from ..web.models import Segment
 
 
 def k_seg(item_id: int, run: int, seg: int) -> str:
-    """Generate Redis key for a segment"""
+    """Legacy entity key string (kept on the Pydantic models / API responses)"""
     return f"hnfm:seg:{item_id}:{run}:{seg}"
 
 
-def k_seg_seq(item_id: int, run: int) -> str:
-    """Generate Redis key for segment sequence counter"""
-    return f"hnfm:seg:seq:{item_id}:{run}"
-
-
-def k_seg_list(item_id: int, run: int) -> str:
-    """Generate Redis key for segment list (newest-first)"""
-    return f"hnfm:seg:list:{item_id}:{run}"
-
-
 def k_img(item_id: int, run: int, seg: int, index: int) -> str:
-    """Generate Redis key for a segment image"""
+    """Legacy entity key string for a segment image"""
     return f"hnfm:seg:{item_id}:{run}:{seg}:img:{index}"
-
-
-def k_img_list(item_id: int, run: int, seg: int) -> str:
-    """Generate Redis key for segment image list (ordered)"""
-    return f"hnfm:seg:{item_id}:{run}:{seg}:img:list"
 
 
 def seg_dir(outputs_root: str, item_id: int, run: int, seg: int) -> str:
@@ -127,9 +111,9 @@ def _clean_script_for_tts(script: str) -> str:
     return script
 
 
-def next_seg_id(item_id: int, run: int, *, redis_client: redis.Redis) -> int:
+def next_seg_id(item_id: int, run: int) -> int:
     """Get next segment ID atomically"""
-    return int(redis_client.incr(k_seg_seq(item_id, run)))
+    return repo.next_counter(f"seg:{item_id}:{run}")
 
 
 def generate_script_v1(content_clean: str, summary: str) -> str:
@@ -201,32 +185,16 @@ def generate_script_v1(content_clean: str, summary: str) -> str:
         raise RuntimeError(f"Failed to generate script: {e}")
 
 
-def save_segment(
-    seg_obj: Segment, *, redis_client: redis.Redis, outputs_root: str
-) -> None:
+def save_segment(seg_obj: Segment, *, outputs_root: str) -> None:
     """
-    Save segment to Redis and disk.
+    Save segment to Postgres and disk.
 
     Args:
         seg_obj: Segment object to save
-        redis_client: Redis client
         outputs_root: Root outputs directory
     """
-    # Save to Redis
-    redis_client.set(
-        k_seg(seg_obj.item_id, seg_obj.run, seg_obj.seg), seg_obj.model_dump_json()
-    )
-
-    # Add to segment list (newest-first) only if not already present
-    list_key = k_seg_list(seg_obj.item_id, seg_obj.run)
-    seg_id_str = str(seg_obj.seg)
-
-    # Check if segment ID is already in the list
-    existing_segments = redis_client.lrange(list_key, 0, -1)
-    if seg_id_str not in [
-        seg.decode() if isinstance(seg, bytes) else seg for seg in existing_segments
-    ]:
-        redis_client.lpush(list_key, seg_id_str)
+    # Save to Postgres
+    repo.save_segment(seg_obj)
 
     # Save to disk
     seg_path = seg_dir(outputs_root, seg_obj.item_id, seg_obj.run, seg_obj.seg)
@@ -237,140 +205,54 @@ def save_segment(
         f.write(seg_obj.model_dump_json())
 
 
-def get_segment(
-    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
-) -> Optional[Segment]:
+def get_segment(item_id: int, run: int, seg: int) -> Optional[Segment]:
     """
-    Get segment from Redis.
-
-    Args:
-        item_id: Item ID
-        run: Run number
-        seg: Segment number
-        redis_client: Redis client
+    Get segment from Postgres.
 
     Returns:
         Segment object or None if not found
     """
-    key = k_seg(item_id, run, seg)
-    data = redis_client.get(key)
-
-    if not data:
-        return None
-
-    try:
-        return Segment.model_validate_json(data)
-    except Exception:
-        return None
+    return repo.get_segment(item_id, run, seg)
 
 
 def list_segments_for_run(
-    item_id: int,
-    run: int,
-    *,
-    redis_client: redis.Redis,
-    offset: int = 0,
-    limit: int = 20,
+    item_id: int, run: int, *, offset: int = 0, limit: int = 20
 ) -> List[int]:
     """
     List segment IDs for a run (newest-first).
 
-    Args:
-        item_id: Item ID
-        run: Run number
-        redis_client: Redis client
-        offset: Pagination offset
-        limit: Pagination limit
-
     Returns:
         List of segment IDs
     """
-    key = k_seg_list(item_id, run)
-    segment_ids = redis_client.lrange(key, offset, offset + limit - 1)
-
-    return [int(seg_id) for seg_id in segment_ids]
+    return repo.list_seg_numbers(item_id, run, offset=offset, limit=limit)
 
 
-def list_all_segments(
-    *,
-    redis_client: redis.Redis,
-    offset: int = 0,
-    limit: int = 50,
-) -> List[Segment]:
+def list_all_segments(*, offset: int = 0, limit: int = 50) -> List[Segment]:
     """
     List all segments across all items and runs (newest-first).
-
-    Args:
-        redis_client: Redis client
-        offset: Pagination offset
-        limit: Pagination limit
 
     Returns:
         List of Segment objects
     """
-    # Get all segment keys from Redis
-    pattern = "hnfm:seg:*"
-    segment_keys = redis_client.keys(pattern)
-
-    # Filter out non-segment keys (like lists, sequences, etc.)
-    # Convert bytes to string for filtering
-    filtered_keys = []
-    for key in segment_keys:
-        key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-        if not any(suffix in key_str for suffix in [":list", ":seq", ":img:", ":sec:"]):
-            filtered_keys.append(key)
-
-    # Sort by creation time (newest first) by checking the segment data
-    segments_with_time = []
-    for key in filtered_keys:
-        try:
-            data = redis_client.get(key)
-            if data:
-                # Decode data if it's bytes
-                if isinstance(data, bytes):
-                    data = data.decode("utf-8")
-                segment = Segment.model_validate_json(data)
-                segments_with_time.append((segment.created_at, segment))
-        except Exception:
-            continue
-
-    # Sort by creation time (newest first)
-    segments_with_time.sort(key=lambda x: x[0], reverse=True)
-
-    # Apply pagination
-    paginated_segments = segments_with_time[offset : offset + limit]
-
-    return [segment for _, segment in paginated_segments]
+    segments, _total = repo.list_all_segments(offset=offset, limit=limit)
+    return segments
 
 
-def delete_segment(
-    item_id: int, run: int, seg: int, *, redis_client: redis.Redis, outputs_root: str
-) -> bool:
+def count_all_segments() -> int:
+    """Total number of segments across all items and runs."""
+    _segments, total = repo.list_all_segments(offset=0, limit=0)
+    return total
+
+
+def delete_segment(item_id: int, run: int, seg: int, *, outputs_root: str) -> bool:
     """
-    Delete segment from Redis and disk.
-
-    Args:
-        item_id: Item ID
-        run: Run number
-        seg: Segment number
-        redis_client: Redis client
-        outputs_root: Root outputs directory
+    Delete segment from Postgres (sections/images cascade) and disk.
 
     Returns:
         True if segment was deleted, False if not found
     """
-    key = k_seg(item_id, run, seg)
-
-    # Check if segment exists
-    if not redis_client.exists(key):
+    if not repo.delete_segment_row(item_id, run, seg):
         return False
-
-    # Delete from Redis
-    redis_client.delete(key)
-
-    # Remove from segment list
-    list_key = k_seg_list(item_id, run)
-    redis_client.lrem(list_key, 0, str(seg))  # Remove all occurrences
 
     # Delete from disk
     seg_path = seg_dir(outputs_root, item_id, run, seg)
@@ -381,7 +263,7 @@ def delete_segment(
 
 
 def alignment_from_sections(
-    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
+    item_id: int, run: int, seg: int
 ) -> Optional[List[tuple[int, int]]]:
     """
     If narration sections exist: compute [(start_ms, duration_ms), ...] in index order.
@@ -389,37 +271,15 @@ def alignment_from_sections(
     Return None if sections missing.
     """
     try:
-        from ..audio.audio_utils import k_sec_list
-
-        # Get all section keys for this segment
-        list_key = k_sec_list(item_id, run, seg)
-        section_keys = redis_client.lrange(list_key, 0, -1)
-
-        if not section_keys:
-            return None
-
         alignments = []
         cumulative_start = 0
 
-        for section_key in section_keys:
-            section_data = redis_client.get(section_key)
-            if not section_data:
+        for section_num in repo.list_section_numbers(item_id, run, seg):
+            section = repo.get_section(item_id, run, seg, section_num)
+            if not section or section.duration_ms is None:
                 continue
-
-            try:
-                from ..web.models import SegmentSection
-
-                section = SegmentSection.model_validate_json(section_data)
-
-                if section.duration_ms is not None:
-                    alignments.append((cumulative_start, section.duration_ms))
-                    cumulative_start += section.duration_ms
-                else:
-                    # If duration is missing, skip this section
-                    continue
-
-            except Exception:
-                continue
+            alignments.append((cumulative_start, section.duration_ms))
+            cumulative_start += section.duration_ms
 
         return alignments if alignments else None
 
@@ -504,55 +364,39 @@ def generate_image_from_prompt(prompt: str, out_path: str, width=None, height=No
         raise RuntimeError(f"Failed to generate image: {e}")
 
 
-def save_segment_image(
-    si: "SegmentImage", *, redis_client: redis.Redis, outputs_root: str
-) -> None:
-    """Save segment image to Redis and disk"""
-    from ..web.models import SegmentImage
-
-    # Save to Redis
-    redis_client.set(si.key, si.model_dump_json())
-
-    # Add to image list if not already present
-    list_key = k_img_list(si.item_id, si.run, si.seg)
-    if not redis_client.lrange(list_key, 0, -1) or str(si.index) not in [
-        x.decode() if isinstance(x, bytes) else x
-        for x in redis_client.lrange(list_key, 0, -1)
-    ]:
-        redis_client.rpush(list_key, str(si.index))
+def save_segment_image(si: "SegmentImage", *, outputs_root: str) -> None:
+    """Save segment image to Postgres and disk"""
+    # Save to Postgres
+    repo.save_image(si)
 
     # Write meta.json
     meta_path = img_meta_path(outputs_root, si.item_id, si.run, si.seg, si.index)
+    Path(meta_path).parent.mkdir(parents=True, exist_ok=True)
     # Use model_dump_json() to handle datetime serialization properly
     with open(meta_path, "w", encoding="utf-8") as f:
         f.write(si.model_dump_json())
 
+    # Publish visuals to the object store (root frame, sequence frames, motion
+    # clip). Non-fatal; re-publishing after a rebuild just overwrites.
+    from ..storage import object_store
+
+    object_store.publish_file(si.image_path)
+    for frame_path in si.sequence_paths or []:
+        if frame_path != si.image_path:
+            object_store.publish_file(frame_path)
+    object_store.publish_file(si.video_clip_path)
+
 
 def get_segment_image(
-    item_id: int, run: int, seg: int, index: int, *, redis_client: redis.Redis
+    item_id: int, run: int, seg: int, index: int
 ) -> Optional["SegmentImage"]:
-    """Get segment image from Redis"""
-    from ..web.models import SegmentImage
-
-    key = k_img(item_id, run, seg, index)
-    data = redis_client.get(key)
-
-    if not data:
-        return None
-
-    try:
-        return SegmentImage.model_validate_json(data)
-    except Exception:
-        return None
+    """Get segment image from Postgres"""
+    return repo.get_image(item_id, run, seg, index)
 
 
-def list_segment_images(
-    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
-) -> List[int]:
+def list_segment_images(item_id: int, run: int, seg: int) -> List[int]:
     """List segment image indexes in order"""
-    list_key = k_img_list(item_id, run, seg)
-    indexes = redis_client.lrange(list_key, 0, -1)
-    return [int(idx) for idx in indexes]
+    return repo.list_image_indexes(item_id, run, seg)
 
 
 def update_segment_images_status(
@@ -562,12 +406,11 @@ def update_segment_images_status(
     total: int,
     ready: bool,
     *,
-    redis_client: redis.Redis,
     outputs_root: str,
 ) -> None:
     """Update segment image status"""
     # Load Segment
-    segment = get_segment(item_id, run, seg, redis_client=redis_client)
+    segment = get_segment(item_id, run, seg)
     if not segment:
         raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
 
@@ -575,24 +418,16 @@ def update_segment_images_status(
     segment.images_total = total
     segment.images_ready = ready
 
-    # Re-save to Redis and disk
-    save_segment(segment, redis_client=redis_client, outputs_root=outputs_root)
+    # Re-save to Postgres and disk
+    save_segment(segment, outputs_root=outputs_root)
 
 
-def list_section_numbers(
-    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
-) -> List[int]:
+def list_section_numbers(item_id: int, run: int, seg: int) -> List[int]:
     """Get ordered section indices for a segment"""
-    from ..audio.audio_utils import k_sec_list
-
-    list_key = k_sec_list(item_id, run, seg)
-    section_strings = redis_client.lrange(list_key, 0, -1)
-    return [int(section_str) for section_str in section_strings]
+    return repo.list_section_numbers(item_id, run, seg)
 
 
-def load_section_and_image(
-    item_id: int, run: int, seg: int, index: int, *, redis_client: redis.Redis
-) -> dict:
+def load_section_and_image(item_id: int, run: int, seg: int, index: int) -> dict:
     """
     Load section and image data for a specific index.
 
@@ -605,15 +440,13 @@ def load_section_and_image(
         }
     Raises if any required field is missing or empty.
     """
-    from ..audio.audio_utils import get_section_meta
-
     # Load section data
-    section = get_section_meta(item_id, run, seg, index, redis_client=redis_client)
+    section = repo.get_section(item_id, run, seg, index)
     if not section or section.duration_ms is None:
         raise RuntimeError(f"Section {index} missing or duration_ms is None")
 
     # Load image data
-    image = get_segment_image(item_id, run, seg, index, redis_client=redis_client)
+    image = get_segment_image(item_id, run, seg, index)
     if not image or not image.image_path:
         raise RuntimeError(f"Image {index} missing or image_path is None")
 
@@ -625,9 +458,7 @@ def load_section_and_image(
     }
 
 
-def build_timeline(
-    item_id: int, run: int, seg: int, *, redis_client: redis.Redis
-) -> List[dict]:
+def build_timeline(item_id: int, run: int, seg: int) -> List[dict]:
     """
     Build timeline for video generation from sections and images.
     Includes intro, title page, main content, and outro.
@@ -647,7 +478,7 @@ def build_timeline(
     from pathlib import Path
 
     # Get run data for title and emojis
-    run_data = get_run(item_id, run, redis_client=redis_client)
+    run_data = get_run(item_id, run)
     if not run_data:
         raise RuntimeError(f"Run data not found for item {item_id}, run {run}")
 
@@ -674,15 +505,13 @@ def build_timeline(
         cumulative_start += 4000
 
     # Add main content from sections and images
-    section_numbers = list_section_numbers(item_id, run, seg, redis_client=redis_client)
+    section_numbers = list_section_numbers(item_id, run, seg)
 
     for index in section_numbers:
-        data = load_section_and_image(
-            item_id, run, seg, index, redis_client=redis_client
-        )
+        data = load_section_and_image(item_id, run, seg, index)
 
         total = int(data["duration_ms"] or 0)
-        si = get_segment_image(item_id, run, seg, index, redis_client=redis_client)
+        si = get_segment_image(item_id, run, seg, index)
 
         # If this section has an LTX motion clip, play it for its (lightly
         # stretched) length, then fill the rest of the section with the image
@@ -898,27 +727,25 @@ def update_segment_video_fields(
     run: int,
     seg: int,
     *,
-    redis_client: redis.Redis,
     outputs_root: str,
     video_path_str: str | None,
     subtitles_path_str: str | None,
     video_ready: bool,
 ) -> None:
     """
-    Update segment video fields in Redis and on disk.
+    Update segment video fields in Postgres and on disk.
 
     Args:
         item_id: Item ID
         run: Run number
         seg: Segment number
-        redis_client: Redis client
         outputs_root: Root outputs directory
         video_path_str: Path to video file (optional)
         subtitles_path_str: Path to subtitles file (optional)
         video_ready: Whether video is ready
     """
     # Load existing segment
-    segment = get_segment(item_id, run, seg, redis_client=redis_client)
+    segment = get_segment(item_id, run, seg)
     if not segment:
         raise RuntimeError(f"Segment not found: {item_id}:{run}:{seg}")
 
@@ -927,5 +754,11 @@ def update_segment_video_fields(
     segment.subtitles_path = subtitles_path_str
     segment.video_ready = video_ready
 
-    # Re-save to Redis and disk
-    save_segment(segment, redis_client=redis_client, outputs_root=outputs_root)
+    # Re-save to Postgres and disk
+    save_segment(segment, outputs_root=outputs_root)
+
+    # Publish the finished video + subtitles to the object store (non-fatal)
+    from ..storage import object_store
+
+    object_store.publish_file(video_path_str)
+    object_store.publish_file(subtitles_path_str)

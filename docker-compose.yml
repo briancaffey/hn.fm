@@ -16,6 +16,10 @@ x-common-app-config: &common-app-config
   depends_on:
     redis:
       condition: service_healthy
+    postgres:
+      condition: service_healthy
+    minio:
+      condition: service_healthy
   restart: unless-stopped
   networks:
     - hnfm-network
@@ -26,13 +30,25 @@ x-common-env: &common-env
   PYTHONPATH: /app/src
   DEBUG: "true"
   LOG_LEVEL: DEBUG
-  # Redis Configuration
+  # Redis Configuration (Celery broker/result backend only)
   REDIS_HOST: redis
   REDIS_PORT: "6379"
   REDIS_DB: "0"
   REDIS_URL: redis://redis:6379/0
   CELERY_BROKER_URL: redis://redis:6379/0
   CELERY_RESULT_BACKEND: redis://redis:6379/0
+  # Postgres (application data store)
+  DATABASE_URL: postgresql+psycopg://hnfm:hnfm@postgres:5432/hnfm
+  HNFM_DB_AUTO_CREATE: "true"
+  # MinIO object store (media artifacts). S3_PUBLIC_URL is what the browser
+  # can reach (presigned URLs are signed against it); S3_ENDPOINT_URL is the
+  # in-network address the app uses.
+  S3_ENDPOINT_URL: http://minio:9000
+  S3_PUBLIC_URL: ${S3_PUBLIC_URL:-http://localhost:9400}
+  S3_BUCKET: ${S3_BUCKET:-hnfm-media}
+  S3_ACCESS_KEY: ${S3_ACCESS_KEY:-hnfm}
+  S3_SECRET_KEY: ${S3_SECRET_KEY:-hnfm-minio-secret}
+  MEDIA_UPLOAD_ENABLED: ${MEDIA_UPLOAD_ENABLED:-true}
   # API Keys
   FIRECRAWL_API_KEY: ${FIRECRAWL_API_KEY:-}
   OPENAI_API_KEY: ${OPENAI_API_KEY:-}
@@ -100,6 +116,53 @@ x-common-env: &common-env
   INVOKEAI_BOARD_ID: ${INVOKEAI_BOARD_ID:-}
 
 services:
+  # Postgres — application data store (items, runs, segments, metrics)
+  postgres:
+    image: postgres:17-alpine
+    container_name: hnfm-postgres
+    ports:
+      - "5432:5432"
+    environment:
+      POSTGRES_USER: hnfm
+      POSTGRES_PASSWORD: hnfm
+      POSTGRES_DB: hnfm
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U hnfm -d hnfm"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - hnfm-network
+
+  # MinIO — S3-compatible object store for generated media (audio/images/video).
+  # Host ports 9400 (API) / 9401 (console) because 9000/9090/9100 are taken by
+  # cluster tunnels and other local services.
+  minio:
+    image: minio/minio:latest
+    container_name: hnfm-minio
+    ports:
+      - "9400:9000"
+      - "9401:9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-hnfm}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-hnfm-minio-secret}
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+    networks:
+      - hnfm-network
+
   # Redis service for Celery broker and result backend
   redis:
     image: redis:7-alpine
@@ -252,6 +315,10 @@ services:
       start_period: 40s
 
 volumes:
+  minio_data:
+    driver: local
+  postgres_data:
+    driver: local
   redis_data:
     driver: local
   redisinsight_data:

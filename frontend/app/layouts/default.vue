@@ -1,231 +1,80 @@
 <script setup lang="ts">
 import { Button } from '~/components/ui/button'
 import { Icon } from '#components'
+import ActivityIndicator from '~/components/ActivityIndicator.vue'
 
 const colorMode = useColorMode()
+const route = useRoute()
+
+interface NavItem {
+  label: string
+  to: string
+  icon: string
+  /** path prefix used for active-route highlighting */
+  match: string
+}
+
+const navItems: NavItem[] = [
+  { label: 'Stories', to: '/hn/items', icon: 'lucide:newspaper', match: '/hn' },
+  { label: 'Segments', to: '/segments', icon: 'lucide:layers', match: '/segments' },
+  { label: 'Observability', to: '/observability', icon: 'lucide:activity', match: '/observability' },
+  { label: 'Services', to: '/services', icon: 'lucide:server', match: '/services' },
+  { label: 'Admin', to: '/admin', icon: 'lucide:shield', match: '/admin' },
+]
+
+function isActive(item: NavItem): boolean {
+  return route.path === item.match || route.path.startsWith(`${item.match}/`)
+}
 </script>
 
 <template>
-  <div class="min-h-screen bg-background flex flex-col">
-    <!-- Navigation Bar -->
-    <nav class="border-b bg-card">
-      <div class="container mx-auto px-4 py-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center space-x-4">
-            <h1 class="text-xl font-bold text-foreground">
-              <span class="text-orange-600">hn</span>.fm
-            </h1>
-            <div class="hidden md:flex space-x-6">
-              <NuxtLink
-                to="/"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Home
-              </NuxtLink>
-              <NuxtLink
-                to="/hn/items"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Items
-              </NuxtLink>
-              <NuxtLink
-                to="/segments"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Segments
-              </NuxtLink>
-              <NuxtLink
-                to="/services"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Services
-              </NuxtLink>
-              <NuxtLink
-                to="/observability"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Observability
-              </NuxtLink>
-              <NuxtLink
-                to="/admin"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Admin
-              </NuxtLink>
-            </div>
-          </div>
-          <div class="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              class="px-3"
-              @click="colorMode.preference = colorMode.preference === 'dark' ? 'light' : 'dark'"
-            >
-              <Icon
-                :name="colorMode.value === 'dark' ? 'lucide:sun' : 'lucide:moon'"
-                class="h-4 w-4"
-              />
-            </Button>
-          </div>
-        </div>
+  <div class="h-screen bg-background flex overflow-hidden">
+    <!-- Sidebar -->
+    <aside class="w-52 shrink-0 border-r bg-card flex flex-col">
+      <!-- Wordmark -->
+      <div class="px-4 py-3.5 border-b">
+        <NuxtLink to="/hn/items" class="text-lg font-bold text-foreground">
+          <span class="text-orange-600">hn</span>.fm
+        </NuxtLink>
       </div>
-    </nav>
 
-    <!-- Main Content -->
-    <main class="flex-1 container mx-auto px-4 py-8">
+      <!-- Nav -->
+      <nav class="flex-1 overflow-y-auto px-2 py-3 space-y-1">
+        <NuxtLink
+          v-for="item in navItems"
+          :key="item.to"
+          :to="item.to"
+          class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors"
+          :class="isActive(item)
+            ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground'"
+        >
+          <Icon :name="item.icon" class="h-4 w-4 shrink-0" />
+          <span class="truncate">{{ item.label }}</span>
+        </NuxtLink>
+      </nav>
+
+      <!-- Bottom: theme toggle + activity -->
+      <div class="shrink-0 border-t px-2 py-2 space-y-1">
+        <Button
+          variant="ghost"
+          size="sm"
+          class="w-full justify-start gap-2.5 px-2.5 text-muted-foreground"
+          @click="colorMode.preference = colorMode.preference === 'dark' ? 'light' : 'dark'"
+        >
+          <Icon
+            :name="colorMode.value === 'dark' ? 'lucide:sun' : 'lucide:moon'"
+            class="h-4 w-4"
+          />
+          <span class="text-xs">{{ colorMode.value === 'dark' ? 'Light mode' : 'Dark mode' }}</span>
+        </Button>
+        <ActivityIndicator />
+      </div>
+    </aside>
+
+    <!-- Main content: full remaining viewport width -->
+    <main class="flex-1 min-w-0 overflow-y-auto">
       <slot />
     </main>
-
-    <!-- Footer -->
-    <footer class="border-t bg-card">
-      <div class="container mx-auto px-4 py-8">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
-          <!-- Brand Section -->
-          <div class="space-y-4">
-            <h3 class="text-lg font-semibold text-foreground">
-              <span class="text-orange-600">hn</span>.fm
-            </h3>
-            <p class="text-sm text-muted-foreground">
-              Converting Hacker News discussions into engaging audio content.
-            </p>
-          </div>
-
-          <!-- Links Section -->
-          <div class="space-y-4">
-            <h4 class="text-sm font-semibold text-foreground">Links</h4>
-            <ul class="space-y-2">
-              <li>
-                <a
-                  href="https://github.com/briancaffey/hn.fm"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:github" class="h-4 w-4" />
-                  GitHub Repository
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://youtube.com/hn_fm"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:youtube" class="h-4 w-4" />
-                  YouTube Channel
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://news.ycombinator.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:external-link" class="h-4 w-4" />
-                  Hacker News
-                </a>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Navigation Section -->
-          <div class="space-y-4">
-            <h4 class="text-sm font-semibold text-foreground">Navigation</h4>
-            <ul class="space-y-2">
-              <li>
-                <NuxtLink
-                  to="/"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors"
-                >
-                  Home
-                </NuxtLink>
-              </li>
-              <li>
-                <NuxtLink
-                  to="/hn/items"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors"
-                >
-                  Items
-                </NuxtLink>
-              </li>
-              <li>
-                <NuxtLink
-                  to="/segments"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors"
-                >
-                  Segments
-                </NuxtLink>
-              </li>
-              <li>
-                <NuxtLink
-                  to="/services"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors"
-                >
-                  Services
-                </NuxtLink>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Contact Section -->
-          <div class="space-y-4">
-            <h4 class="text-sm font-semibold text-foreground">Contact</h4>
-            <ul class="space-y-2">
-              <li>
-                <a
-                  href="mailto:hello@hn.fm"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:mail" class="h-4 w-4" />
-                  hello@hn.fm
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://twitter.com/hn_fm"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:twitter" class="h-4 w-4" />
-                  @hn_fm
-                </a>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <!-- Bottom Section -->
-        <div class="border-t mt-8 pt-6">
-          <div class="flex flex-col md:flex-row justify-between items-center gap-4">
-            <p class="text-xs text-muted-foreground">
-              © {{ new Date().getFullYear() }} hn.fm. All rights reserved.
-            </p>
-            <div class="flex items-center gap-4">
-              <a
-                href="/privacy"
-                class="text-xs text-muted-foreground hover:text-orange-600 transition-colors"
-              >
-                Privacy Policy
-              </a>
-              <a
-                href="/terms"
-                class="text-xs text-muted-foreground hover:text-orange-600 transition-colors"
-              >
-                Terms of Service
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
-    </footer>
   </div>
 </template>

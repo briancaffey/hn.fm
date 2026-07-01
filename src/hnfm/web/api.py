@@ -4,10 +4,14 @@ import json
 import logging
 import os
 from datetime import datetime
-from fastapi import FastAPI, HTTPException, Depends, Body
-from fastapi.responses import JSONResponse, FileResponse
+from fastapi import FastAPI, HTTPException, Body
+from fastapi.responses import (
+    JSONResponse,
+    FileResponse,
+    RedirectResponse,
+    StreamingResponse,
+)
 from fastapi.middleware.cors import CORSMiddleware
-import redis
 
 from .models import (
     HealthCheck,
@@ -42,7 +46,7 @@ from ..utils.hn_utils import (
     get_new_story_ids,
     get_item,
     list_items,
-    list_item_ids,
+    count_items,
     exists_item,
 )
 from ..utils.run_utils import (
@@ -56,6 +60,7 @@ from ..utils.segment_utils import (
     get_segment,
     list_segments_for_run,
     list_all_segments,
+    count_all_segments,
     delete_segment,
 )
 from ..audio.audio_utils import (
@@ -66,26 +71,20 @@ from ..audio.audio_utils import (
 logger = logging.getLogger(__name__)
 
 
-def get_redis_client() -> redis.Redis:
-    """Get Redis client for dependency injection"""
-    redis_host = os.getenv("REDIS_HOST", "localhost")
-    redis_port = int(os.getenv("REDIS_PORT", "6379"))
-    redis_db = int(os.getenv("REDIS_DB", "0"))
-
-    return redis.Redis(
-        host=redis_host,
-        port=redis_port,
-        db=redis_db,
-        decode_responses=False,  # Keep as bytes for JSON compatibility
-    )
-
-
 # Initialize FastAPI app
 app = FastAPI(
     title="hn.fm API",
     description="API for managing Hacker News content pipeline",
     version="0.1.0",
 )
+
+
+@app.on_event("startup")
+async def _init_db_schema():
+    """Dev convenience: create tables if missing (see db.engine.ensure_schema)."""
+    from ..db import ensure_schema
+
+    ensure_schema()
 
 # Add CORS middleware
 app.add_middleware(
@@ -113,12 +112,23 @@ async def simple_health_check():
 @app.get("/api/health", response_model=HealthCheck, tags=["health"])
 async def health_check():
     """Health check endpoint"""
+    # Field is still named redis_status for frontend compatibility; it now
+    # reports the Postgres connection.
+    try:
+        from sqlalchemy import text
+        from ..db import db_session
+
+        with db_session() as s:
+            s.execute(text("SELECT 1"))
+        db_status = "healthy"
+    except Exception:
+        db_status = "unhealthy"
 
     return HealthCheck(
         status="healthy",
         timestamp=datetime.now(),
         version="0.1.0",
-        redis_status="healthy",  # TOOD add redis db health check
+        redis_status=db_status,
     )
 
 
@@ -157,9 +167,31 @@ async def get_services_status():
 
 
 # Helper functions
-def queue_item_if_not_exists(item_id: int, redis_client: redis.Redis) -> dict:
+def _serve_media(local_path: str, media_type: str, filename: str, proxy: bool = False):
+    """Serve a media artifact, preferring the object store.
+
+    Redirects to a presigned MinIO URL when the object exists (MinIO handles
+    Range requests for video scrubbing). `proxy=True` streams through the API
+    instead — needed for subtitles, where <track> requires same-origin/CORS.
+    Falls back to the local outputs/ file during transition.
+    """
+    from ..storage import object_store
+
+    key = object_store.key_for_path(local_path)
+    if key and object_store.object_exists(key):
+        if proxy:
+            body, ctype = object_store.get_object_stream(key)
+            return StreamingResponse(body.iter_chunks(), media_type=ctype)
+        return RedirectResponse(object_store.presigned_url(key), status_code=307)
+
+    if not os.path.exists(local_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(path=local_path, media_type=media_type, filename=filename)
+
+
+def queue_item_if_not_exists(item_id: int) -> dict:
     """Queue an item for processing only if it doesn't already exist in the database"""
-    if exists_item(item_id, redis_client=redis_client):
+    if exists_item(item_id):
         logger.info(f"Item {item_id} already exists, skipping queue")
         return {"status": "exists", "id": item_id}
 
@@ -171,9 +203,7 @@ def queue_item_if_not_exists(item_id: int, redis_client: redis.Redis) -> dict:
 
 # HN API Endpoints
 @app.post("/api/hn/queue-top", tags=["hacker-news"])
-async def queue_top_stories(
-    limit: int = 50, redis_client: redis.Redis = Depends(get_redis_client)
-):
+async def queue_top_stories(limit: int = 50):
     """Queue top stories for processing"""
     try:
         # Get top story IDs
@@ -187,7 +217,7 @@ async def queue_top_stories(
         skipped_items = []
 
         for item_id in ids_to_queue:
-            result = queue_item_if_not_exists(item_id, redis_client)
+            result = queue_item_if_not_exists(item_id)
             if result["status"] == "queued":
                 queued_items.append(item_id)
             else:
@@ -207,9 +237,7 @@ async def queue_top_stories(
 
 
 @app.post("/api/hn/queue-new", tags=["hacker-news"])
-async def queue_new_stories(
-    limit: int = 50, redis_client: redis.Redis = Depends(get_redis_client)
-):
+async def queue_new_stories(limit: int = 50):
     """Queue new stories for processing"""
     try:
         # Get new story IDs
@@ -223,7 +251,7 @@ async def queue_new_stories(
         skipped_items = []
 
         for item_id in ids_to_queue:
-            result = queue_item_if_not_exists(item_id, redis_client)
+            result = queue_item_if_not_exists(item_id)
             if result["status"] == "queued":
                 queued_items.append(item_id)
             else:
@@ -243,13 +271,11 @@ async def queue_new_stories(
 
 
 @app.post("/api/hn/process-item", tags=["hacker-news"])
-async def process_single_item(
-    item_id: int, redis_client: redis.Redis = Depends(get_redis_client)
-):
+async def process_single_item(item_id: int):
     """Process a single Hacker News item by ID"""
     try:
         # Queue the item only if it doesn't exist
-        result = queue_item_if_not_exists(item_id, redis_client)
+        result = queue_item_if_not_exists(item_id)
 
         if result["status"] == "exists":
             return {
@@ -273,23 +299,10 @@ async def process_single_item(
 
 
 @app.get("/api/hn/items", tags=["hacker-news"])
-async def list_downloaded_items(
-    offset: int = 0,
-    limit: int = 50,
-    redis_client: redis.Redis = Depends(get_redis_client),
-):
+async def list_downloaded_items(offset: int = 0, limit: int = 50):
     """List downloaded items with pagination"""
     try:
-        items = list_items(offset=offset, limit=limit, redis_client=redis_client)
-
-        # Get total count for pagination - but only count items that actually exist
-        all_ids = list_item_ids(redis_client=redis_client)
-
-        # Count how many items actually exist by checking each one
-        existing_count = 0
-        for item_id in all_ids:
-            if exists_item(item_id, redis_client=redis_client):
-                existing_count += 1
+        items = list_items(offset=offset, limit=limit)
 
         return {
             "items": [item.model_dump() for item in items],
@@ -297,7 +310,7 @@ async def list_downloaded_items(
                 "offset": offset,
                 "limit": limit,
                 "count": len(items),
-                "total": existing_count,
+                "total": count_items(),
             },
         }
 
@@ -307,12 +320,10 @@ async def list_downloaded_items(
 
 
 @app.get("/api/hn/items/{item_id}", tags=["hacker-news"])
-async def get_single_item(
-    item_id: int, redis_client: redis.Redis = Depends(get_redis_client)
-):
+async def get_single_item(item_id: int):
     """Get a single item by ID"""
     try:
-        item = get_item(item_id, redis_client=redis_client)
+        item = get_item(item_id)
 
         if item is None:
             raise HTTPException(status_code=404, detail="Item not found")
@@ -324,6 +335,148 @@ async def get_single_item(
     except Exception as e:
         logger.error(f"Failed to get item {item_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get item")
+
+
+# Mission-control endpoints (stories with aggregates, generations, activity)
+@app.get("/api/stories", tags=["stories"])
+async def list_stories_endpoint(
+    offset: int = 0,
+    limit: int = 50,
+    sort: str = "id",
+    dir: str = "desc",
+    q: str = None,
+    has_video: bool = None,
+    has_runs: bool = None,
+):
+    """Stories joined with generation aggregates — the mission-control table.
+
+    Sort keys: id | time | score | comments | runs | segments | videos | latest.
+    Pagination contract matches the rest of the API:
+    {items, pagination: {offset, limit, count, total}}.
+    """
+    try:
+        from ..db import repo
+
+        rows, total = repo.list_stories(
+            offset=offset, limit=limit, sort=sort, direction=dir,
+            q=q, has_video=has_video, has_runs=has_runs,
+        )
+        return {
+            "items": rows,
+            "pagination": {
+                "offset": offset, "limit": limit, "count": len(rows), "total": total,
+            },
+        }
+    except Exception as e:
+        logger.error(f"Failed to list stories: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list stories")
+
+
+@app.get("/api/hn/items/{item_id}/generations", tags=["stories"])
+async def list_generations_endpoint(item_id: int):
+    """Every generation (segment) for a story across all runs, newest first,
+    with run summaries and readiness flags — one flat table for the UI."""
+    try:
+        from ..db import repo
+
+        return {"item_id": item_id, "generations": repo.list_generations(item_id)}
+    except Exception as e:
+        logger.error(f"Failed to list generations for item {item_id}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list generations")
+
+
+@app.get("/api/activity", tags=["activity"])
+async def activity_endpoint():
+    """Running + recently finished pipeline steps (sidebar activity light)."""
+    try:
+        from ..db import steps
+
+        return steps.activity()
+    except Exception as e:
+        logger.error(f"activity failed: {e}")
+        return {"running": [], "recent": []}
+
+
+# Pipeline audit trail (steps) endpoints
+@app.get(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/steps", tags=["steps"]
+)
+async def list_segment_steps(item_id: int, run: int, seg: int):
+    """Full audit trail for a segment: every step with its inputs/outputs,
+    timing, tokens, and status — including the run-scoped steps that fed it."""
+    from ..db import steps
+
+    step_list = steps.list_steps(item_id, run, seg)
+    return {
+        "item_id": item_id,
+        "run": run,
+        "seg": seg,
+        "steps": step_list,
+        "stale_count": sum(1 for s in step_list if s["status"] == "stale"),
+        "rerunnable": {s["id"]: steps.rerun_supported(s["step_key"]) for s in step_list},
+    }
+
+
+@app.get("/api/hn/items/{item_id}/runs/{run}/steps", tags=["steps"])
+async def list_run_steps(item_id: int, run: int):
+    """Audit trail for a whole run (all segments)."""
+    from ..db import steps
+
+    return {"item_id": item_id, "run": run, "steps": steps.list_steps(item_id, run)}
+
+
+@app.post("/api/steps/{step_id}/rerun", tags=["steps"])
+async def rerun_step_endpoint(step_id: int, request: dict = Body(None)):
+    """Re-execute a step, optionally with edited inputs.
+
+    Body (all optional, step-kind dependent): {"prompt": …, "line_text": …,
+    "text": …, "script": …, "regenerate_prompt": true}
+    """
+    from ..db import steps
+    from .tasks import rerun_step
+
+    step = steps.get_step(step_id)
+    if not step:
+        raise HTTPException(status_code=404, detail="Step not found")
+    if not steps.rerun_supported(step["step_key"]):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Rerun not supported for step '{step['step_key']}'",
+        )
+
+    task = rerun_step.apply_async(
+        args=[step_id], kwargs={"overrides": request or {}}, queue="hnfm_tasks"
+    )
+    return {
+        "status": "queued",
+        "step_id": step_id,
+        "step_key": step["step_key"],
+        "task_id": task.id,
+    }
+
+
+@app.post(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/rebuild-stale", tags=["steps"]
+)
+async def rebuild_stale_steps(item_id: int, run: int, seg: int):
+    """Re-run what went stale. Today that resolves to reassembling the video
+    (upstream reruns refresh stitch/ASR themselves); sequence frames are
+    reported as skipped — regenerate the root image to refresh them."""
+    from ..db import steps
+    from .tasks import generate_segment_video
+
+    stale = steps.list_stale(item_id, run, seg)
+    stale_keys = sorted({s["step_key"] for s in stale})
+
+    queued = []
+    if any(k.startswith("video/") for k in stale_keys):
+        task = generate_segment_video.apply_async(
+            args=[item_id, run, seg], queue="hnfm_tasks"
+        )
+        queued.append({"step_key": "video/assemble", "task_id": task.id})
+
+    skipped = [k for k in stale_keys if not k.startswith("video/")]
+    return {"queued": queued, "skipped": skipped, "stale_keys": stale_keys}
 
 
 @app.get("/api/metrics", tags=["metrics"])
@@ -348,9 +501,7 @@ async def get_metrics(item_id: int, run: int, seg: int):
 
 
 @app.post("/api/hn/single-task-pipeline", tags=["hacker-news"])
-async def start_single_task_pipeline(
-    request: dict = Body(...), redis_client: redis.Redis = Depends(get_redis_client)
-):
+async def start_single_task_pipeline(request: dict = Body(...)):
     """Start the full pipeline as a single task for an item"""
     try:
         item_id = request.get("item_id")
@@ -395,12 +546,11 @@ async def start_single_task_pipeline(
 async def create_and_queue_run(
     item_id: int,
     request: CreateRunRequest = Body(CreateRunRequest(continue_chain=False)),
-    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """Create and queue a new run for an item"""
     try:
         # Get next run ID
-        run = next_run_id(item_id, redis_client=redis_client)
+        run = next_run_id(item_id)
 
         # Queue the task with continue_chain parameter
         process_hn_item_run.apply_async(
@@ -423,19 +573,16 @@ async def list_runs_for_item_endpoint(
     item_id: int,
     offset: int = 0,
     limit: int = 20,
-    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """List runs for an item with pagination"""
     try:
         # Get run IDs
-        run_ids = list_runs_for_item(
-            item_id, redis_client=redis_client, offset=offset, limit=limit
-        )
+        run_ids = list_runs_for_item(item_id, offset=offset, limit=limit)
 
         # Fetch ProcessedRun objects and extract summaries
         runs = []
         for run_id in run_ids:
-            processed_run = get_run(item_id, run_id, redis_client=redis_client)
+            processed_run = get_run(item_id, run_id)
             if processed_run:
                 runs.append(RunSummary(run=run_id, summary=processed_run.summary))
 
@@ -455,12 +602,10 @@ async def list_runs_for_item_endpoint(
     response_model=ProcessedRun,
     tags=["hacker-news"],
 )
-async def get_single_run(
-    item_id: int, run: int, redis_client: redis.Redis = Depends(get_redis_client)
-):
+async def get_single_run(item_id: int, run: int):
     """Get a single run by item ID and run number"""
     try:
-        processed_run = get_run(item_id, run, redis_client=redis_client)
+        processed_run = get_run(item_id, run)
 
         if processed_run is None:
             raise HTTPException(status_code=404, detail="Run not found")
@@ -486,15 +631,11 @@ async def internal_error_handler(request, exc):
 
 
 @app.delete("/api/hn/items/{item_id}/runs/{run}", tags=["hacker-news"])
-async def delete_single_run(
-    item_id: int, run: int, redis_client: redis.Redis = Depends(get_redis_client)
-):
+async def delete_single_run(item_id: int, run: int):
     """Delete a single run by item ID and run number"""
     try:
         outputs_root = os.getenv("OUTPUTS_ROOT", "outputs")
-        success = delete_run(
-            item_id, run, redis_client=redis_client, outputs_root=outputs_root
-        )
+        success = delete_run(item_id, run, outputs_root=outputs_root)
 
         if not success:
             raise HTTPException(
@@ -523,12 +664,11 @@ async def create_and_queue_segment(
     item_id: int,
     run: int,
     request: CreateSegmentRequest = Body(CreateSegmentRequest(continue_chain=False)),
-    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """Create and queue a new segment for a run"""
     try:
         # Get next segment ID
-        seg = next_seg_id(item_id, run, redis_client=redis_client)
+        seg = next_seg_id(item_id, run)
 
         # Queue the task with continue_chain parameter
         generate_segment.apply_async(
@@ -552,19 +692,16 @@ async def list_segments_for_run_endpoint(
     run: int,
     offset: int = 0,
     limit: int = 20,
-    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """List segments for a run with pagination"""
     try:
         # Get segment IDs
-        seg_ids = list_segments_for_run(
-            item_id, run, redis_client=redis_client, offset=offset, limit=limit
-        )
+        seg_ids = list_segments_for_run(item_id, run, offset=offset, limit=limit)
 
         # Fetch Segment objects and extract previews
         segments = []
         for seg_id in seg_ids:
-            segment = get_segment(item_id, run, seg_id, redis_client=redis_client)
+            segment = get_segment(item_id, run, seg_id)
             if segment:
                 script_preview = (
                     segment.script[:200] + "..."
@@ -592,15 +729,10 @@ async def list_segments_for_run_endpoint(
     response_model=Segment,
     tags=["hacker-news"],
 )
-async def get_single_segment(
-    item_id: int,
-    run: int,
-    seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client),
-):
+async def get_single_segment(item_id: int, run: int, seg: int):
     """Get a single segment by item ID, run number, and segment number"""
     try:
-        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        segment = get_segment(item_id, run, seg)
 
         if segment is None:
             raise HTTPException(status_code=404, detail="Segment not found")
@@ -619,18 +751,11 @@ async def get_single_segment(
     response_model=DeleteSegmentResponse,
     tags=["hacker-news"],
 )
-async def delete_single_segment(
-    item_id: int,
-    run: int,
-    seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client),
-):
+async def delete_single_segment(item_id: int, run: int, seg: int):
     """Delete a single segment by item ID, run number, and segment number"""
     try:
         outputs_root = os.getenv("OUTPUTS_ROOT", "outputs")
-        success = delete_segment(
-            item_id, run, seg, redis_client=redis_client, outputs_root=outputs_root
-        )
+        success = delete_segment(item_id, run, seg, outputs_root=outputs_root)
 
         if not success:
             raise HTTPException(
@@ -655,29 +780,13 @@ async def delete_single_segment(
     response_model=AllSegmentsListResponse,
     tags=["segments"],
 )
-async def list_all_segments_endpoint(
-    offset: int = 0,
-    limit: int = 50,
-    redis_client: redis.Redis = Depends(get_redis_client),
-):
+async def list_all_segments_endpoint(offset: int = 0, limit: int = 50):
     """List all segments across all items and runs with pagination"""
     try:
-        segments = list_all_segments(
-            redis_client=redis_client, offset=offset, limit=limit
-        )
+        segments = list_all_segments(offset=offset, limit=limit)
 
         # Get total count for pagination
-        pattern = "hnfm:seg:*"
-        all_segment_keys = redis_client.keys(pattern)
-        # Filter out non-segment keys (convert bytes to string for filtering)
-        filtered_keys = []
-        for key in all_segment_keys:
-            key_str = key.decode("utf-8") if isinstance(key, bytes) else key
-            if not any(
-                suffix in key_str for suffix in [":list", ":seq", ":img:", ":sec:"]
-            ):
-                filtered_keys.append(key)
-        total_count = len(filtered_keys)
+        total_count = count_all_segments()
 
         return AllSegmentsListResponse(
             segments=segments,
@@ -760,25 +869,16 @@ async def build_segment_audio_one(
     response_model=SectionsListResponse,
     tags=["audio"],
 )
-async def list_segment_sections(
-    item_id: int,
-    run: int,
-    seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client),
-):
+async def list_segment_sections(item_id: int, run: int, seg: int):
     """List sections with metadata for a segment"""
     try:
         # Get section numbers in order
-        section_numbers = list_section_numbers(
-            item_id, run, seg, redis_client=redis_client
-        )
+        section_numbers = list_section_numbers(item_id, run, seg)
 
         # Fetch section metadata
         sections = []
         for section_num in section_numbers:
-            section_meta = get_section_meta(
-                item_id, run, seg, section_num, redis_client=redis_client
-            )
+            section_meta = get_section_meta(item_id, run, seg, section_num)
             if section_meta:
                 sections.append(
                     {
@@ -800,16 +900,11 @@ async def list_segment_sections(
 
 
 @app.get("/api/hn/items/{item_id}/runs/{run}/segments/{seg}/asr", tags=["audio"])
-async def get_segment_asr(
-    item_id: int,
-    run: int,
-    seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client),
-):
+async def get_segment_asr(item_id: int, run: int, seg: int):
     """Get ASR data for a segment"""
     try:
-        # Load Segment from Redis
-        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        # Load Segment
+        segment = get_segment(item_id, run, seg)
 
         if not segment:
             raise HTTPException(status_code=404, detail="Segment not found")
@@ -875,12 +970,8 @@ async def serve_audio_file(item_id: int, run: int, seg: int, filename: str):
         else:
             raise HTTPException(status_code=400, detail="Invalid filename")
 
-        # Check if file exists
-        if not os.path.exists(audio_path):
-            raise HTTPException(status_code=404, detail="Audio file not found")
-
-        # Return the file
-        return FileResponse(path=audio_path, media_type="audio/wav", filename=filename)
+        # Object store first, local outputs/ fallback
+        return _serve_media(audio_path, "audio/wav", filename)
 
     except HTTPException:
         raise
@@ -919,12 +1010,8 @@ async def serve_image_file(item_id: int, run: int, seg: int, index: int, filenam
         else:
             raise HTTPException(status_code=400, detail="Invalid filename")
 
-        # Check if file exists
-        if not os.path.exists(image_path):
-            raise HTTPException(status_code=404, detail="Image file not found")
-
-        # Return the file
-        return FileResponse(path=image_path, media_type="image/png", filename=filename)
+        # Object store first, local outputs/ fallback
+        return _serve_media(image_path, "image/png", filename)
 
     except HTTPException:
         raise
@@ -943,19 +1030,13 @@ async def serve_image_file(item_id: int, run: int, seg: int, index: int, filenam
     response_model=dict,
     tags=["images"],
 )
-async def build_segment_images_endpoint(
-    item_id: int,
-    run: int,
-    seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client),
-):
+async def build_segment_images_endpoint(item_id: int, run: int, seg: int):
     """Trigger prompts+images for a segment (all)"""
     try:
         from .tasks import build_segment_images
-        from ..utils.segment_utils import get_segment
 
         # Precheck: load Segment; if script empty → 400
-        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        segment = get_segment(item_id, run, seg)
         if not segment:
             raise HTTPException(status_code=404, detail="Segment not found")
 
@@ -989,25 +1070,18 @@ async def build_segment_images_endpoint(
     response_model=dict,
     tags=["images"],
 )
-async def list_segment_images_endpoint(
-    item_id: int,
-    run: int,
-    seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client),
-):
+async def list_segment_images_endpoint(item_id: int, run: int, seg: int):
     """List images for a segment (ordered)"""
     try:
         from ..utils.segment_utils import list_segment_images, get_segment_image
 
         # Get list of image indexes
-        indexes = list_segment_images(item_id, run, seg, redis_client=redis_client)
+        indexes = list_segment_images(item_id, run, seg)
 
         # Get each image
         images = []
         for index in indexes:
-            image = get_segment_image(
-                item_id, run, seg, index, redis_client=redis_client
-            )
+            image = get_segment_image(item_id, run, seg, index)
             if image:
                 images.append(
                     {
@@ -1038,7 +1112,6 @@ async def rebuild_single_image_endpoint(
     seg: int,
     index: int,
     request_data: dict = Body(None),
-    redis_client: redis.Redis = Depends(get_redis_client),
 ):
     """Regenerate a single image (optional overrides)"""
     try:
@@ -1083,16 +1156,11 @@ async def rebuild_single_image_endpoint(
     response_model=dict,
     tags=["video"],
 )
-async def generate_segment_video_endpoint(
-    item_id: int,
-    run: int,
-    seg: int,
-    redis_client: redis.Redis = Depends(get_redis_client),
-):
+async def generate_segment_video_endpoint(item_id: int, run: int, seg: int):
     """Generate video for a segment from audio, images, and timeline"""
     try:
         # Load segment and validate prerequisites
-        segment = get_segment(item_id, run, seg, redis_client=redis_client)
+        segment = get_segment(item_id, run, seg)
         if not segment:
             raise HTTPException(status_code=404, detail="Segment not found")
 
@@ -1176,10 +1244,11 @@ async def serve_video_file(item_id: int, run: int, seg: int, filename: str):
         else:
             raise HTTPException(status_code=404, detail="File not found")
 
-        if not os.path.exists(file_path):
-            raise HTTPException(status_code=404, detail="File not found")
-
-        return FileResponse(file_path)
+        # Object store first, local outputs/ fallback. Subtitles are proxied
+        # (not redirected) so <track> stays same-origin.
+        if filename.endswith(".vtt"):
+            return _serve_media(file_path, "text/vtt", filename, proxy=True)
+        return _serve_media(file_path, "video/mp4", filename)
 
     except HTTPException:
         raise

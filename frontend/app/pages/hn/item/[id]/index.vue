@@ -1,5 +1,5 @@
 <template>
-  <div class="container mx-auto px-4 py-8">
+  <div class="w-full px-4 py-8">
     <div class="mb-6">
       <NuxtLink
         to="/hn/items"
@@ -18,145 +18,227 @@
       {{ error }}
     </div>
 
-    <div v-else-if="!!item" class="bg-card border rounded-lg p-6">
-      <h1 class="text-3xl font-bold mb-6">{{ item.title || 'No Title' }}</h1>
+    <div v-else-if="!!item" class="space-y-6">
+      <!-- Header -->
+      <div class="bg-card border rounded-lg p-6">
+        <h1 class="text-3xl font-bold leading-tight">
+          <a
+            v-if="item.url"
+            :href="item.url"
+            target="_blank"
+            rel="noopener noreferrer"
+            class="hover:text-orange-600 transition-colors"
+          >
+            {{ item.title || 'No Title' }}
+          </a>
+          <span v-else>{{ item.title || 'No Title' }}</span>
+        </h1>
 
-      <!-- Compact badge layout for item details -->
-      <div class="space-y-4">
-        <!-- All badges on one line -->
-        <div class="flex flex-wrap gap-2">
-          <Badge class="bg-orange-500 text-white border-orange-500 text-sm">
-            ID: {{ item.id }}
+        <p v-if="latestShortDescription" class="mt-2 text-muted-foreground">
+          {{ latestShortDescription }}
+        </p>
+
+        <!-- Compact badge row -->
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+          <Badge class="bg-orange-500 text-white border-orange-500 text-xs">
+            ▲ {{ item.score || 0 }} points
           </Badge>
-          <Badge class="bg-white text-orange-500 border-orange-500 text-sm">
-            {{ item.type || 'story' }}
-          </Badge>
-          <Badge class="bg-orange-500 text-white border-orange-500 text-sm">
+          <Badge variant="outline" class="text-xs">
             by {{ item.by || 'Unknown' }}
           </Badge>
-          <Badge class="bg-white text-orange-500 border-orange-500 text-sm">
-            {{ item.score || 0 }} points
+          <Badge variant="outline" class="text-xs">
+            {{ itemAge }}
           </Badge>
-          <Badge class="bg-orange-500 text-white border-orange-500 text-sm">
-            {{ formatTime(item.time) }}
+          <Badge variant="outline" class="text-xs">
+            {{ item.descendants || 0 }} comment{{ (item.descendants || 0) !== 1 ? 's' : '' }}
           </Badge>
-          <Badge v-if="item.kids && item.kids.length > 0" class="bg-white text-orange-500 border-orange-500 text-sm">
-            {{ item.kids.length }} comment{{ item.kids.length !== 1 ? 's' : '' }}
-          </Badge>
-          <Badge v-if="item.url" class="bg-orange-500 text-white border-orange-500 text-sm">
+          <Badge v-if="domain" variant="outline" class="text-xs">
             <a
               :href="item.url"
               target="_blank"
               rel="noopener noreferrer"
-              class="text-white hover:text-orange-100 break-all"
+              class="hover:text-orange-600"
             >
-              🔗 {{ item.url }}
+              {{ domain }}
+            </a>
+          </Badge>
+          <Badge variant="outline" class="text-xs">
+            <a
+              :href="`https://news.ycombinator.com/item?id=${item.id}`"
+              target="_blank"
+              rel="noopener noreferrer"
+              class="hover:text-orange-600"
+            >
+              HN ↗
             </a>
           </Badge>
         </div>
 
-        <!-- Text content if present -->
         <div v-if="item.text" class="mt-4">
-          <p class="text-foreground whitespace-pre-wrap">{{ item.text }}</p>
+          <p class="text-sm text-foreground whitespace-pre-wrap">{{ item.text }}</p>
         </div>
       </div>
 
-      <!-- Runs Section -->
-      <div class="mt-8">
-        <div class="flex justify-between items-center mb-4">
-          <h2 class="text-2xl font-bold">Runs</h2>
-          <div class="flex gap-2">
+      <!-- Action bar -->
+      <div class="bg-card border rounded-lg p-4">
+        <div class="flex flex-wrap items-center gap-3">
+          <div class="flex items-center gap-2">
             <Button
-              :disabled="isStartingRun"
-              variant="outline"
-              @click="startNewRun"
-            >
-              {{ isStartingRun ? 'Starting...' : 'Start Run (Script Only)' }}
-            </Button>
-            <Button
-              :disabled="isStartingRun"
+              :disabled="isQueueing"
               variant="default"
-              @click="startNewRunWithPipeline"
+              @click="startFullPipeline"
             >
-              {{ isStartingRun ? 'Starting...' : 'Start Full Pipeline' }}
+              {{ isQueueing === 'pipeline' ? 'Queueing...' : 'Full Pipeline' }}
             </Button>
-            <Button
-              :disabled="isStartingRun"
-              variant="secondary"
-              @click="startSingleTaskPipeline"
-              class="bg-purple-600 hover:bg-purple-700 text-white border-purple-600"
+            <select
+              v-model="aspectFormat"
+              class="h-9 rounded-md border bg-background px-2 text-sm text-foreground"
+              aria-label="Aspect format"
             >
-              {{ isStartingRun ? 'Starting...' : 'Single Task Pipeline' }}
-            </Button>
+              <option value="16:9">16:9</option>
+              <option value="1:1">1:1</option>
+              <option value="9:16">9:16</option>
+            </select>
           </div>
+          <Button
+            :disabled="isQueueing"
+            variant="outline"
+            @click="startScriptOnlyRun"
+          >
+            {{ isQueueing === 'script' ? 'Queueing...' : 'New Run (script only)' }}
+          </Button>
+
+          <span
+            v-if="actionMessage"
+            class="text-sm"
+            :class="actionMessageIsError ? 'text-destructive' : 'text-green-600 dark:text-green-400'"
+          >
+            {{ actionMessage }}
+          </span>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <div>
+        <div class="flex items-center gap-2 mb-4">
+          <Button
+            :variant="activeTab === 'generations' ? 'default' : 'outline'"
+            size="sm"
+            @click="activeTab = 'generations'"
+          >
+            Generations
+            <span v-if="generations.length" class="ml-1.5 text-xs opacity-70">{{ generations.length }}</span>
+          </Button>
+          <Button
+            :variant="activeTab === 'gallery' ? 'default' : 'outline'"
+            size="sm"
+            @click="activeTab = 'gallery'"
+          >
+            Gallery
+            <span v-if="galleryGenerations.length" class="ml-1.5 text-xs opacity-70">{{ galleryGenerations.length }}</span>
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            :disabled="generationsLoading"
+            @click="fetchGenerations"
+          >
+            <Icon name="lucide:refresh-cw" class="h-4 w-4" :class="{ 'animate-spin': generationsLoading }" />
+          </Button>
         </div>
 
-        <div v-if="deleteMessage" class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded mb-4">
-          {{ deleteMessage }}
+        <div v-if="generationsError" class="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded mb-4">
+          {{ generationsError }}
         </div>
 
-        <div v-if="runsLoading" class="text-center py-4">
+        <div v-if="generationsLoading && generations.length === 0" class="text-center py-8">
           <div class="animate-spin rounded-full h-6 w-6 border-b-2 border-primary mx-auto"/>
-          <p class="mt-2 text-sm text-muted-foreground">Loading runs...</p>
+          <p class="mt-2 text-sm text-muted-foreground">Loading generations...</p>
         </div>
 
-        <div v-else-if="runsError" class="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded mb-4">
-          {{ runsError }}
-        </div>
+        <!-- Generations tab -->
+        <template v-else-if="activeTab === 'generations'">
+          <div v-if="generations.length === 0" class="bg-card border rounded-lg text-center py-12 text-muted-foreground">
+            <Icon name="lucide:clapperboard" class="h-8 w-8 mx-auto mb-2 opacity-50" />
+            <p>No generations yet.</p>
+            <p class="text-sm mt-1">Run the pipeline above to generate a segment for this story.</p>
+          </div>
+          <GenerationsTable
+            v-else
+            :item-id="itemId"
+            :generations="generations"
+          />
+        </template>
 
-        <div v-else-if="runs.length === 0" class="text-center py-8 text-muted-foreground">
-          No runs yet. Start a new run to process this item's content.
-        </div>
+        <!-- Gallery tab -->
+        <template v-else>
+          <div v-if="galleryGenerations.length === 0" class="bg-card border rounded-lg text-center py-12 text-muted-foreground">
+            <Icon name="lucide:video-off" class="h-8 w-8 mx-auto mb-2 opacity-50" />
+            <p>No finished videos yet.</p>
+            <p class="text-sm mt-1">Videos appear here once a generation's video is ready.</p>
+          </div>
+          <div v-else class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div
+              v-for="gen in galleryGenerations"
+              :key="`${gen.run}-${gen.seg}`"
+              class="rounded-lg border bg-card p-2"
+            >
+              <div
+                class="mx-auto overflow-hidden rounded bg-black"
+                :style="galleryFrameStyle(gen)"
+              >
+                <video
+                  :src="videoUrl(gen)"
+                  :poster="posterUrl(gen)"
+                  controls
+                  preload="none"
+                  crossorigin="anonymous"
+                  class="h-full w-full object-contain"
+                >
+                  <track
+                    v-if="gen.subtitles_path"
+                    kind="subtitles"
+                    srclang="en"
+                    label="English"
+                    :src="captionsUrl(gen)"
+                    default
+                  />
+                  Your browser does not support the video tag.
+                </video>
+              </div>
 
-        <div v-else class="bg-card border rounded-lg overflow-hidden">
-          <table class="min-w-full divide-y divide-border">
-            <thead class="bg-muted/50">
-              <tr>
-                <th class="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Run ID
-                </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Summary
-                </th>
-                <th class="px-6 py-3 text-left text-xs font-medium text-muted-foreground uppercase tracking-wider">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-            <tbody class="bg-card divide-y divide-border">
-              <tr v-for="run in runs" :key="run.run" class="hover:bg-muted/50 transition-colors">
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-foreground">
-                  {{ run.run }}
-                </td>
-                <td class="px-6 py-4 text-sm text-foreground">
-                  <div class="max-w-md">
-                    {{ truncateSummary(run.summary) }}
-                  </div>
-                </td>
-                <td class="px-6 py-4 whitespace-nowrap text-sm text-foreground">
-                  <div class="flex gap-2">
-                    <NuxtLink
-                      :to="`/hn/item/${item.id}/run/${run.run}`"
-                      class="text-primary hover:text-primary/80 font-medium"
-                    >
-                      View Details
-                    </NuxtLink>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      :disabled="deletingRuns.has(run.run)"
-                      class="ml-2 bg-red-600 hover:bg-red-700 text-white border-red-600"
-                      @click="deleteRun(run.run)"
-                    >
-                      <span v-if="deletingRuns.has(run.run)">Deleting...</span>
-                      <span v-else>🗑️</span>
-                    </Button>
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
+              <div class="mt-2 flex flex-wrap items-center gap-1.5">
+                <span class="rounded bg-muted px-1.5 py-0.5 text-[11px] font-mono font-medium">
+                  r{{ gen.run }}·s{{ gen.seg }}
+                </span>
+                <Badge variant="outline" class="text-[11px] font-mono px-1.5 py-0">
+                  {{ gen.aspect_format || '16:9' }}
+                </Badge>
+                <span
+                  v-if="gen.style_theme_name || gen.style_theme"
+                  class="rounded bg-purple-100 px-1.5 py-0.5 text-[11px] text-purple-900 dark:bg-purple-900/30 dark:text-purple-300"
+                >
+                  {{ gen.style_theme_name || gen.style_theme }}
+                </span>
+                <span
+                  v-if="gen.asr_qa && gen.asr_qa.verdict"
+                  class="rounded px-1.5 py-0.5 text-[11px] font-medium"
+                  :class="qaClass(gen.asr_qa.verdict)"
+                  :title="`ASR match ratio ${gen.asr_qa.ratio}`"
+                >
+                  {{ qaLabel(gen.asr_qa.verdict) }}
+                  <span v-if="gen.asr_qa.ratio !== undefined && gen.asr_qa.ratio !== null">{{ gen.asr_qa.ratio }}</span>
+                </span>
+                <NuxtLink
+                  :to="`/hn/item/${itemId}/run/${gen.run}/segment/${gen.seg}`"
+                  class="ml-auto text-[11px] text-primary hover:underline"
+                >
+                  open ↗
+                </NuxtLink>
+              </div>
+            </div>
+          </div>
+        </template>
       </div>
     </div>
 
@@ -169,176 +251,180 @@
 <script setup>
 import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
+import { Icon } from '#components'
 
 const route = useRoute()
 const config = useRuntimeConfig()
 
-// Debug logging
-console.log('Route params:', route.params)
-console.log('Route path:', route.path)
-console.log('Item ID:', route.params.id)
+const itemId = computed(() => parseInt(Array.isArray(route.params.id) ? route.params.id[0] : route.params.id))
 
-// Use useAsyncData for fetching item with proper SSR handling
+// Item
 const { data: item, pending: isLoading, error } = await useAsyncData(
   `hn-item-${route.params.id}`,
-  async () => {
-    const itemId = parseInt(route.params.id)
-    console.log('Fetching item with ID:', itemId)
-    try {
-      const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId}`)
-      console.log('API response:', response)
-      return response
-    } catch (err) {
-      console.error('API error:', err)
-      throw err
-    }
-  },
+  () => $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}`),
   {
     default: () => null
   }
 )
 
-// Runs functionality
-const runs = ref([])
-const runsLoading = ref(false)
-const runsError = ref(null)
-const isStartingRun = ref(false)
-const deletingRuns = ref(new Set())
-const deleteMessage = ref('')
-
-// Fetch runs when item is loaded
-watch(item, async (newItem) => {
-  if (newItem) {
-    await fetchRuns()
-  }
-}, { immediate: true })
-
-async function fetchRuns() {
-  if (!item.value) return
-
+// Header helpers
+const domain = computed(() => {
+  if (!item.value?.url) return null
   try {
-    runsLoading.value = true
-    runsError.value = null
+    return new URL(item.value.url).hostname.replace(/^www\./, '')
+  } catch {
+    return null
+  }
+})
 
-    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs?offset=0&limit=20`)
-    runs.value = response.runs || []
+const itemAge = computed(() => {
+  const ts = item.value?.time
+  if (!ts) return 'Unknown'
+  const diffMs = Date.now() - ts * 1000
+  const diffMins = Math.floor(diffMs / (1000 * 60))
+  if (diffMins < 1) return 'just now'
+  if (diffMins < 60) return `${diffMins}m ago`
+  const diffHours = Math.floor(diffMins / 60)
+  if (diffHours < 24) return `${diffHours}h ago`
+  const diffDays = Math.floor(diffHours / 24)
+  if (diffDays < 365) return `${diffDays}d ago`
+  return `${Math.floor(diffDays / 365)}y ago`
+})
+
+// Generations
+const generations = ref([])
+const generationsLoading = ref(false)
+const generationsError = ref(null)
+
+const latestShortDescription = computed(() => {
+  const latest = generations.value.find(g => g.run_short_description)
+  return latest?.run_short_description || null
+})
+
+const galleryGenerations = computed(() => generations.value.filter(g => g.video_ready))
+
+async function fetchGenerations() {
+  try {
+    generationsLoading.value = true
+    generationsError.value = null
+
+    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/generations`)
+    generations.value = response.generations || []
   } catch (err) {
-    console.error('Failed to fetch runs:', err)
-    runsError.value = 'Failed to load runs: ' + err.message
+    console.error('Failed to fetch generations:', err)
+    generationsError.value = 'Failed to load generations: ' + err.message
   } finally {
-    runsLoading.value = false
+    generationsLoading.value = false
   }
 }
 
-async function startNewRun() {
-  if (!item.value) return
+watch(item, (newItem) => {
+  if (newItem) {
+    fetchGenerations()
+  }
+}, { immediate: true })
+
+// Tabs
+const activeTab = ref('generations')
+
+// Actions
+const aspectFormat = ref('16:9')
+const isQueueing = ref('') // '' | 'pipeline' | 'script'
+const actionMessage = ref('')
+const actionMessageIsError = ref(false)
+let messageTimer = null
+
+function setActionMessage(message, isError = false) {
+  actionMessage.value = message
+  actionMessageIsError.value = isError
+  if (messageTimer) clearTimeout(messageTimer)
+  messageTimer = setTimeout(() => {
+    actionMessage.value = ''
+  }, 6000)
+}
+
+async function startFullPipeline() {
+  if (isQueueing.value) return
 
   try {
-    isStartingRun.value = true
-    runsError.value = null
+    isQueueing.value = 'pipeline'
 
-    await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs`, {
+    await $fetch(`${config.public.apiBase}/api/hn/single-task-pipeline`, {
+      method: 'POST',
+      body: {
+        item_id: itemId.value,
+        aspect_format: aspectFormat.value
+      }
+    })
+
+    setActionMessage(`Full pipeline queued (${aspectFormat.value})`)
+    setTimeout(() => fetchGenerations(), 2000)
+  } catch (err) {
+    console.error('Failed to queue full pipeline:', err)
+    setActionMessage('Failed to queue pipeline: ' + err.message, true)
+  } finally {
+    isQueueing.value = ''
+  }
+}
+
+async function startScriptOnlyRun() {
+  if (isQueueing.value) return
+
+  try {
+    isQueueing.value = 'script'
+
+    await $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/runs`, {
       method: 'POST',
       body: { continue_chain: false }
     })
 
-    // Refresh runs list
-    await fetchRuns()
+    setActionMessage('Script-only run queued')
+    setTimeout(() => fetchGenerations(), 2000)
   } catch (err) {
-    console.error('Failed to start new run:', err)
-    runsError.value = 'Failed to start new run: ' + err.message
+    console.error('Failed to queue script-only run:', err)
+    setActionMessage('Failed to queue run: ' + err.message, true)
   } finally {
-    isStartingRun.value = false
+    isQueueing.value = ''
   }
 }
 
-async function startNewRunWithPipeline() {
-  if (!item.value) return
-
-  try {
-    isStartingRun.value = true
-    runsError.value = null
-
-    await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs`, {
-      method: 'POST',
-      body: { continue_chain: true }
-    })
-
-    // Refresh runs list
-    await fetchRuns()
-  } catch (err) {
-    console.error('Failed to start new run with pipeline:', err)
-    runsError.value = 'Failed to start new run with pipeline: ' + err.message
-  } finally {
-    isStartingRun.value = false
-  }
+// Gallery media helpers
+function videoUrl(gen) {
+  return `${config.public.apiBase}/api/video/${itemId.value}/${gen.run}/${gen.seg}/segment.mp4`
 }
 
-async function startSingleTaskPipeline() {
-  if (!item.value) return
-
-  try {
-    isStartingRun.value = true
-    runsError.value = null
-
-    const response = await $fetch(`${config.public.apiBase}/api/hn/single-task-pipeline`, {
-      method: 'POST',
-      body: { item_id: item.value.id }
-    })
-
-    console.log('Single task pipeline queued:', response)
-
-    // Refresh runs list after a short delay to allow the pipeline to start
-    setTimeout(async () => {
-      await fetchRuns()
-    }, 2000)
-
-  } catch (err) {
-    console.error('Failed to start single task pipeline:', err)
-    runsError.value = 'Failed to start single task pipeline: ' + err.message
-  } finally {
-    isStartingRun.value = false
-  }
+function captionsUrl(gen) {
+  return `${config.public.apiBase}/api/video/${itemId.value}/${gen.run}/${gen.seg}/captions.vtt`
 }
 
-function truncateSummary(summary) {
-  if (!summary) return ''
-  return summary.length > 200 ? summary.substring(0, 200) + '...' : summary
+function posterUrl(gen) {
+  if (!gen.images_total || gen.images_total < 1) return undefined
+  return `${config.public.apiBase}/api/images/${itemId.value}/${gen.run}/${gen.seg}/1/image.png`
 }
 
-function formatTime(timestamp) {
-  if (!timestamp) return 'Unknown'
-
-  const date = new Date(timestamp * 1000)
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
+function galleryFrameStyle(gen) {
+  const ar = { '16:9': '16 / 9', '1:1': '1 / 1', '9:16': '9 / 16' }[gen.aspect_format || '16:9'] || '16 / 9'
+  const maxW = gen.aspect_format === '9:16' ? '240px' : '100%'
+  return { aspectRatio: ar, maxWidth: maxW }
 }
 
-async function deleteRun(runId) {
-  if (deletingRuns.value.has(runId)) return
-
-  deletingRuns.value.add(runId)
-  deleteMessage.value = ''
-
-  try {
-    await $fetch(`${config.public.apiBase}/api/hn/items/${item.value.id}/runs/${runId}`, {
-      method: 'DELETE'
-    })
-
-    deleteMessage.value = `Run ${runId} deleted successfully!`
-
-    // Reload the runs list
-    await fetchRuns()
-
-    // Clear message after 3 seconds
-    setTimeout(() => {
-      deleteMessage.value = ''
-    }, 3000)
-
-  } catch (err) {
-    console.error('Failed to delete run:', err)
-    deleteMessage.value = `Failed to delete run ${runId}. Please try again.`
-  } finally {
-    deletingRuns.value.delete(runId)
-  }
+// QA badge (shared style with GenerationsTable)
+function qaPassed(verdict) {
+  const v = String(verdict || '').toLowerCase()
+  return v === 'pass' || v === 'good'
 }
+
+function qaLabel(verdict) {
+  return qaPassed(verdict) ? 'PASS' : String(verdict).toUpperCase()
+}
+
+function qaClass(verdict) {
+  return qaPassed(verdict)
+    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+    : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+}
+
+onBeforeUnmount(() => {
+  if (messageTimer) clearTimeout(messageTimer)
+})
 </script>

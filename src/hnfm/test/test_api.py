@@ -1,18 +1,24 @@
-"""Tests for API endpoints"""
+"""Tests for API endpoints (Postgres-backed data layer)"""
 
-import json
-import pytest
 import asyncio
 from unittest.mock import Mock, patch
-import fakeredis
+
+import pytest
+from fastapi import HTTPException
 from fastapi.testclient import TestClient
 
-from ..web.api import app
-from ..web.api import queue_top_stories, list_downloaded_items, get_single_item
+from ..db import repo
+from ..web.api import (
+    app,
+    queue_top_stories,
+    list_downloaded_items,
+    get_single_item,
+)
+from ..web.models import HNItem
 
 
 class TestAPIEndpoints:
-    """Test API endpoints"""
+    """Test API endpoints by calling the endpoint functions directly"""
 
     @patch("hnfm.web.api.get_top_story_ids")
     @patch("hnfm.web.tasks.hn_fetch_item.apply_async")
@@ -30,32 +36,45 @@ class TestAPIEndpoints:
 
         mock_apply_async.side_effect = mock_apply_async_func
 
-        # Create fake Redis
-        fake_redis = fakeredis.FakeRedis(decode_responses=False)
-
-        # Call the function directly
-        result = asyncio.run(queue_top_stories(limit=3, redis_client=fake_redis))
+        # Call the function directly (empty test DB: nothing exists yet)
+        result = asyncio.run(queue_top_stories(limit=3))
 
         # Assertions
         assert result["queued_count"] == 3
-        assert result["ids"] == [1, 2, 3]
+        assert result["skipped_count"] == 0
+        assert result["queued_ids"] == [1, 2, 3]
         assert result["limit"] == 3
 
         # Check apply_async was called correctly
         assert mock_apply_async.call_count == 3
         assert apply_async_calls == [[1], [2], [3]]
 
+    @patch("hnfm.web.api.get_top_story_ids")
+    @patch("hnfm.web.tasks.hn_fetch_item.apply_async")
+    def test_queue_top_skips_existing_items(self, mock_apply_async, mock_get_top_ids):
+        """Items already stored in the database are skipped, not re-queued"""
+        mock_get_top_ids.return_value = [1, 2, 3]
+        mock_apply_async.return_value = Mock()
+
+        # Seed item 2 so it already exists
+        repo.upsert_item(HNItem(id=2, title="Already stored"))
+
+        result = asyncio.run(queue_top_stories(limit=3))
+
+        assert result["queued_count"] == 2
+        assert result["skipped_count"] == 1
+        assert result["queued_ids"] == [1, 3]
+        assert result["skipped_ids"] == [2]
+        assert mock_apply_async.call_count == 2
+
     def test_list_items_endpoint(self):
         """Test list items endpoint"""
-        # Create fake Redis with test data
-        fake_redis = fakeredis.FakeRedis(decode_responses=False)
-        fake_redis.set("hnfm:item:2", json.dumps({"id": 2, "title": "Item 2"}))
-        fake_redis.set("hnfm:item:1", json.dumps({"id": 1, "title": "Item 1"}))
+        # Seed test data via the data layer
+        repo.upsert_item(HNItem(id=2, title="Item 2"))
+        repo.upsert_item(HNItem(id=1, title="Item 1"))
 
         # Call the function directly
-        result = asyncio.run(
-            list_downloaded_items(offset=0, limit=2, redis_client=fake_redis)
-        )
+        result = asyncio.run(list_downloaded_items(offset=0, limit=2))
 
         # Assertions
         assert len(result["items"]) == 2
@@ -64,22 +83,23 @@ class TestAPIEndpoints:
         assert result["pagination"]["offset"] == 0
         assert result["pagination"]["limit"] == 2
         assert result["pagination"]["count"] == 2
+        assert result["pagination"]["total"] == 2
 
     def test_get_single_item_endpoint(self):
         """Test get single item endpoint"""
-        # Create fake Redis with test data
-        fake_redis = fakeredis.FakeRedis(decode_responses=False)
-        fake_redis.set("hnfm:item:9", json.dumps({"id": 9, "title": "Test Item"}))
+        # Seed test data via the data layer
+        repo.upsert_item(HNItem(id=9, title="Test Item"))
 
         # Test existing item
-        result = asyncio.run(get_single_item(item_id=9, redis_client=fake_redis))
+        result = asyncio.run(get_single_item(item_id=9))
         assert result["id"] == 9
         assert result["title"] == "Test Item"
 
         # Test non-existing item
-        with pytest.raises(Exception) as exc_info:
-            asyncio.run(get_single_item(item_id=999999, redis_client=fake_redis))
-        assert "Item not found" in str(exc_info.value)
+        with pytest.raises(HTTPException) as exc_info:
+            asyncio.run(get_single_item(item_id=999999))
+        assert exc_info.value.status_code == 404
+        assert "Item not found" in str(exc_info.value.detail)
 
 
 class TestAPIEndpointsIntegration:
@@ -93,15 +113,24 @@ class TestAPIEndpointsIntegration:
             with patch("hnfm.web.tasks.hn_fetch_item.apply_async") as mock_apply_async:
                 mock_apply_async.return_value = Mock()
 
-                with patch("hnfm.web.api.get_redis_client") as mock_get_redis:
-                    fake_redis = fakeredis.FakeRedis(decode_responses=False)
-                    mock_get_redis.return_value = fake_redis
+                client = TestClient(app)
+                response = client.post("/api/hn/queue-top?limit=3")
 
-                    client = TestClient(app)
-                    response = client.post("/api/hn/queue-top?limit=3")
+                assert response.status_code == 200
+                data = response.json()
+                assert data["queued_count"] == 3
+                assert data["queued_ids"] == [1, 2, 3]
+                assert mock_apply_async.call_count == 3
 
-                    assert response.status_code == 200
-                    data = response.json()
-                    assert data["queued_count"] == 3
-                    assert data["ids"] == [1, 2, 3]
-                    assert mock_apply_async.call_count == 3
+    def test_list_items_endpoint_integration(self):
+        """Test the list endpoint against seeded database rows"""
+        repo.upsert_item(HNItem(id=10, title="Ten"))
+        repo.upsert_item(HNItem(id=20, title="Twenty"))
+
+        client = TestClient(app)
+        response = client.get("/api/hn/items?offset=0&limit=50")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert [i["id"] for i in data["items"]] == [20, 10]
+        assert data["pagination"]["total"] == 2

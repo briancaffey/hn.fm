@@ -551,6 +551,30 @@
             <p v-else>Video not generated yet. Click 'Generate Video' to create it.</p>
           </div>
         </div>
+
+        <!-- Pipeline X-Ray Section -->
+        <div class="bg-card border rounded-lg p-6">
+          <div class="flex items-center justify-between" :class="{ 'mb-4': xrayExpanded }">
+            <h2 class="text-2xl font-bold">Pipeline X-Ray</h2>
+            <Button
+              variant="outline"
+              size="sm"
+              @click="toggleXrayExpanded"
+              class="flex items-center gap-2"
+            >
+              <Icon :name="xrayExpanded ? 'lucide:chevron-up' : 'lucide:chevron-down'" class="h-4 w-4" />
+              {{ xrayExpanded ? 'Collapse' : 'Expand' }}
+            </Button>
+          </div>
+
+          <!-- Expanded Pipeline X-Ray Details -->
+          <StepTimeline
+            v-if="xrayExpanded"
+            :item-id="itemId"
+            :run-id="runId"
+            :seg-id="segId"
+          />
+        </div>
       </div>
 
       <!-- Not Found -->
@@ -770,6 +794,13 @@ const imageCount = ref(0)
 
 // Video data
 const isGeneratingVideo = ref(false)
+
+// Pipeline X-Ray data
+const xrayExpanded = ref(false)
+
+function toggleXrayExpanded() {
+  xrayExpanded.value = !xrayExpanded.value
+}
 
 // Fetch data
 const { data: itemData, pending: itemLoading, error: itemError } = await useAsyncData(

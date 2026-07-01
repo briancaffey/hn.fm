@@ -1,354 +1,495 @@
-<template>
-  <div class="container mx-auto px-4 py-8">
-    <div class="flex justify-between items-center mb-6">
-      <h1 class="text-3xl font-bold text-orange-600">Hacker News Items</h1>
-      <div class="flex gap-2">
-        <Button
-          :disabled="isQueueing"
-          variant="default"
-          class="bg-orange-600 hover:bg-orange-700 text-white"
-          @click="queueTopStories"
-        >
-          {{ isQueueing ? 'Queueing...' : 'Queue Top (20)' }}
-        </Button>
-        <Button
-          :disabled="isQueueingNew"
-          variant="default"
-          class="bg-blue-600 hover:bg-blue-700 text-white"
-          @click="queueNewStories"
-        >
-          {{ isQueueingNew ? 'Queueing...' : 'Queue New (20)' }}
-        </Button>
-      </div>
-    </div>
-
-    <!-- Single Item Fetch Form -->
-    <div class="bg-card border rounded-lg p-4 mb-6">
-      <div class="flex items-center space-x-4">
-        <div class="flex-1">
-          <Input
-            v-model="singleItemId"
-            type="number"
-            placeholder="Enter HN item ID (e.g., 123456)"
-            :disabled="isFetchingSingle"
-            class="w-full"
-          />
-        </div>
-        <Button
-          :disabled="!singleItemId || isFetchingSingle"
-          @click="fetchSingleItem"
-          class="bg-orange-600 hover:bg-orange-700 text-white"
-        >
-          <Icon v-if="isFetchingSingle" name="lucide:loader-2" class="h-4 w-4 mr-2 animate-spin" />
-          {{ isFetchingSingle ? 'Fetching...' : 'Fetch Item' }}
-        </Button>
-      </div>
-      <div v-if="singleItemError" class="mt-2 text-sm text-destructive">
-        {{ singleItemError }}
-      </div>
-      <div v-if="singleItemSuccess" class="mt-2 text-sm text-green-600">
-        {{ singleItemSuccess }}
-      </div>
-    </div>
-
-    <div v-if="isLoading" class="text-center py-8">
-      <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-orange-600 mx-auto"/>
-      <p class="mt-2 text-muted-foreground">Loading items...</p>
-    </div>
-
-    <div v-else-if="error" class="bg-destructive/10 border border-destructive text-destructive px-4 py-3 rounded mb-4">
-      {{ error }}
-    </div>
-
-    <div v-else>
-      <div class="bg-card border rounded-lg overflow-hidden">
-        <table class="min-w-full divide-y divide-border">
-          <thead class="bg-orange-50 dark:bg-orange-950/20">
-            <tr>
-              <th class="px-6 py-3 text-left text-xs font-medium text-orange-700 dark:text-orange-300 uppercase tracking-wider">
-                #
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-orange-700 dark:text-orange-300 uppercase tracking-wider">
-                Title
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-orange-700 dark:text-orange-300 uppercase tracking-wider">
-                URL
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-orange-700 dark:text-orange-300 uppercase tracking-wider">
-                By
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-orange-700 dark:text-orange-300 uppercase tracking-wider">
-                Score
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-orange-700 dark:text-orange-300 uppercase tracking-wider">
-                Time
-              </th>
-              <th class="px-6 py-3 text-left text-xs font-medium text-orange-700 dark:text-orange-300 uppercase tracking-wider">
-                ID
-              </th>
-            </tr>
-          </thead>
-          <tbody class="bg-card divide-y divide-border">
-                        <tr
-              v-for="(item, index) in items"
-              :key="item.id"
-              class="hover:bg-orange-50 dark:hover:bg-orange-950/10 transition-colors cursor-pointer"
-              @click="navigateToItem(item.id)"
-            >
-              <td class="px-6 py-4 whitespace-nowrap text-base text-muted-foreground">
-                {{ (pagination.page.value - 1) * pagination.limit.value + index + 1 }}
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap">
-                <span class="text-foreground font-medium text-base">
-                  {{ item.title || 'No title' }}
-                </span>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap">
-                <a
-                  v-if="item.url"
-                  :href="item.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="inline-flex items-center gap-2 text-orange-600 hover:text-orange-700 font-medium text-base"
-                  @click.stop
-                >
-                  <Icon name="lucide:external-link" class="h-4 w-4" />
-                  {{ getUrlHost(item.url) }}
-                </a>
-                <span v-else class="text-muted-foreground text-base">
-                  No URL
-                </span>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-base text-foreground">
-                {{ item.by || 'Unknown' }}
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-base text-foreground">
-                <span class="inline-flex items-center px-3 py-1.5 rounded-full text-sm font-medium bg-orange-100 text-orange-800 dark:bg-orange-900/30 dark:text-orange-300">
-                  {{ item.score || 0 }}
-                </span>
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-base text-foreground">
-                {{ formatTime(item.time) }}
-              </td>
-              <td class="px-6 py-4 whitespace-nowrap text-base text-foreground">
-                <span class="font-mono text-orange-600 dark:text-orange-400">
-                  {{ item.id }}
-                </span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div v-if="items.length === 0" class="text-center py-8 text-muted-foreground">
-        No items found. Try queuing some top stories!
-      </div>
-
-      <!-- Pagination -->
-      <div v-if="pagination" class="mt-6">
-        <Pagination
-          :page="pagination.page"
-          :total="pagination.total"
-          :limit="pagination.limit"
-          :total-pages="pagination.totalPages"
-          :has-next-page="pagination.hasNextPage"
-          :has-previous-page="pagination.hasPreviousPage"
-          :set-page="pagination.setPage"
-          :next-page="pagination.nextPage"
-          :previous-page="pagination.previousPage"
-          :first-page="pagination.firstPage"
-          :last-page="pagination.lastPage"
-        />
-      </div>
-    </div>
-  </div>
-</template>
-
-<script setup>
-import { usePagination } from '~/composables/usePagination'
-import Pagination from '~/components/Pagination.vue'
+<script setup lang="ts">
 import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
 import { Icon } from '#components'
+import Pagination from '~/components/Pagination.vue'
+import { usePaginatedFetch } from '~/composables/usePaginatedFetch'
 
-// Disable SSR for this page
-definePageMeta({
-  ssr: false
-})
+interface Story {
+  id: number
+  type: string | null
+  by: string | null
+  time: number | null
+  url: string | null
+  title: string | null
+  text: string | null
+  score: number | null
+  descendants: number | null
+  kids: number[] | null
+  runs_count: number
+  segments_count: number
+  videos_count: number
+  latest_activity: string | null
+}
 
 const config = useRuntimeConfig()
+const apiBase = config.public.apiBase
 
-// Simple reactive state
-const items = ref([])
-const isLoading = ref(true)
-const error = ref(null)
-const isQueueing = ref(false)
-const isQueueingNew = ref(false)
-
-// Single item fetch state
-const singleItemId = ref(null)
-const isFetchingSingle = ref(false)
-const singleItemError = ref(null)
-const singleItemSuccess = ref(null)
-
-// Ensure config is available
-if (!config.public?.apiBase) {
-  console.error('API base URL not configured')
-  error.value = 'Configuration error: API base URL not found'
-}
-
-// Initialize pagination
-const pagination = usePagination({
-  initialPage: 1,
-  initialLimit: 20,
-  onPageChange: (page) => {
-    // Fetch data when page changes
-    fetchItems(page)
-  }
+const {
+  rows,
+  pending,
+  error,
+  page,
+  limit,
+  total,
+  totalPages,
+  hasNextPage,
+  hasPreviousPage,
+  setPage,
+  nextPage,
+  previousPage,
+  sort,
+  dir,
+  filters,
+  toggleSort,
+  setSearch,
+  setFilter,
+  refresh,
+} = usePaginatedFetch<Story>({
+  endpoint: '/api/stories',
+  syncQuery: true,
+  defaultSort: 'id',
+  filters: { has_video: undefined, has_runs: undefined },
 })
 
-// Fetch data
-async function fetchItems(page = 1) {
+function firstPage() {
+  setPage(1)
+}
+function lastPage() {
+  setPage(totalPages.value)
+}
+
+// ── columns ─────────────────────────────────────────────────────────────────
+
+interface Column {
+  label: string
+  sortKey?: string
+  thClass?: string
+}
+
+const columns: Column[] = [
+  { label: 'Score', sortKey: 'score', thClass: 'w-16 text-right' },
+  { label: 'Title', sortKey: 'id' },
+  { label: 'By', thClass: 'w-32' },
+  { label: 'Age', sortKey: 'time', thClass: 'w-20' },
+  { label: 'Comments', sortKey: 'comments', thClass: 'w-24 text-right' },
+  { label: 'Runs', sortKey: 'runs', thClass: 'w-16 text-right' },
+  { label: 'Segs', sortKey: 'segments', thClass: 'w-16 text-right' },
+  { label: 'Videos', sortKey: 'videos', thClass: 'w-20 text-right' },
+  { label: 'Latest', sortKey: 'latest', thClass: 'w-24' },
+  { label: 'Actions', thClass: 'w-36' },
+]
+
+function sortIndicator(key?: string): string {
+  if (!key || sort.value !== key) return ''
+  return dir.value === 'asc' ? '▲' : '▼'
+}
+
+// ── search ──────────────────────────────────────────────────────────────────
+
+const searchInput = ref('')
+function onSearch(value: string | number) {
+  setSearch(String(value ?? ''))
+}
+
+// ── filter chips ────────────────────────────────────────────────────────────
+
+type ChipKey = 'all' | 'has_video' | 'no_video' | 'ungenerated'
+
+const chips: { key: ChipKey; label: string }[] = [
+  { key: 'all', label: 'All' },
+  { key: 'has_video', label: 'Has video' },
+  { key: 'no_video', label: 'No video' },
+  { key: 'ungenerated', label: 'Un-generated' },
+]
+
+const activeChip = computed<ChipKey>(() => {
+  if (filters.has_video === true) return 'has_video'
+  if (filters.has_video === false) return 'no_video'
+  if (filters.has_runs === false) return 'ungenerated'
+  return 'all'
+})
+
+function applyChip(chip: ChipKey) {
+  setFilter('has_video', chip === 'has_video' ? true : chip === 'no_video' ? false : undefined)
+  setFilter('has_runs', chip === 'ungenerated' ? false : undefined)
+}
+
+// ── queue actions ───────────────────────────────────────────────────────────
+
+const queueBusy = ref<'top' | 'new' | null>(null)
+const queueFeedback = ref('')
+
+async function queueStories(kind: 'top' | 'new') {
+  queueBusy.value = kind
+  queueFeedback.value = ''
   try {
-    isLoading.value = true
-    error.value = null
-
-    // Check if API base is available
-    if (!config.public?.apiBase) {
-      throw new Error('API base URL not configured')
-    }
-
-    const limit = pagination.limit.value
-    const offset = pagination.offset.value
-
-    console.log('Fetching items from:', `${config.public.apiBase}/api/hn/items?offset=${offset}&limit=${limit}`)
-
-    const response = await $fetch(`${config.public.apiBase}/api/hn/items?offset=${offset}&limit=${limit}`)
-    console.log('API response:', response)
-
-    items.value = response.items || []
-
-    // Update pagination with total count
-    if (response.pagination?.total !== undefined) {
-      pagination.setTotal(response.pagination.total)
-    }
-  } catch (err) {
-    console.error('API error:', err)
-    error.value = 'Failed to fetch items: ' + (err.message || 'Unknown error')
-    items.value = [] // Ensure items is always an array
+    const res = await $fetch<{ queued_count?: number; skipped_count?: number }>(
+      `${apiBase}/api/hn/queue-${kind}?limit=20`,
+      { method: 'POST' },
+    )
+    queueFeedback.value = `Queued ${res?.queued_count ?? 0} · skipped ${res?.skipped_count ?? 0}`
+    await refresh()
+  } catch {
+    queueFeedback.value = `Failed to queue ${kind} stories`
   } finally {
-    isLoading.value = false
+    queueBusy.value = null
   }
 }
 
-// Queue top stories
-async function queueTopStories() {
+// ── fetch item by ID ────────────────────────────────────────────────────────
+
+const fetchItemId = ref<string | number>('')
+const fetchBusy = ref(false)
+const fetchFeedback = ref('')
+
+async function fetchItemById() {
+  const id = Number(fetchItemId.value)
+  if (!id) return
+  fetchBusy.value = true
+  fetchFeedback.value = ''
   try {
-    isQueueing.value = true
-    error.value = null
-
-    const response = await $fetch(`${config.public.apiBase}/api/hn/queue-top?limit=20`, { method: 'POST' })
-
-    // Show informative message about what was queued vs skipped
-    const queuedCount = response.queued_count || 0
-    const skippedCount = response.skipped_count || 0
-    console.log(`Queued ${queuedCount} new items, skipped ${skippedCount} existing items`)
-
-    // Refetch the list after queuing
-    await fetchItems(pagination.page.value)
-  } catch (err) {
-    error.value = 'Failed to queue top stories: ' + err.message
+    const res = await $fetch<{ status?: string }>(
+      `${apiBase}/api/hn/process-item?item_id=${id}`,
+      { method: 'POST' },
+    )
+    fetchFeedback.value = res?.status === 'exists'
+      ? `Item ${id} already exists`
+      : `Item ${id} queued for fetching`
+    fetchItemId.value = ''
+    setTimeout(() => refresh(), 1000)
+  } catch {
+    fetchFeedback.value = `Failed to fetch item ${id}`
   } finally {
-    isQueueing.value = false
+    fetchBusy.value = false
   }
 }
 
-// Queue new stories
-async function queueNewStories() {
+// ── per-row generate ────────────────────────────────────────────────────────
+
+const generating = ref(new Set<number>())
+const rowFeedback = ref<Record<number, 'queued' | 'error'>>({})
+
+async function generate(itemId: number) {
+  if (generating.value.has(itemId)) return
+  generating.value.add(itemId)
   try {
-    isQueueingNew.value = true
-    error.value = null
-
-    const response = await $fetch(`${config.public.apiBase}/api/hn/queue-new?limit=20`, { method: 'POST' })
-
-    // Show informative message about what was queued vs skipped
-    const queuedCount = response.queued_count || 0
-    const skippedCount = response.skipped_count || 0
-    console.log(`Queued ${queuedCount} new items, skipped ${skippedCount} existing items`)
-
-    // Refetch the list after queuing
-    await fetchItems(pagination.page.value)
-  } catch (err) {
-    error.value = 'Failed to queue new stories: ' + err.message
-  } finally {
-    isQueueingNew.value = false
-  }
-}
-
-// Fetch single item
-async function fetchSingleItem() {
-  if (!singleItemId.value) return
-
-  try {
-    isFetchingSingle.value = true
-    singleItemError.value = null
-    singleItemSuccess.value = null
-
-    const response = await $fetch(`${config.public.apiBase}/api/hn/process-item?item_id=${singleItemId.value}`, {
-      method: 'POST'
+    await $fetch(`${apiBase}/api/hn/single-task-pipeline`, {
+      method: 'POST',
+      body: { item_id: itemId },
     })
-
-    if (response.status === 'exists') {
-      singleItemSuccess.value = `Item ${singleItemId.value} already exists in database.`
-    } else {
-      singleItemSuccess.value = `Item ${singleItemId.value} queued for fetching! Check back in a moment.`
-    }
-    singleItemId.value = null
-
-    // Refetch the list to show the new item
-    setTimeout(() => {
-      fetchItems(pagination.page.value)
-    }, 1000)
-
-  } catch (err) {
-    singleItemError.value = 'Failed to fetch item: ' + (err.message || 'Unknown error')
+    rowFeedback.value[itemId] = 'queued'
+  } catch {
+    rowFeedback.value[itemId] = 'error'
   } finally {
-    isFetchingSingle.value = false
+    generating.value.delete(itemId)
+    setTimeout(() => {
+      delete rowFeedback.value[itemId]
+    }, 4000)
   }
 }
 
-// Format time
-function formatTime(timestamp) {
-  if (!timestamp) return 'Unknown'
+// ── helpers ─────────────────────────────────────────────────────────────────
 
-  const date = new Date(timestamp * 1000)
-  return date.toLocaleDateString() + ' ' + date.toLocaleTimeString()
-}
-
-// Extract host from URL
-function getUrlHost(url) {
-  if (!url) return 'No URL'
-
+function domain(url: string | null): string {
+  if (!url) return ''
   try {
-    const urlObj = new URL(url)
-    return urlObj.hostname
-  } catch (error) {
-    return 'Invalid URL'
+    return new URL(url).hostname.replace(/^www\./, '')
+  } catch {
+    return ''
   }
 }
 
-// Navigate to item detail page
-function navigateToItem(itemId) {
-  navigateTo(`/hn/item/${itemId}`)
+function relTime(ms: number): string {
+  const s = Math.max(0, Math.floor((Date.now() - ms) / 1000))
+  if (s < 60) return `${s}s`
+  const m = Math.floor(s / 60)
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return `${h}h`
+  const d = Math.floor(h / 24)
+  if (d < 30) return `${d}d`
+  const mo = Math.floor(d / 30)
+  if (mo < 12) return `${mo}mo`
+  return `${Math.floor(mo / 12)}y`
 }
 
-// Fetch data on mount
-onMounted(async () => {
-  try {
-    await fetchItems(1)
-  } catch (err) {
-    console.error('Failed to fetch items on mount:', err)
-    error.value = 'Failed to load items. Please try refreshing the page.'
-  }
-})
+function ageFromUnix(time: number | null): string {
+  if (!time) return '—'
+  return relTime(time * 1000)
+}
+
+function ageFromIso(iso: string | null): string {
+  if (!iso) return '—'
+  const ms = new Date(iso).getTime()
+  if (Number.isNaN(ms)) return '—'
+  return relTime(ms)
+}
+
+function goToItem(id: number) {
+  navigateTo(`/hn/item/${id}`)
+}
 </script>
+
+<template>
+  <div class="h-full flex flex-col">
+    <!-- Toolbar -->
+    <div class="shrink-0 border-b bg-card px-4 py-3 space-y-2.5">
+      <div class="flex flex-wrap items-center gap-3">
+        <h1 class="text-lg font-bold text-orange-600">Stories</h1>
+
+        <div class="relative w-64">
+          <Icon
+            name="lucide:search"
+            class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            v-model="searchInput"
+            type="search"
+            placeholder="Search titles…"
+            class="h-8 pl-8"
+            @update:model-value="onSearch"
+          />
+        </div>
+
+        <!-- Filter chips -->
+        <div class="flex items-center gap-1">
+          <button
+            v-for="chip in chips"
+            :key="chip.key"
+            type="button"
+            class="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+            :class="activeChip === chip.key
+              ? 'border-orange-600 bg-orange-600 text-white'
+              : 'border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground'"
+            @click="applyChip(chip.key)"
+          >
+            {{ chip.label }}
+          </button>
+        </div>
+
+        <div class="ml-auto flex flex-wrap items-center gap-2">
+          <span v-if="queueFeedback" class="text-xs text-muted-foreground">
+            {{ queueFeedback }}
+          </span>
+          <Button
+            size="sm"
+            class="h-8 bg-orange-600 text-white hover:bg-orange-700"
+            :disabled="queueBusy !== null"
+            @click="queueStories('top')"
+          >
+            <Icon v-if="queueBusy === 'top'" name="lucide:loader-2" class="mr-1 h-3.5 w-3.5 animate-spin" />
+            Queue Top 20
+          </Button>
+          <Button
+            size="sm"
+            class="h-8 bg-blue-600 text-white hover:bg-blue-700"
+            :disabled="queueBusy !== null"
+            @click="queueStories('new')"
+          >
+            <Icon v-if="queueBusy === 'new'" name="lucide:loader-2" class="mr-1 h-3.5 w-3.5 animate-spin" />
+            Queue New 20
+          </Button>
+
+          <!-- Fetch item by ID -->
+          <div class="flex items-center gap-1.5">
+            <Input
+              v-model="fetchItemId"
+              type="number"
+              placeholder="Item ID"
+              class="h-8 w-28 tabular-nums"
+              :disabled="fetchBusy"
+              @keyup.enter="fetchItemById"
+            />
+            <Button
+              size="sm"
+              variant="outline"
+              class="h-8"
+              :disabled="!fetchItemId || fetchBusy"
+              @click="fetchItemById"
+            >
+              <Icon v-if="fetchBusy" name="lucide:loader-2" class="mr-1 h-3.5 w-3.5 animate-spin" />
+              Fetch
+            </Button>
+          </div>
+          <span v-if="fetchFeedback" class="text-xs text-muted-foreground">
+            {{ fetchFeedback }}
+          </span>
+        </div>
+      </div>
+
+      <div
+        v-if="error"
+        class="rounded border border-destructive bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
+      >
+        Failed to load stories. Is the API running?
+      </div>
+    </div>
+
+    <!-- Table -->
+    <div class="min-h-0 flex-1 overflow-auto">
+      <table class="w-full text-sm" :class="pending && rows.length ? 'opacity-60' : ''">
+        <thead class="sticky top-0 z-10 bg-card shadow-[inset_0_-1px_0_hsl(var(--border))]">
+          <tr>
+            <th
+              v-for="col in columns"
+              :key="col.label"
+              class="px-3 py-2 text-left text-xs font-medium uppercase tracking-wider text-muted-foreground"
+              :class="[col.thClass, col.sortKey ? 'cursor-pointer select-none hover:text-foreground' : '']"
+              @click="col.sortKey && toggleSort(col.sortKey)"
+            >
+              <span :class="sort === col.sortKey ? 'text-orange-600 dark:text-orange-400' : ''">
+                {{ col.label }}
+                <span v-if="sortIndicator(col.sortKey)" class="text-[10px]">{{ sortIndicator(col.sortKey) }}</span>
+              </span>
+            </th>
+          </tr>
+        </thead>
+
+        <tbody class="divide-y divide-border">
+          <!-- loading skeleton -->
+          <template v-if="pending && rows.length === 0">
+            <tr v-for="n in 12" :key="`skeleton-${n}`">
+              <td v-for="col in columns" :key="col.label" class="px-3 py-2">
+                <div class="h-4 animate-pulse rounded bg-muted" />
+              </td>
+            </tr>
+          </template>
+
+          <tr
+            v-for="story in rows"
+            :key="story.id"
+            class="cursor-pointer transition-colors hover:bg-orange-50 dark:hover:bg-orange-950/10"
+            @click="goToItem(story.id)"
+          >
+            <!-- Score -->
+            <td class="px-3 py-2 text-right tabular-nums text-foreground">
+              {{ story.score ?? 0 }}
+            </td>
+
+            <!-- Title + domain -->
+            <td class="max-w-0 px-3 py-2">
+              <div class="flex items-baseline gap-2">
+                <NuxtLink
+                  :to="`/hn/item/${story.id}`"
+                  class="truncate font-semibold text-foreground hover:text-orange-600"
+                  @click.stop
+                >
+                  {{ story.title || `Item ${story.id}` }}
+                </NuxtLink>
+                <a
+                  v-if="story.url"
+                  :href="story.url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="shrink-0 truncate text-xs text-muted-foreground hover:text-orange-600"
+                  @click.stop
+                >
+                  {{ domain(story.url) }}
+                </a>
+              </div>
+            </td>
+
+            <!-- By -->
+            <td class="max-w-32 truncate px-3 py-2 text-muted-foreground">
+              {{ story.by || '—' }}
+            </td>
+
+            <!-- Age -->
+            <td class="whitespace-nowrap px-3 py-2 tabular-nums text-muted-foreground" :title="story.time ? new Date(story.time * 1000).toLocaleString() : ''">
+              {{ ageFromUnix(story.time) }}
+            </td>
+
+            <!-- Comments -->
+            <td class="px-3 py-2 text-right tabular-nums text-muted-foreground">
+              {{ story.descendants ?? 0 }}
+            </td>
+
+            <!-- Runs -->
+            <td class="px-3 py-2 text-right tabular-nums" :class="story.runs_count > 0 ? 'text-foreground' : 'text-muted-foreground/50'">
+              {{ story.runs_count }}
+            </td>
+
+            <!-- Segs -->
+            <td class="px-3 py-2 text-right tabular-nums" :class="story.segments_count > 0 ? 'text-foreground' : 'text-muted-foreground/50'">
+              {{ story.segments_count }}
+            </td>
+
+            <!-- Videos -->
+            <td class="px-3 py-2 text-right tabular-nums">
+              <span
+                v-if="story.videos_count > 0"
+                class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-300"
+              >
+                {{ story.videos_count }}
+              </span>
+              <span v-else class="text-muted-foreground/50">0</span>
+            </td>
+
+            <!-- Latest -->
+            <td class="whitespace-nowrap px-3 py-2 tabular-nums text-muted-foreground" :title="story.latest_activity || ''">
+              {{ ageFromIso(story.latest_activity) }}
+            </td>
+
+            <!-- Actions -->
+            <td class="whitespace-nowrap px-3 py-2" @click.stop>
+              <div class="flex items-center gap-1.5">
+                <Button
+                  size="sm"
+                  variant="outline"
+                  class="h-7 px-2 text-xs"
+                  :disabled="generating.has(story.id)"
+                  @click="generate(story.id)"
+                >
+                  <Icon
+                    v-if="generating.has(story.id)"
+                    name="lucide:loader-2"
+                    class="mr-1 h-3 w-3 animate-spin"
+                  />
+                  Generate
+                </Button>
+                <span v-if="rowFeedback[story.id] === 'queued'" class="text-xs text-green-600 dark:text-green-400">
+                  Queued
+                </span>
+                <span v-else-if="rowFeedback[story.id] === 'error'" class="text-xs text-destructive">
+                  Failed
+                </span>
+                <NuxtLink
+                  v-if="story.videos_count > 0"
+                  :to="`/hn/item/${story.id}`"
+                  class="rounded px-1.5 py-0.5 text-sm text-green-600 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900/30"
+                  title="Watch videos"
+                >
+                  ▶
+                </NuxtLink>
+              </div>
+            </td>
+          </tr>
+        </tbody>
+      </table>
+
+      <!-- empty state -->
+      <div v-if="!pending && rows.length === 0" class="py-16 text-center text-muted-foreground">
+        <Icon name="lucide:inbox" class="mx-auto mb-2 h-8 w-8 opacity-50" />
+        <p>No stories found. Try queuing some top stories!</p>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="shrink-0 border-t bg-card px-4 py-2">
+      <Pagination
+        :page="page"
+        :total="total"
+        :limit="limit"
+        :total-pages="totalPages"
+        :has-next-page="hasNextPage"
+        :has-previous-page="hasPreviousPage"
+        :set-page="setPage"
+        :next-page="nextPage"
+        :previous-page="previousPage"
+        :first-page="firstPage"
+        :last-page="lastPage"
+      />
+    </div>
+  </div>
+</template>

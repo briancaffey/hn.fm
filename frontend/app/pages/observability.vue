@@ -120,7 +120,10 @@
                     <span class="capitalize">{{ k.replace(/_/g,' ') }}</span>
                     <span class="tabular-nums" :class="k.includes('fail') && v ? 'text-red-600' : ''">{{ v }}</span>
                   </div>
-                  <NuxtLink :to="`/hn/item/${r.item_id}/compare`" class="mt-2 inline-block text-blue-600 hover:underline">watch ↗</NuxtLink>
+                  <div class="mt-2 flex gap-3">
+                    <NuxtLink :to="`/hn/item/${r.item_id}/run/${r.run}/segment/${r.seg}`" class="inline-block text-blue-600 hover:underline">x-ray ↗</NuxtLink>
+                    <NuxtLink :to="`/hn/item/${r.item_id}`" class="inline-block text-blue-600 hover:underline">story ↗</NuxtLink>
+                  </div>
                 </div>
               </div>
             </div>

@@ -15,28 +15,30 @@ class TestAudioIntegration:
         """Create test client"""
         return TestClient(app)
 
-    @patch("src.hnfm.web.api.build_segment_audio")
-    def test_audio_api_endpoints(self, mock_build_task, client):
+    def test_audio_api_endpoints(self, client):
         """Test that audio API endpoints are accessible and queue tasks"""
-        # Mock the task
-        mock_task = Mock()
-        mock_task.apply_async.return_value = mock_task
-        mock_build_task.return_value = mock_task
+        from ..web import api as api_module
 
-        # Test build all audio endpoint
-        response = client.post("/api/hn/items/123/runs/1/segments/2/audio")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "queued"
-        assert data["mode"] == "all"
+        # Mock task dispatch so no Celery broker is needed
+        with patch.object(
+            api_module.build_segment_audio, "apply_async", return_value=Mock()
+        ):
+            # Test build all audio endpoint
+            response = client.post("/api/hn/items/123/runs/1/segments/2/audio")
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "queued"
+            assert data["mode"] == "all"
 
-        # Test build one section endpoint
-        response = client.post("/api/hn/items/123/runs/1/segments/2/sections/3/audio")
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "queued"
-        assert data["mode"] == "one"
-        assert data["section"] == 3
+            # Test build one section endpoint
+            response = client.post(
+                "/api/hn/items/123/runs/1/segments/2/sections/3/audio"
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "queued"
+            assert data["mode"] == "one"
+            assert data["section"] == 3
 
         # Test list sections endpoint (should return empty list for non-existent segment)
         response = client.get("/api/hn/items/123/runs/1/segments/2/sections")
@@ -46,7 +48,7 @@ class TestAudioIntegration:
 
     def test_audio_utils_functions(self):
         """Test that audio utility functions work correctly"""
-        from ..audio.audio_utils import split_script_into_sections, k_sec, k_sec_list
+        from ..audio.audio_utils import split_script_into_sections, k_sec
 
         # Test script splitting
         script = "[S1] Line 1\n[S2] Line 2\n[S1] Line 3"
@@ -55,9 +57,8 @@ class TestAudioIntegration:
         assert sections[0] == "[S1] Line 1\n[S2] Line 2"
         assert sections[1] == "[S1] Line 3"
 
-        # Test key generation
+        # Test legacy key generation (kept on Pydantic models / API responses)
         assert k_sec(123, 1, 2, 3) == "hnfm:seg:123:1:2:sec:3"
-        assert k_sec_list(123, 1, 2) == "hnfm:seg:123:1:2:sec:list"
 
     def test_segment_model_audio_fields(self):
         """Test that Segment model has audio fields"""

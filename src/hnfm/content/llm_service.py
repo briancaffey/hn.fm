@@ -96,12 +96,19 @@ class LLMService:
                 }
             response = self.client.chat.completions.create(**create_kwargs)
 
-            # Record token usage against the current pipeline stage (non-fatal).
+            # Record token usage against the current pipeline stage and the
+            # current audit-trail step (both non-fatal).
             try:
                 u = getattr(response, "usage", None)
                 if u:
                     from ..utils.metrics import record_tokens
                     record_tokens(getattr(u, "prompt_tokens", 0), getattr(u, "completion_tokens", 0))
+                    from ..db import steps
+                    steps.record_llm(
+                        model=model_name,
+                        tokens_in=getattr(u, "prompt_tokens", 0),
+                        tokens_out=getattr(u, "completion_tokens", 0),
+                    )
             except Exception:
                 pass
 
