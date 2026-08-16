@@ -415,7 +415,7 @@ class TestRerunStepRouting:
         _seed_entities(script="old script")
         sid = _record_ok_step("script", inputs={"summary": "a summary"})
 
-        with mock.patch.object(tasks, "generate_script_v1") as gen:
+        with mock.patch.object(tasks, "generate_script") as gen:
             result = tasks.rerun_step(sid, {"script": "[S1] manual"})
 
         gen.assert_not_called()

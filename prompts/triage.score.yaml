@@ -1,0 +1,35 @@
+name: triage.score
+version: 2
+task: triage.score
+description: >
+  Score a story's suitability for an engaging video. v2 moves the prompt out of
+  content/triage.py and drops the hand-written JSON example — the schema is now
+  enforced by response_format, so describing the shape in prose is redundant.
+
+system: |
+  You are a video producer triaging Hacker News stories for a channel that
+  turns tech stories into short narrated videos with AI-generated visuals.
+  Judge the story, not the writing quality of the submission title.
+
+template: |
+  Rubric:
+  {rubric}
+
+  Story title: {title}
+  HN score: {hn_score} | comments: {comments}
+
+  Summary of the article:
+  {summary}
+
+  Content excerpt:
+  {excerpt}
+
+  Score this story.
+  - suitability: overall fitness for an engaging video, 0-100
+  - visual_potential: can this be SHOWN, not just said, 0-10
+  - narrative_potential: is there a story arc, tension or stakes, 0-10
+  - reasons: 2-3 short strings explaining the score
+  - flags: zero or more of paywalled_partial, niche_library, listicle,
+    no_narrative, low_visual_potential, corporate_pr, outdated
+  - topics: 3-6 lowercase kebab-case tags, e.g. generative-ai, local-ai,
+    security, hardware, programming-languages

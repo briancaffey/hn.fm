@@ -97,7 +97,13 @@ class SegmentRow(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, index=True
     )
+    # Flat `[S1] …` text — still the view the UI, ASR QA and legacy readers use.
+    # Rendered from `script_json` when that exists.
     script: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    # The structured script (content.llm_schemas.Script): writer-chosen section
+    # boundaries, per-section beat and visual_intent. NULL for segments written
+    # before plans/08 — those fall back to the legacy line-pair splitter.
+    script_json: Mapped[dict] = mapped_column(JSONVariant, nullable=True)
 
     style_theme: Mapped[str] = mapped_column(Text, nullable=True)
     style_theme_name: Mapped[str] = mapped_column(Text, nullable=True)
@@ -244,6 +250,10 @@ class PipelineStepRow(Base):
     finished_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
     seconds: Mapped[float] = mapped_column(Float, nullable=True)
     model: Mapped[str] = mapped_column(Text, nullable=True)
+    # Which prompt produced this step, from the registry (plans/08). Recorded so
+    # a quality change can be attributed to a specific prompt edit.
+    prompt_name: Mapped[str] = mapped_column(Text, nullable=True)
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=True)
     tokens_in: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     tokens_out: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     llm_calls: Mapped[int] = mapped_column(Integer, nullable=False, default=0)

@@ -8,12 +8,9 @@ Models: free LiteLLM routes only. Primary + fallback are configured; the
 env var TRIAGE_LLM_MODEL overrides the primary.
 """
 
-import json
 import logging
 import math
 import os
-import re
-from datetime import datetime
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -24,30 +21,10 @@ VERDICTS = ("great", "good", "marginal", "unsuitable")
 FLAG_SCRAPE_FALLBACK = "scrape_fallback"
 FLAG_TOO_SHORT = "too_short"
 
-_PROMPT = """You are a video producer triaging Hacker News stories for a channel
-that turns tech stories into short narrated videos with AI-generated visuals.
-
-Rubric:
-{rubric}
-
-Story title: {title}
-HN score: {hn_score} | comments: {comments}
-Summary of the article:
-{summary}
-
-Content excerpt:
-{excerpt}
-
-Respond with ONLY a JSON object (no markdown fences, no commentary):
-{{
-  "suitability": <0-100 integer, overall fitness for an engaging video>,
-  "verdict": "great" | "good" | "marginal" | "unsuitable",
-  "reasons": [<2-3 short strings explaining the score>],
-  "flags": [<zero or more of: "paywalled_partial", "niche_library", "listicle", "no_narrative", "low_visual_potential", "corporate_pr", "outdated">],
-  "topics": [<3-6 lowercase kebab-case topic tags, e.g. "generative-ai", "local-ai", "security", "hardware", "programming-languages">],
-  "visual_potential": <0-10, can this be SHOWN, not just said>,
-  "narrative_potential": <0-10, is there a story arc / tension / stakes>
-}}"""
+# The prompt lives in prompts/triage.score.yaml and the response shape is
+# enforced by llm_schemas.TriageScore — the old hand-rolled `_extract_json`
+# brace-matcher and its silent None path are gone (plans/08).
+PROMPT_NAME = "triage.score"
 
 
 def _triage_config() -> dict:
@@ -66,59 +43,38 @@ def fallback_model() -> Optional[str]:
     return _triage_config().get("fallback_model", "openrouter-nemotron-ultra")
 
 
-def _extract_json(text: str) -> Optional[dict]:
-    """Tolerant JSON extraction: strip fences/reasoning, find the outermost
-    object. Reasoning models love to decorate their answers."""
-    if not text:
-        return None
-    text = re.sub(r"```(?:json)?", "", text)
-    start = text.find("{")
-    if start == -1:
-        return None
-    depth = 0
-    for i in range(start, len(text)):
-        if text[i] == "{":
-            depth += 1
-        elif text[i] == "}":
-            depth -= 1
-            if depth == 0:
-                try:
-                    return json.loads(text[start : i + 1])
-                except json.JSONDecodeError:
-                    return None
-    return None
+def _clamp(data: dict) -> dict:
+    """Bound list lengths and string sizes before they reach the queue.
 
-
-def _normalize(data: dict) -> dict:
-    """Clamp/clean LLM output so bad values can't corrupt the queue."""
-    def _int(v, lo, hi, default=0):
-        try:
-            return max(lo, min(hi, int(v)))
-        except (TypeError, ValueError):
-            return default
-
-    verdict = str(data.get("verdict", "")).lower()
-    if verdict not in VERDICTS:
-        verdict = "marginal"
+    The schema guarantees types, ranges and the verdict enum; it cannot cap how
+    many topics an enthusiastic model returns, and the triage UI renders these
+    as chips.
+    """
     return {
-        "suitability": _int(data.get("suitability"), 0, 100),
-        "verdict": verdict,
-        "reasons": [str(r)[:300] for r in (data.get("reasons") or [])][:5],
-        "flags": [str(f)[:60] for f in (data.get("flags") or [])][:10],
-        "topics": [str(t).lower()[:60] for t in (data.get("topics") or [])][:8],
-        "visual_potential": _int(data.get("visual_potential"), 0, 10),
-        "narrative_potential": _int(data.get("narrative_potential"), 0, 10),
+        "suitability": data["suitability"],
+        "verdict": data["verdict"],
+        "reasons": [str(r)[:300] for r in data["reasons"]][:5],
+        "flags": [str(f)[:60] for f in data["flags"]][:10],
+        "topics": [str(t).lower()[:60] for t in data["topics"]][:8],
+        "visual_potential": data["visual_potential"],
+        "narrative_potential": data["narrative_potential"],
     }
 
 
 def score_content(title: str, summary: str, content_clean: str,
                   hn_score: int = 0, comments: int = 0) -> dict:
-    """LLM suitability score. Tries the primary free model, then the fallback.
-    Raises RuntimeError if neither produces parseable JSON."""
-    from .llm_service import LLMService
+    """LLM suitability score, schema-enforced.
+
+    Raises RuntimeError if no model produces a valid score — a triage score
+    that silently defaulted to "marginal" would quietly mis-rank the queue.
+    """
+    from .llm_service import LLMService, LLMError
+    from .llm_schemas import TriageScore
+    from .prompts import render
 
     cfg = _triage_config()
-    prompt = _PROMPT.format(
+    prompt = render(
+        PROMPT_NAME,
         rubric=(cfg.get("rubric") or "Favor engaging, visual, comprehensible stories."),
         title=title or "(untitled)",
         hn_score=hn_score or 0,
@@ -127,22 +83,20 @@ def score_content(title: str, summary: str, content_clean: str,
         excerpt=(content_clean or "")[:3000],
     )
 
-    last_error = None
-    for model in [m for m in (primary_model(), fallback_model()) if m]:
-        try:
-            service = LLMService(model=model)
-            raw = service.generate_content(prompt)
-            data = _extract_json(raw or "")
-            if data:
-                result = _normalize(data)
-                result["model"] = model
-                return result
-            last_error = f"unparseable response from {model}"
-            logger.warning(f"triage: {last_error}")
-        except Exception as e:
-            last_error = str(e)
-            logger.warning(f"triage model {model} failed: {e}")
-    raise RuntimeError(f"triage scoring failed: {last_error}")
+    model = primary_model()
+    service = LLMService(model=model, task=PROMPT_NAME)
+    # config profiles carry the fallback, but an explicit TRIAGE_LLM_MODEL
+    # override must still get the configured fallback behind it.
+    service.fallback_model = service.fallback_model or fallback_model()
+
+    try:
+        scored = service.generate_structured(prompt, TriageScore)
+    except LLMError as e:
+        raise RuntimeError(f"triage scoring failed: {e}") from e
+
+    result = _clamp(scored.model_dump())
+    result["model"] = service.model
+    return result
 
 
 def interest_match(topics: list, title: str = "") -> float:

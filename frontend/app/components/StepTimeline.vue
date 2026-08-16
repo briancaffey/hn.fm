@@ -16,6 +16,8 @@ interface Step {
   finished_at: string | null
   seconds: number | null
   model: string | null
+  prompt_name: string | null
+  prompt_version: string | null
   tokens_in: number | null
   tokens_out: number | null
   llm_calls: number | null
@@ -178,6 +180,9 @@ function formatTokens(count: number | null | undefined): string {
 function tokensBadge(step: Step): string {
   const parts = [`${formatTokens(step.tokens_in)}→${formatTokens(step.tokens_out)} tok`]
   if (step.model) parts.push(step.model)
+  // Which prompt version produced this step — what makes a quality change
+  // attributable to a specific prompt edit (plans/08).
+  if (step.prompt_name) parts.push(`${step.prompt_name} v${step.prompt_version ?? '?'}`)
   return parts.join(' · ')
 }
 

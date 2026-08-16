@@ -59,14 +59,50 @@ Delete `_generate_fallback_content`. Replace with an explicit policy per call si
 
 ## Tasks
 
-- [ ] `LLMService.generate_structured()` + Pydantic schemas + validate/retry loop
-- [ ] `llm_profiles:` config block; thread a `task` argument through every call site
-- [ ] `PromptRegistry` reading versioned YAML from `prompts/`; migrate existing prompts
-- [ ] Record `prompt_name` / `prompt_version` on `pipeline_steps` (Alembic migration)
-- [ ] Remove `_generate_fallback_content`; per-call-site fatal/cosmetic policy
-- [ ] Port `triage`, `meta_sequencer`, `sequence_planner` off their bespoke JSON parsers
-- [ ] Delete the dead `content/image_prompt_generator.py` legacy path (the live path is
-      `segment_utils.generate_image_prompt_v1`; the class still carries the old
-      `"detailed cartoon style"` default and is not called by the pipeline)
-- [ ] Strip `**`, markdown headers and leaked meta-commentary in `_clean_script_for_tts`
+- [x] `LLMService.generate_structured()` + Pydantic schemas (`content/llm_schemas.py`)
+      + validate/retry loop that feeds the validation error back
+- [x] `llm.profiles:` config block; `task` threaded through every call site
+- [x] `PromptRegistry` (`content/prompts.py`) reading versioned YAML from `prompts/`;
+      all six existing prompts migrated, plus a new `summary.write`
+- [x] Record `prompt_name` / `prompt_version` on `pipeline_steps` (Alembic 0004);
+      surfaced in the X-ray timeline
+- [x] Remove `_generate_fallback_content`; per-call-site fatal/cosmetic policy
+- [x] Port `triage`, `meta_sequencer`, `sequence_planner` off their bespoke JSON parsers
+- [x] **Model allowlist** (`content/model_policy.py`) — not in the original plan. The
+      gateway advertises 221 routes including groq and ~200 `lmstudio/*` OpenAI-catalog
+      entries. Checked before the request *and* against the served model, which is what
+      catches silent server-side failover
+- [x] Delete the dead `content/image_prompt_generator.py` legacy path, and the
+      now-unreferenced `image_generation.default_style` config it read
+- [x] Strip `**`, markdown headers and leaked meta-commentary in `_clean_script_for_tts`
       as a belt-and-braces guard even after the contract lands
+
+### Landed with this milestone but belonging to later plans
+
+- [x] **Structured script** (plan 11's foundation): `Script` / `ScriptSection` with
+      writer-chosen boundaries, `beat` and `visual_intent`; `segments.script_json`.
+      `split_script_into_sections` survives only as the fallback for pre-0004 segments
+- [x] `visual_intent` threaded into image prompts (plan 13's input)
+- [x] `script_quality_flags()` — deterministic detection of gap-narration,
+      undepictable visual intents and strict speaker alternation (plan 14's first
+      checks), recorded on the script step
+
+### Verified against the live gateway (2026-08-16)
+
+- `nvidia-nemotron-super` honours `json_schema` including enums, at temperature 0.8
+- **`nemotron-omni` needs `chat_template_kwargs.enable_thinking=false` even with a
+  schema** — without it, content is null and everything lands in `reasoning_content`.
+  `nvidia-nemotron-super` does not need this. Both options compose fine
+- **The vision sequence planner was silently falling back on every run.** It used
+  `LLM_MODEL` (a text-only, cloud-routed model) and the gateway's rampart PII guard
+  fail-closes on image payloads to it with a 500. Pinned to `nemotron-omni`
+
+## Known-remaining (deliberately deferred)
+
+- The script writer still occasionally narrates source gaps ("the institution is not
+  disclosed") and writes undepictable visual intents on very thin sources. Two prompt
+  revisions did not eliminate it; both are now *detected* rather than prompted away.
+  The real fix is upstream — plan 9's `producibility` score should stop a 214-character
+  scrape reaching the script stage at all.
+- `sequence.plan` output still drifts toward lighting changes, which its own prompt
+  forbids. That is a model-capability limit; plan 13's frame critic is the answer.

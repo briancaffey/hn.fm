@@ -24,80 +24,53 @@ logger = logging.getLogger(__name__)
 TEMPLATES = ("image_sequence", "video", "hyperframe")
 HYPERFRAME_RECIPES = ("keypoints", "bigstat", "quote", "compare")
 
-# The taste rubric — in the user's own framing. Drives both planning and critique.
-TASTE = (
-    "Great videos here are INTERESTING, EDUCATIONAL, FUNNY, UNEXPECTED, and cool "
-    "in an original way. Avoid monotony and avoid generic 'AI slop' structure. "
-    "Most sections should be dynamic image sequences (the visual default). "
-    "Sprinkle in at most a couple of LTX 'video' moments (a single strong visual "
-    "that benefits from motion) and at most a couple of HyperFrames 'hyperframe' "
-    "clips (when a section presents STRUCTURED info worth rendering as beautiful "
-    "kinetic text: key points, a striking number, a quote, or an A-vs-B compare). "
-    "Never put two non-image_sequence clips back to back. Surprise the viewer; "
-    "don't repeat the same device."
-)
+# Prompts live in prompts/media_plan.*.yaml; shapes are enforced by
+# llm_schemas.MediaPlan / CriticVerdict (plans/08).
+PLAN_PROMPT = "media_plan.plan"
+CRITIC_PROMPT = "media_plan.critic"
 
-PLAN_SYSTEM = (
-    "You are the director of a short AI-generated video about a tech story. For "
-    "each narration section, choose how to present it.\n\n" + TASTE + "\n\n"
-    "Templates:\n"
-    "- image_sequence: evolving generated images (the default, most sections).\n"
-    "- video: an LTX motion clip from the section's image (a hero visual moment).\n"
-    "- hyperframe: a HyperFrames kinetic-text clip. Pick a recipe and write its "
-    "content:\n"
-    "    keypoints {kicker, title, points:[2-4 short phrases]}\n"
-    "    bigstat   {stat, label, sub?}  (only if the section has a real number)\n"
-    "    quote     {quote, attribution?}\n"
-    "    compare   {title?, left:{label,text}, right:{label,text}}\n\n"
-    "Return ONLY JSON: a list with one object per section, in order:\n"
-    '[{"index":1,"template":"image_sequence","why":"..."},'
-    '{"index":2,"template":"hyperframe","recipe":"keypoints",'
-    '"content":{"kicker":"...","title":"...","points":["...","..."]},"why":"..."}]\n'
-    "Keep hyperframe text tight and punchy (it must read in ~2s)."
-)
+# The taste rubric and the director's instructions now live in
+# prompts/media_plan.plan.yaml and prompts/media_plan.critic.yaml, versioned
+# alongside every other prompt (plans/08). They were duplicated here as module
+# constants; keeping both copies guaranteed they would drift.
 
 
-def _llm():
+def _llm(task):
     from .llm_service import LLMService
-    return LLMService()
 
-
-def _parse_json_list(text: str):
-    if not text:
-        return None
-    m = re.search(r"\[.*\]", text, re.S)
-    if not m:
-        return None
-    try:
-        return json.loads(m.group(0))
-    except Exception:
-        return None
+    return LLMService(task=task)
 
 
 def _llm_plan(sections, summary, theme_name, source_images):
+    from .llm_schemas import MediaPlan
+    from .prompts import render
+
     listing = "\n".join(f"{i + 1}: {s[:200]}" for i, s in enumerate(sections))
     src = ""
     if source_images:
         src = "\n\nReal source images available (you may reference them):\n" + "\n".join(
             f"- {im.get('description') or im.get('alt')}" for im in source_images[:6]
         )
-    user = (
-        f"Theme: {theme_name}\nStory summary: {summary[:600]}\n\n"
-        f"Sections ({len(sections)}):\n{listing}{src}\n\n"
-        f"Plan every section. JSON only."
+    prompt = render(
+        PLAN_PROMPT,
+        theme_name=theme_name,
+        summary=summary[:600],
+        n_sections=len(sections),
+        listing=listing,
+        source_images=src,
     )
-    # Retry — nemotron occasionally returns nothing/unparseable; a bad plan would
-    # silently collapse every section to the default.
-    for attempt in range(int(os.getenv("META_PLAN_RETRIES", "2")) + 1):
-        try:
-            out = _llm().generate_content(PLAN_SYSTEM + "\n\n" + user)
-            plan = _parse_json_list(out)
-            if plan:
-                return plan
-            logger.warning(f"meta plan attempt {attempt + 1}: unparseable")
-        except Exception as e:
-            logger.warning(f"meta plan attempt {attempt + 1} failed: {e}")
-    return None
+    try:
+        plan = _llm(PLAN_PROMPT).generate_structured(
+            prompt,
+            MediaPlan,
+            max_attempts=int(os.getenv("META_PLAN_RETRIES", "2")) + 1,
+        )
+        return [entry.model_dump() for entry in plan.plan]
+    except Exception as e:
+        # Non-fatal by design: a missing plan falls through to the deterministic
+        # fallback below, which still yields a watchable (if plainer) video.
+        logger.warning(f"meta plan failed, using deterministic fallback: {e}")
+        return None
 
 
 def _apply_guardrails(plan, n_sections, max_video=2, max_hyper=2):
@@ -139,24 +112,19 @@ def _apply_guardrails(plan, n_sections, max_video=2, max_hyper=2):
 
 def _critic_revise(plan, sections, summary):
     """LLM critic scores the plan and may revise; deterministic guardrails win."""
+    from .llm_schemas import CriticVerdict
+    from .prompts import render
+
     compact = [{"index": p["index"], "template": p["template"]} for p in plan]
-    prompt = (
-        "Critique this video plan for taste. " + TASTE + "\n\n"
-        f"Plan: {json.dumps(compact)}\n\n"
-        "Score it 1-10 for overall interest/originality and flag problems "
-        "(repetitive, chaotic, boring, or a special clip wasted on a weak section). "
-        'Return ONLY JSON: {"score":N,"issues":["..."],"suggest":["index->template", ...]}'
-    )
+    prompt = render(CRITIC_PROMPT, plan=json.dumps(compact))
     try:
-        out = _llm().generate_content(prompt) or ""
-        m = re.search(r"\{.*\}", out, re.S)
-        verdict = json.loads(m.group(0)) if m else {}
-        score = verdict.get("score")
-        issues = verdict.get("issues") or []
-        logger.info(f"🎬 meta-plan critic score={score} issues={issues[:3]}")
+        verdict = _llm(CRITIC_PROMPT).generate_structured(prompt, CriticVerdict)
+        logger.info(
+            f"🎬 meta-plan critic score={verdict.score} issues={verdict.issues[:3]}"
+        )
         # Apply simple template suggestions (e.g. "3->image_sequence")
-        for s in (verdict.get("suggest") or []):
-            mm = re.match(r"\s*(\d+)\s*->\s*(\w+)", str(s))
+        for suggestion in verdict.suggest:
+            mm = re.match(r"\s*(\d+)\s*->\s*(\w+)", str(suggestion))
             if not mm:
                 continue
             idx, t = int(mm.group(1)), mm.group(2)
@@ -166,6 +134,8 @@ def _critic_revise(plan, sections, summary):
                     plan[idx - 1].pop("recipe", None)
                     plan[idx - 1].pop("content", None)
     except Exception as e:
+        # The plan is already valid and guardrailed; losing the critique costs
+        # polish, not correctness.
         logger.warning(f"meta critic skipped: {e}")
     return plan
 

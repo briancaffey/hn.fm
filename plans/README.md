@@ -23,7 +23,7 @@ scripts, better visuals, comment-aware storytelling, measurable quality, and vol
 
 | # | Milestone | Doc | Status | Depends on |
 |---|------|-----|--------|------------|
-| 8 | LLM foundation: structured output, versioned prompts, loud failures | [08-llm-foundation.md](08-llm-foundation.md) | not started | — |
+| 8 | LLM foundation: structured output, versioned prompts, loud failures | [08-llm-foundation.md](08-llm-foundation.md) | **done** (2026-08-16) — + model allowlist, structured script, 200 tests green | — |
 | 9 | Two-axis scoring (interest × producibility) + the Story Brief | [09-story-brief-and-scoring.md](09-story-brief-and-scoring.md) | not started | 8, extends 4 |
 | 10 | Comment mining with provenance | [10-comment-mining.md](10-comment-mining.md) | not started | 9 |
 | 11 | The agentic script room | [11-agentic-script-room.md](11-agentic-script-room.md) | not started | 9, 10 |

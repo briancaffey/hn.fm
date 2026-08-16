@@ -25,13 +25,74 @@ studio_voice:
   ssl_mode: null
   sample_rate: 48000
 
-# Local LLM Configuration (LM Studio)
-# Successfully connected to local gpt-oss model via LM Studio
+# LLM Configuration (LiteLLM gateway)
 llm:
   enabled: true
   base_url: "${LLM_BASE_URL}"  # Primary endpoint
   model: "${LLM_MODEL}"
   provider: "local"
+
+  # Model allowlist (plans/08). The gateway advertises 221 routes, including
+  # groq and ~200 `lmstudio/*` entries mirroring the commercial OpenAI catalog
+  # (gpt-5.x, o3-pro, sora-2). This project runs on FREE routes only, so calls
+  # are checked against this list before the request AND against the model the
+  # gateway reports serving — which is what catches silent server-side failover
+  # (the `nemotron-omni` route has been seen falling back to groq).
+  # Patterns are fnmatch; deny wins over allow. Set LLM_STRICT_MODEL=1 to make
+  # an unexpected substitution fatal rather than a loud error.
+  models:
+    allow:
+      - "nvidia-nemotron-super"
+      - "openrouter-nemotron-ultra"
+      - "nemotron-omni"
+    deny:
+      - "groq*"
+      - "*/groq*"
+
+  # Per-task profiles. One model at temperature 0.7 used to serve triage,
+  # summaries, scripts, image prompts and the director alike; these want
+  # different settings. Any model named here must be in the allowlist above.
+  profiles:
+    script.write:
+      temperature: 0.8      # voice and surprise
+      max_tokens: 4000      # a full structured script
+    triage.score:
+      temperature: 0.2      # judgement should be stable across re-runs
+      max_tokens: 800
+      fallback_model: "openrouter-nemotron-ultra"
+    image.scene:
+      temperature: 0.95     # scene variety is the whole point
+      max_tokens: 300
+    media_plan.plan:
+      temperature: 0.7
+      max_tokens: 2000
+    media_plan.critic:
+      temperature: 0.3
+      max_tokens: 800
+    sequence.plan:
+      # The only multimodal call in the pipeline: it sends a rendered frame.
+      # nvidia-nemotron-super is text-only and cloud-routed, and the gateway's
+      # PII guard fail-closes on image payloads to it (500 "rampart PII guard
+      # failed"), so this must be the omni route.
+      # nemotron-omni has been observed failing over to groq when the local box
+      # is down — llm.models now checks the served model on every response, so
+      # that substitution surfaces instead of passing silently.
+      model: "nemotron-omni"
+      temperature: 0.85
+      max_tokens: 500
+    summary:
+      temperature: 0.3
+      max_tokens: 1000
+    enrich:
+      temperature: 0.6
+      max_tokens: 500
+
+# Show identity (plans/11). The script prompt used to invent a show name per
+# story — "Proof Positive", "DevOps Digest", "Breaking Discoveries" — so no two
+# videos belonged to the same channel. Data, not prompt text.
+show:
+  name: "hn.fm"
+  tagline: "Hacker News, watchable."
 
 # Story Triage Configuration (plans/04-story-scoring.md)
 # The rubric is data, not code — tune it here without a deploy.
@@ -135,7 +196,6 @@ image_generation:
   default_steps: 50
   default_samples: 1
   output_directory: "images"
-  default_style: "detailed cartoon style"
   timeout_seconds: 1800  # 30 minutes timeout for image generation
   # InvokeAI specific configuration
   invokeai:

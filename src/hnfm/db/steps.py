@@ -132,8 +132,20 @@ def _finish(row_id, status, seconds, outputs, error=None):
         logger.debug(f"step finish failed (non-fatal): {e}")
 
 
-def record_llm(model: str = None, tokens_in: int = 0, tokens_out: int = 0) -> None:
-    """Attribute an LLM call to the currently executing step (non-fatal)."""
+def record_llm(
+    model: str = None,
+    tokens_in: int = 0,
+    tokens_out: int = 0,
+    prompt_name: str = None,
+    prompt_version: str = None,
+) -> None:
+    """Attribute an LLM call to the currently executing step (non-fatal).
+
+    `prompt_name`/`prompt_version` come from the prompt registry and are what
+    let plan 14's evals attribute a score change to a specific prompt edit. A
+    step that makes several LLM calls keeps the last prompt seen — steps are
+    scoped to one unit of work, so that is the one that produced the output.
+    """
     row_id = _CURRENT["step_id"]
     if row_id is None:
         return
@@ -144,6 +156,10 @@ def record_llm(model: str = None, tokens_in: int = 0, tokens_out: int = 0) -> No
                 return
             if model:
                 row.model = model
+            if prompt_name:
+                row.prompt_name = prompt_name
+            if prompt_version:
+                row.prompt_version = prompt_version
             row.tokens_in = (row.tokens_in or 0) + int(tokens_in or 0)
             row.tokens_out = (row.tokens_out or 0) + int(tokens_out or 0)
             row.llm_calls = (row.llm_calls or 0) + 1
@@ -168,6 +184,8 @@ def _to_dict(row: PipelineStepRow) -> dict:
         "finished_at": row.finished_at.isoformat() if row.finished_at else None,
         "seconds": row.seconds,
         "model": row.model,
+        "prompt_name": row.prompt_name,
+        "prompt_version": row.prompt_version,
         "tokens_in": row.tokens_in,
         "tokens_out": row.tokens_out,
         "llm_calls": row.llm_calls,

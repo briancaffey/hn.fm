@@ -27,6 +27,9 @@ x-common-app-config: &common-app-config
     - ./voices:/app/voices  # Mount voice samples for TTS
     - ./htmlcov:/app/htmlcov  # Mount coverage reports for easy access
     - ./config.yaml:/app/config.yaml:ro
+    # Mounted (not just baked in) so prompts can be edited against a running
+    # worker; set PROMPTS_NO_CACHE=1 to pick up edits without a restart.
+    - ./prompts:/app/prompts:ro
   depends_on:
     redis:
       condition: service_healthy

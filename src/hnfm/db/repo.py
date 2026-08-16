@@ -241,6 +241,7 @@ def _segment_to_model(row: SegmentRow) -> Segment:
         created_at=row.created_at,
         processed_run_key=f"hnfm:item:{row.item_id}:run:{row.run}",
         script=row.script or "",
+        script_json=row.script_json,
         style_theme=row.style_theme,
         style_theme_name=row.style_theme_name,
         aspect_format=row.aspect_format or "16:9",
@@ -272,6 +273,7 @@ def save_segment(seg_obj: Segment) -> None:
             s.add(row)
         row.created_at = seg_obj.created_at
         row.script = seg_obj.script
+        row.script_json = seg_obj.script_json
         row.style_theme = seg_obj.style_theme
         row.style_theme_name = seg_obj.style_theme_name
         row.aspect_format = seg_obj.aspect_format

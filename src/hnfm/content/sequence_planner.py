@@ -14,8 +14,6 @@ sections never get the identical recipe.
 """
 
 import os
-import re
-import json
 import base64
 import logging
 
@@ -36,18 +34,7 @@ _FALLBACK = [
     "focus shifts to the background, where something new is happening",
 ]
 
-VISION_SYSTEM = (
-    "You are a film director planning a short visual sequence. You are shown the "
-    "OPENING frame and the line it illustrates. Plan the next frames as image-to-"
-    "image edits that each CONTINUE from the previous frame (same place, subjects "
-    "and style) but MEANINGFULLY ADVANCE the moment: change the subject's pose or "
-    "action, move or introduce objects, shift the camera angle or distance, reveal "
-    "more of the scene, or progress time. Make it feel like a living moment "
-    "unfolding — like frames of a real video. Do NOT merely change lighting, color "
-    "or focus; that is forbidden as the main change. Keep continuity and the same "
-    "visual style. Return ONLY a JSON array of concise edit instructions (one per "
-    "frame), each describing the NEW state of that frame."
-)
+PROMPT_NAME = "sequence.plan"
 
 
 def _fallback(n_edits, seed):
@@ -56,53 +43,41 @@ def _fallback(n_edits, seed):
 
 
 def plan_sequence_edits(root_image_path, section_text, theme_name, n_edits, seed=0):
-    """Return up to `n_edits` content-evolving image-to-image instructions."""
+    """Return up to `n_edits` content-evolving image-to-image instructions.
+
+    Vision-first with a varied deterministic fallback: a missing plan costs
+    visual interest, not correctness, so this stays non-fatal by design.
+    """
     if n_edits <= 0:
         return []
-    base = os.getenv("LLM_BASE_URL")
-    if not base or not os.path.exists(root_image_path):
+    if not os.getenv("LLM_BASE_URL") or not os.path.exists(root_image_path):
         return _fallback(n_edits, seed)
-    if not base.endswith("/v1"):
-        base = base.rstrip("/") + "/v1"
-    try:
-        import openai
-        from ..utils import metrics
 
-        client = openai.OpenAI(base_url=base, api_key=os.getenv("OPENAI_API_KEY") or "x")
+    try:
+        from .llm_service import LLMService
+        from .llm_schemas import SequenceEdits
+        from .prompts import render
+
+        prompt = render(
+            PROMPT_NAME,
+            section_text=section_text[:240],
+            n_edits=n_edits,
+            theme_name=theme_name,
+        )
         b64 = base64.b64encode(open(root_image_path, "rb").read()).decode()
-        user = (
-            f"The line: \"{section_text[:240]}\".\n"
-            f"Plan exactly {n_edits} follow-on frames in the {theme_name} style. "
-            f"JSON array of {n_edits} strings only."
-        )
-        r = client.chat.completions.create(
-            model=os.getenv("LLM_MODEL", "nemotron-omni"),
-            messages=[{"role": "user", "content": [
-                {"type": "text", "text": VISION_SYSTEM + "\n\n" + user},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b64}"}},
-            ]}],
-            max_tokens=500,
-            temperature=float(os.getenv("SEQ_TEMPERATURE", "0.85")),
-            extra_body={"chat_template_kwargs": {"enable_thinking": False}},
-        )
-        try:
-            u = getattr(r, "usage", None)
-            if u:
-                metrics.record_tokens(getattr(u, "prompt_tokens", 0), getattr(u, "completion_tokens", 0))
-        except Exception:
-            pass
-        msg = r.choices[0].message
-        text = (msg.content or getattr(msg, "reasoning_content", "") or "").strip()
-        m = re.search(r"\[.*\]", text, re.S)
-        if m:
-            arr = json.loads(m.group(0))
-            edits = [str(x).strip() for x in arr if str(x).strip()]
-            if edits:
-                # right-size to n_edits (pad from fallback if the model gave fewer)
-                if len(edits) < n_edits:
-                    edits += _fallback(n_edits - len(edits), seed + 7)
-                return edits[:n_edits]
-        logger.warning("seq planner: unparseable vision plan, using fallback")
+
+        # The only multimodal call in the pipeline: the image rides alongside
+        # the rendered prompt text. It still goes through the shared service so
+        # it gets allowlist checks, the task profile and token accounting.
+        service = LLMService(task=PROMPT_NAME)
+        plan = service.generate_structured_vision(prompt, SequenceEdits, image_b64=b64)
+        edits = [e.strip() for e in plan.edits if e and e.strip()]
+        if edits:
+            # Right-size to n_edits (pad from the fallback if the model gave fewer).
+            if len(edits) < n_edits:
+                edits += _fallback(n_edits - len(edits), seed + 7)
+            return edits[:n_edits]
+        logger.warning("seq planner: vision plan was empty, using fallback")
     except Exception as e:
         logger.warning(f"seq planner vision failed (non-fatal): {e}")
     return _fallback(n_edits, seed)

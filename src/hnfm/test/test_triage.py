@@ -33,26 +33,18 @@ def _score(item_id: int, suitability: int, topics=None, verdict="good"):
 
 
 class TestScorerPlumbing:
-    def test_extract_json_plain_and_fenced_and_decorated(self):
-        assert triage._extract_json('{"a": 1}') == {"a": 1}
-        assert triage._extract_json('```json\n{"a": 1}\n```') == {"a": 1}
-        assert triage._extract_json(
-            'Thinking about it...\n{"a": {"b": 2}}\ntrailing') == {"a": {"b": 2}}
-        assert triage._extract_json("no json here") is None
-        assert triage._extract_json("") is None
-
-    def test_normalize_clamps_garbage(self):
-        out = triage._normalize({
-            "suitability": 250, "verdict": "AMAZING", "reasons": ["x"] * 10,
-            "topics": ["AI", "Local-AI"], "visual_potential": -3,
-            "narrative_potential": "high",
+    def test_clamp_bounds_lists_and_lowercases_topics(self):
+        """The schema guarantees types, ranges and the verdict enum; `_clamp`
+        bounds the sizes it can't (the triage UI renders these as chips)."""
+        out = triage._clamp({
+            "suitability": 100, "verdict": "great", "reasons": ["x"] * 10,
+            "flags": ["f"] * 20, "topics": ["AI", "Local-AI"] * 8,
+            "visual_potential": 5, "narrative_potential": 5,
         })
-        assert out["suitability"] == 100
-        assert out["verdict"] == "marginal"  # unknown verdict coerced
         assert len(out["reasons"]) == 5
-        assert out["topics"] == ["ai", "local-ai"]
-        assert out["visual_potential"] == 0
-        assert out["narrative_potential"] == 0
+        assert len(out["flags"]) == 10
+        assert len(out["topics"]) == 8
+        assert out["topics"][:2] == ["ai", "local-ai"]
 
     def test_interest_match_uses_profile(self):
         # generative-ai carries weight 3.0 in config.yaml
@@ -70,22 +62,30 @@ class TestScorerPlumbing:
         assert triage.FLAG_TOO_SHORT in triage.hard_flags("short", False)
         assert triage.hard_flags("x" * 500, False) == []
 
-    def test_score_content_falls_back_to_second_model(self):
-        calls = []
+    def test_score_content_returns_validated_score(self):
+        from ..content.llm_schemas import TriageScore
 
-        def fake_generate(self, prompt):
-            calls.append(self.model)
-            if len(calls) == 1:
-                return "garbage, not json"
-            return '{"suitability": 70, "verdict": "good", "reasons": [], "flags": [], "topics": ["ai"], "visual_potential": 6, "narrative_potential": 7}'
-
-        with patch("hnfm.content.llm_service.LLMService.generate_content", fake_generate), \
-             patch("hnfm.content.llm_service.LLMService.__init__",
-                   lambda self, base_url=None, model=None: setattr(self, "model", model) or None):
+        scored = TriageScore(
+            suitability=70, verdict="good", reasons=[], flags=[],
+            topics=["ai"], visual_potential=6, narrative_potential=7,
+        )
+        with patch("hnfm.content.llm_service.LLMService.generate_structured",
+                   return_value=scored):
             out = triage.score_content("t", "s", "c")
         assert out["suitability"] == 70
-        assert out["model"] == triage.fallback_model()
-        assert calls == [triage.primary_model(), triage.fallback_model()]
+        assert out["verdict"] == "good"
+        assert out["model"] == triage.primary_model()
+
+    def test_score_content_raises_rather_than_defaulting(self):
+        """A silently-defaulted score would mis-rank the queue forever, so a
+        failed scoring call must surface (plans/08)."""
+        import pytest
+        from ..content.llm_service import LLMError
+
+        with patch("hnfm.content.llm_service.LLMService.generate_structured",
+                   side_effect=LLMError("all models failed")):
+            with pytest.raises(RuntimeError, match="triage scoring failed"):
+                triage.score_content("t", "s", "c")
 
 
 class TestScoreRunTask:

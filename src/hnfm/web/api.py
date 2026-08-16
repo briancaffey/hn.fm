@@ -996,6 +996,13 @@ async def list_all_segments_endpoint(offset: int = 0, limit: int = 50):
     try:
         segments = list_all_segments(offset=offset, limit=limit)
 
+        # The gallery renders previews and media paths; it never reads the
+        # structured script. Shipping several KB of it per row would add
+        # hundreds of KB to every page load. The single-segment endpoint
+        # (/api/hn/items/{id}/runs/{run}/segments/{seg}) still returns it.
+        for segment in segments:
+            segment.script_json = None
+
         # Get total count for pagination
         total_count = count_all_segments()
 

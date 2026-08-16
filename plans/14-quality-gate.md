@@ -30,9 +30,9 @@ Deterministic checks first — they're free and catch the ugly failures:
 
 Then an LLM/vision jury on the things only judgement catches — script quality, hook
 strength, visual variety, style consistency, and the taste rubric already written in
-`meta_sequencer.TASTE` ("interesting, educational, funny, unexpected, original"). Judge
-each dimension in a separate call; a single "rate this video" call collapses to a 7
-every time.
+`prompts/media_plan.plan.yaml` ("interesting, educational, funny, unexpected,
+original"). Judge each dimension in a separate call; a single "rate this video" call
+collapses to a 7 every time.
 
 ## Storage and gating
 
@@ -59,7 +59,7 @@ disagree, the rubric is wrong — fix the rubric, not the score.
 
 - [ ] Golden set: 15 stories with frozen content + comment trees; `make eval`
 - [ ] Deterministic check suite (the table above)
-- [ ] Per-dimension LLM/vision jury; reuse the `TASTE` rubric, move it to `config.yaml`
+- [ ] Per-dimension LLM/vision jury, reusing the taste rubric in the prompt registry
 - [ ] `segment_quality` table (Alembic) + gate policy + thresholds in config
 - [ ] Scorecard diff output: this run vs. last, per dimension, with prompt versions
 - [ ] Segment feedback (⭐/👍/👎) + a "jury vs. Brian" agreement report

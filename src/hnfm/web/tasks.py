@@ -23,7 +23,10 @@ from ..content.content_enrichment import (
 )
 from .models import ProcessedRun, Segment, SegmentSection
 from ..utils.segment_utils import (
-    generate_script_v1,
+    generate_script,
+    script_quality_flags,
+    sections_for_segment,
+    visual_intents_for_segment,
     save_segment,
     k_seg,
     get_segment,
@@ -31,7 +34,6 @@ from ..utils.segment_utils import (
     write_json,
 )
 from ..audio.audio_utils import (
-    split_script_into_sections,
     tts_synthesize_to_wav,
     studio_voice_clean_inplace,
     save_section_meta,
@@ -232,7 +234,7 @@ def generate_segment(
        - If missing → raise.
     2) Extract content_clean and summary.
        - If missing/empty → raise.
-    3) script = generate_script_v1(content_clean, summary)
+    3) script_obj = generate_script(content_clean, summary)
     4) Build Segment(...)
     5) save_segment(...)
     6) If continue_chain=True, trigger build_segment_audio task
@@ -272,10 +274,20 @@ def generate_segment(
             item_id, run, seg, "script", "script",
             {"summary": summary, "content_chars": len(content_clean)},
         ) as st:
-            script = generate_script_v1(content_clean, summary)
-            st.set(script=script)
+            script_obj = generate_script(content_clean, summary)
+            script = script_obj.to_script_text()
+            flags = script_quality_flags(script_obj)
+            if flags:
+                logger.warning(f"script quality flags: {flags}")
+            st.set(
+                script=script,
+                sections=len(script_obj.sections),
+                beats=[s.beat for s in script_obj.sections],
+                quality_flags=flags,
+            )
 
-        # Step 4: Build Segment
+        # Step 4: Build Segment. `script` is the flat view; `script_json` carries
+        # the writer's section boundaries, beats and visual intents.
         segment = Segment(
             key=k_seg(item_id, run, seg),
             item_id=item_id,
@@ -284,6 +296,7 @@ def generate_segment(
             created_at=datetime.utcnow(),
             processed_run_key=processed_run_key,
             script=script,
+            script_json=script_obj.model_dump(),
         )
 
         # Step 5: Save segment
@@ -353,7 +366,7 @@ def build_segment_audio(
             )
 
             # Step 2a: Split script into sections
-            sections_text = split_script_into_sections(segment.script)
+            sections_text = sections_for_segment(segment)
             logger.info(f"Script split into {len(sections_text)} sections")
 
             # Step 2b: Clear existing sections
@@ -676,7 +689,7 @@ def build_segment_images(
     Build all prompts & images for a segment.
 
     1) Load Segment; require non-empty script. If empty → raise.
-    2) Determine text chunks: sections = split_script_into_sections(segment.script)
+    2) Determine text chunks: sections = sections_for_segment(segment)
     3) Determine alignment (optional): align = alignment_from_sections(...) or None
     4) Load ProcessedRun summary via segment.processed_run_key; use as context.
     5) Loop i, text in enumerate(sections, start=1):
@@ -700,7 +713,6 @@ def build_segment_images(
             save_segment_image,
             update_segment_images_status,
         )
-        from ..audio.audio_utils import split_script_into_sections
         from ..utils.run_utils import get_run
         from .models import SegmentImage
 
@@ -715,8 +727,9 @@ def build_segment_images(
         if not segment.script.strip():
             raise RuntimeError("Script not ready")
 
-        # 2) Determine text chunks
-        sections = split_script_into_sections(segment.script)
+        # 2) Determine text chunks + what the writer meant each beat to show
+        sections = sections_for_segment(segment)
+        intents = visual_intents_for_segment(segment)
         logger.info(f"Split script into {len(sections)} sections for images")
 
         # 3) Determine alignment (optional)
@@ -772,12 +785,15 @@ def build_segment_images(
 
             # Generate prompt (varied scene + the take's theme)
             shot_hint = SHOTS[(i - 1) % len(SHOTS)]
+            visual_intent = intents[i - 1] if i <= len(intents) else ""
             with steps.step(
                 item_id, run, seg, "images", f"images/{i}/prompt",
-                {"line_text": text, "shot_hint": shot_hint, "theme": theme.key},
+                {"line_text": text, "shot_hint": shot_hint, "theme": theme.key,
+                 "visual_intent": visual_intent},
             ) as st:
                 prompt = generate_image_prompt_v1(
-                    text, run_summary, theme=theme, shot_hint=shot_hint
+                    text, run_summary, theme=theme, shot_hint=shot_hint,
+                    visual_intent=visual_intent,
                 )
                 st.set(prompt=prompt)
             logger.info(f"Generated prompt: {prompt[:100]}...")
@@ -946,7 +962,6 @@ def rebuild_single_image(
             k_img,
             save_segment_image,
         )
-        from ..audio.audio_utils import split_script_into_sections
         from ..utils.run_utils import get_run
         from .models import SegmentImage
 
@@ -968,7 +983,7 @@ def rebuild_single_image(
             line_text = existing_image.line_text
         else:
             # Get from script sections
-            sections = split_script_into_sections(segment.script)
+            sections = sections_for_segment(segment)
             if index <= len(sections):
                 line_text = sections[index - 1]
             else:
@@ -988,7 +1003,19 @@ def rebuild_single_image(
                 )
 
             run_summary = processed_run.summary
-            prompt = generate_image_prompt_v1(line_text, run_summary)
+            # Re-apply the take's theme and this beat's visual intent. Without
+            # the theme, a regenerated frame came back in a different style than
+            # every other frame in the take — the exact within-story consistency
+            # this project is trying to achieve.
+            from ..content.art_direction import get_theme
+
+            intents = visual_intents_for_segment(segment)
+            prompt = generate_image_prompt_v1(
+                line_text,
+                run_summary,
+                theme=get_theme(segment.style_theme),
+                visual_intent=intents[index - 1] if index <= len(intents) else "",
+            )
 
         # 4) Generate image
         out = img_path(outputs_root, item_id, run, seg, index)
@@ -1156,7 +1183,6 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
         get_segment, save_segment, get_segment_image, save_segment_image,
         list_section_numbers, load_section_and_image, img_dir,
     )
-    from ..audio.audio_utils import split_script_into_sections
     from ..utils import metrics
     from ..content.art_direction import format_dims
     from ..content.meta_sequencer import plan_segment
@@ -1170,7 +1196,7 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
     theme_key = getattr(segment, "style_theme", None) or "default"
     theme_name = getattr(segment, "style_theme_name", None) or theme_key
     w, h = format_dims(getattr(segment, "aspect_format", None) or "16:9")
-    sections = split_script_into_sections(segment.script)
+    sections = sections_for_segment(segment)
 
     pr = get_run(item_id, run)
     summary = (pr.summary if pr else "") or ""
@@ -1891,15 +1917,22 @@ def rerun_step(step_id: int, overrides: dict = None) -> Dict:
             ) as st:
                 script = _clean_script_for_tts(overrides["script"])
                 st.set(script=script)
+            # A hand-pasted script supersedes the structured one; keeping the
+            # old script_json would silently narrate the previous sections.
+            # Cleared, so section boundaries come from the pasted text.
+            script_json = None
         else:
             with steps.step(
                 item_id, run, seg, "script", "script",
                 {"summary": pr.summary,
                  "content_chars": len(pr.content_clean or "")},
             ) as st:
-                script = generate_script_v1(pr.content_clean, pr.summary)
-                st.set(script=script)
+                script_obj = generate_script(pr.content_clean, pr.summary)
+                script = script_obj.to_script_text()
+                script_json = script_obj.model_dump()
+                st.set(script=script, sections=len(script_obj.sections))
         segment.script = script
+        segment.script_json = script_json
         save_segment(segment, outputs_root=outputs_dir)
         return {"status": "ok", "step_key": key, "stale": stale_count}
 

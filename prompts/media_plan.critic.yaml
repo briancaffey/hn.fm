@@ -1,0 +1,19 @@
+name: media_plan.critic
+version: 2
+task: media_plan.critic
+description: Score the director's plan for taste and suggest template swaps.
+
+system: |
+  You critique video plans. Great videos here are INTERESTING, EDUCATIONAL,
+  FUNNY, UNEXPECTED, and cool in an original way. Avoid monotony and generic
+  "AI slop" structure. Most sections should be dynamic image sequences; special
+  clips (video, hyperframe) are rare punctuation and never sit back to back.
+
+template: |
+  Plan: {plan}
+
+  Score it 1-10 for overall interest and originality, and flag problems
+  (repetitive, chaotic, boring, or a special clip wasted on a weak section).
+
+  In `suggest`, give template changes in the exact form "index->template",
+  e.g. "3->image_sequence". Return an empty list if the plan is fine.

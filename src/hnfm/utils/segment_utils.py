@@ -85,6 +85,12 @@ def _clean_script_for_tts(script: str) -> str:
     """
     Clean script text for better TTS results.
 
+    Belt-and-braces: the script schema forbids markdown, but this text is read
+    aloud by a synthetic voice, and a stray `**` is narrated as "asterisk
+    asterisk". A prior run emitted `**[S1]**`, which also broke the speaker-tag
+    parser downstream — so the guard stays even now that the contract is
+    enforced upstream.
+
     Args:
         script: Raw script text from LLM
 
@@ -102,6 +108,8 @@ def _clean_script_for_tts(script: str) -> str:
         ord("…"): ", ",
         ord("`"): "",
         ord("_"): " ",
+        ord("*"): None,  # markdown emphasis -> spoken as "asterisk"
+        ord("#"): None,  # markdown headers
     }
 
     script = script.replace("\n\n", "\n")
@@ -117,72 +125,210 @@ def next_seg_id(item_id: int, run: int) -> int:
 
 
 def generate_script_v1(content_clean: str, summary: str) -> str:
+    """Flat `[S1] …` script text. Thin wrapper over `generate_script()` for
+    callers that only want the rendered view."""
+    return generate_script(content_clean, summary).to_script_text()
+
+
+def generate_script(content_clean: str, summary: str) -> "Script":
+    """Generate the structured script for a segment (plans/08, plans/11).
+
+    Returns a `content.llm_schemas.Script`: writer-chosen sections, each with a
+    speaker, a narrative beat and a `visual_intent`. The section boundaries are
+    the point — they become both the TTS chunks and the visual beats, so the
+    writer decides pacing instead of the old every-two-lines splitter.
+
+    Raises RuntimeError on failure. A script is not optional: silently
+    returning placeholder text here is what previously sent the pipeline on to
+    spend GPU time rendering a one-line error string.
     """
-    Generate script using LLM service with detailed formatting instructions.
+    from ..content.llm_service import LLMService, LLMError
+    from ..content.llm_schemas import Script
+    from ..content.prompts import render
+    from ..utils.config import config_manager
 
-    Args:
-        content_clean: Cleaned article content
-        summary: Article summary
+    show = config_manager.get("show", {}) or {}
+    prompt = render(
+        "script.write",
+        show_name=show.get("name") or "hn.fm",
+        summary=summary or "",
+        content=content_clean or "",
+    )
 
-    Returns:
-        Generated script text with [S1] and [S2] speaker tags
-
-    Raises:
-        RuntimeError: If script generation fails
-    """
     try:
-        from ..content.llm_service import LLMService
-        from ..utils.config import config_manager
+        script = LLMService(task="script.write").generate_structured(prompt, Script)
+    except LLMError as e:
+        raise RuntimeError(f"Failed to generate script: {e}") from e
 
-        # Get LLM configuration
-        llm_config = config_manager.get("llm", {})
+    if not script.sections:
+        raise RuntimeError("Failed to generate script: no sections returned")
 
-        # Initialize LLM service
-        if llm_config.get("enabled", False):
-            base_url = llm_config.get("base_url")
-            model = llm_config.get("model", "gpt-oss")
-            llm_service = LLMService(base_url=base_url, model=model)
-        else:
-            llm_service = LLMService()
+    # The schema constrains structure; this scrubs the characters that make TTS
+    # mispronounce (smart quotes, em dashes, stray markdown).
+    for section in script.sections:
+        section.text = _clean_script_for_tts(section.text).strip()
 
-        # Create detailed prompt with specific formatting requirements
-        script_prompt = f"""
-        Create a natural, engaging podcast script from this article.
+    script.sections = [s for s in script.sections if s.text]
+    if not script.sections:
+        raise RuntimeError("Failed to generate script: all sections were empty")
 
-        Article Summary: {summary}
+    # Renumber after the empty-section drop so indexes stay contiguous — they
+    # key the audio sections, images and media plan downstream.
+    for i, section in enumerate(script.sections, start=1):
+        section.index = i
 
-        Content:
-        {content_clean}
+    _normalize_beats(script)
+    return script
 
-        Requirements:
-        - Use [S1] and [S2] speaker tags for dialogue (NOT **S1:** format)
-        - Make it conversational and engaging
-        - Break into natural speaking segments (2-3 sentences max per line)
-        - Maintain the key insights and information
-        - Keep total length reasonable for a podcast segment (3-5 minutes)
-        - Use straight quotes (") and apostrophes (') instead of curly quotes (") and apostrophes (')
-        - Avoid special characters that might cause TTS issues
-        - Each line should start with [S1] or [S2] followed by the dialogue
 
-        Format the output as a script with [S1] and [S2] tags, one per line.
-        Example:
-        [S1] Hey there, welcome to the podcast!
-        [S2] Today we're talking about an interesting topic.
-        [S1] Let's dive right in.
-        """
+# Phrases that narrate the PIPELINE's limitations rather than the story ("the
+# article doesn't say", "based on the information provided"). The prompt forbids
+# these; a thin source makes the model do it anyway. Detected rather than
+# rewritten — mechanically editing spoken sentences produces broken grammar, and
+# the honest signal is more useful than a silent patch.
+_GAP_NARRATION = (
+    "not disclosed", "not specified", "isn't specified", "is not specified",
+    "aren't disclosed", "are not disclosed", "not detailed", "isn't detailed",
+    "doesn't say", "does not say", "doesn't mention", "does not mention",
+    "the article doesn't", "the article does not", "the source doesn't",
+    "information provided", "provided information", "isn't clear from",
+    "not available in", "unspecified",
+)
 
-        script = llm_service.generate_content(script_prompt)
+# Things an image generator cannot render, or that are editing directions
+# rather than scenes. A visual_intent containing one of these is worse than no
+# intent at all: it steers the art director toward screenshots and UI chrome.
+_UNDEPICTABLE = (
+    "screenshot", "website", "web page", "webpage", "url", ".org", ".com",
+    "split screen", "split-screen", "timeline graphic", "logo", "user interface",
+    "ui ", "dashboard", "chart", "graph showing", "infographic", "text overlay",
+    "sign reading", "placeholder", "question mark over", "if existed",
+    "caption", "subtitle", "title card",
+)
 
-        if not script:
-            raise RuntimeError("LLM returned empty script")
 
-        # Clean the script for better TTS results
-        script = _clean_script_for_tts(script)
+def script_quality_flags(script: "Script") -> List[dict]:
+    """Deterministic defects in a generated script.
 
-        return script
+    Recorded on the script step so they surface in the X-ray UI and feed
+    plan 14's quality gate. These are the failures a prompt cannot reliably
+    prevent but code can reliably detect.
+    """
+    flags = []
 
-    except Exception as e:
-        raise RuntimeError(f"Failed to generate script: {e}")
+    gap_sections = [
+        s.index
+        for s in script.sections
+        if any(p in s.text.lower() for p in _GAP_NARRATION)
+    ]
+    if gap_sections:
+        flags.append({"flag": "gap_narration", "sections": gap_sections})
+
+    undepictable = [
+        s.index
+        for s in script.sections
+        if any(p in (s.visual_intent or "").lower() for p in _UNDEPICTABLE)
+    ]
+    if undepictable:
+        flags.append({"flag": "undepictable_visual_intent", "sections": undepictable})
+
+    speakers = [s.speaker for s in script.sections]
+    if len(speakers) >= 6 and all(
+        speakers[i] != speakers[i + 1] for i in range(len(speakers) - 1)
+    ):
+        # Strict ping-pong is the exact monotony the new prompt set out to kill.
+        flags.append({"flag": "strict_alternation", "sections": []})
+
+    return flags
+
+
+def _usable_visual_intent(intent: str) -> str:
+    """A visual intent, or "" if it would poison the image prompt.
+
+    Falling back to no intent restores the pre-plans/08 behaviour (scene
+    inferred from the spoken line), which is strictly better than steering the
+    art director toward a screenshot it cannot draw.
+    """
+    if not intent:
+        return ""
+    return "" if any(p in intent.lower() for p in _UNDEPICTABLE) else intent
+
+
+def _normalize_beats(script: "Script") -> None:
+    """Enforce beat structure the schema can't express.
+
+    An enum guarantees each beat is a *valid* value, not that the sequence is
+    coherent. A live run produced three sections labelled `close`, two of them
+    mid-script. Beats drive pacing and (from plans/13) shot grammar, so a
+    `close` in the middle would tell the art director to land the piece twice.
+
+    Mislabelled middles become `detail`; the first and last sections are
+    pinned. Logged, because a model that keeps mislabelling is a prompt bug.
+    """
+    import logging
+
+    log = logging.getLogger(__name__)
+    sections = script.sections
+    last = len(sections) - 1
+
+    for i, section in enumerate(sections):
+        if i == 0:
+            if section.beat != "cold_open":
+                log.info(f"beat fix: §1 {section.beat!r} -> 'cold_open'")
+                section.beat = "cold_open"
+        elif i == last:
+            if section.beat != "close":
+                log.info(f"beat fix: §{i + 1} {section.beat!r} -> 'close' (final)")
+                section.beat = "close"
+        elif section.beat in ("cold_open", "close"):
+            log.info(f"beat fix: §{i + 1} {section.beat!r} -> 'detail' (mid-script)")
+            section.beat = "detail"
+
+
+def sections_for_segment(segment: Segment) -> List[str]:
+    """The segment's narration sections, as `["[S1] …", "[S2] …"]`.
+
+    THE place section boundaries are decided. Prefers the structured script,
+    where the writer chose the breaks on meaning; falls back to the legacy
+    every-two-lines splitter for segments written before plans/08.
+
+    Same wire format either way, so every consumer (TTS, images, media plan)
+    is unchanged — only the quality of the boundaries improves.
+    """
+    from ..audio.audio_utils import split_script_into_sections
+
+    if segment.script_json:
+        try:
+            from ..content.llm_schemas import Script
+
+            return Script.model_validate(segment.script_json).to_tts_sections()
+        except Exception as e:
+            # A malformed stored script must not strand the segment: the flat
+            # text is still there and still splittable.
+            import logging
+
+            logging.getLogger(__name__).warning(
+                f"script_json unreadable for seg {segment.item_id}:{segment.run}:"
+                f"{segment.seg} ({e}); falling back to the legacy splitter"
+            )
+    return split_script_into_sections(segment.script)
+
+
+def visual_intents_for_segment(segment: Segment) -> List[str]:
+    """Per-section `visual_intent` from the structured script, aligned with
+    `sections_for_segment`. Empty strings when unavailable (legacy segments),
+    so callers can zip without length checks."""
+    if segment.script_json:
+        try:
+            from ..content.llm_schemas import Script
+
+            return [
+                _usable_visual_intent(s.visual_intent or "")
+                for s in Script.model_validate(segment.script_json).sections
+            ]
+        except Exception:
+            pass
+    return [""] * len(sections_for_segment(segment))
 
 
 def save_segment(seg_obj: Segment, *, outputs_root: str) -> None:
@@ -287,57 +433,48 @@ def alignment_from_sections(
         return None
 
 
-def generate_image_prompt_v1(line_text: str, run_summary: str, theme=None, shot_hint: str = "") -> str:
-    """Write a vivid SCENE for one line, then apply the take's visual THEME.
+def generate_image_prompt_v1(
+    line_text: str,
+    run_summary: str,
+    theme=None,
+    shot_hint: str = "",
+    visual_intent: str = "",
+) -> str:
+    """Write a vivid SCENE for one section, then apply the take's visual THEME.
 
     The LLM invents the scene (subject/action/composition/shot) but does NOT pick
     an art style — the theme's style block is appended deterministically so every
     shot in a take is stylistically cohesive while scenes stay varied. `theme` is
     an `art_direction.Theme` (or None for a neutral look). Returns a plain string.
+
+    `visual_intent` comes from the structured script: what the writer intended
+    this beat to SHOW. Without it the art director can only infer intent from
+    the spoken line, which is how abstract beats ended up as stock imagery.
     """
+    from ..content.llm_service import LLMService, LLMError
+    from ..content.art_direction import compose_prompt
+    from ..content.prompts import render
+
+    prompt = render(
+        "image.scene",
+        run_summary=run_summary,
+        line_text=line_text,
+        visual_intent=(
+            f"\nWhat this beat should show:\n{visual_intent}\n" if visual_intent else ""
+        ),
+        shot_hint=(f"\nShot direction: {shot_hint}\n" if shot_hint else ""),
+    )
+
     try:
-        from ..content.llm_service import LLMService
-        from ..content.art_direction import compose_prompt
-        from ..utils.config import config_manager
+        response = LLMService(task="image.scene").generate_content(prompt)
+    except LLMError as e:
+        raise RuntimeError(f"Failed to generate image prompt: {e}") from e
 
-        llm_config = config_manager.get("llm", {})
-        if llm_config.get("enabled", False):
-            llm_service = LLMService(
-                base_url=llm_config.get("base_url"),
-                model=llm_config.get("model", "gpt-oss"),
-            )
-        else:
-            llm_service = LLMService()
+    scene = response.strip()
+    if scene.startswith('"') and scene.endswith('"'):
+        scene = scene[1:-1]
 
-        system_prompt = (
-            "You are a cinematic art director writing ONE image prompt to illustrate a "
-            "line of a tech podcast. Invent a striking, SPECIFIC scene: a clear subject "
-            "doing something, a concrete setting, evocative props, and a deliberate shot "
-            "(vary it — wide establishing, macro detail, overhead, dramatic portrait, "
-            "over-the-shoulder, conceptual metaphor). Be visually surprising and avoid "
-            "clichés (no generic 'person looking at a laptop/phone' unless truly apt). "
-            "Describe ONLY the scene and composition — do NOT mention art style, medium, "
-            "or rendering (that is added separately). 1-2 sentences, no preamble, no quotes."
-        )
-        user_prompt = (
-            f"Episode context:\n{run_summary}\n\n"
-            f"Line to illustrate:\n{line_text}\n\n"
-            f"{('Shot direction: ' + shot_hint + chr(10)) if shot_hint else ''}"
-            f"Write the scene now."
-        )
-
-        response = llm_service.generate_content(f"{system_prompt}\n\n{user_prompt}")
-        if not response:
-            raise RuntimeError("LLM returned empty response")
-
-        scene = response.strip()
-        if scene.startswith('"') and scene.endswith('"'):
-            scene = scene[1:-1]
-
-        return compose_prompt(scene, theme)
-
-    except Exception as e:
-        raise RuntimeError(f"Failed to generate image prompt: {e}")
+    return compose_prompt(scene, theme)
 
 
 def generate_image_from_prompt(prompt: str, out_path: str, width=None, height=None) -> None:

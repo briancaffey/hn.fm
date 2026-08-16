@@ -66,11 +66,22 @@ class TestGenerateSegmentTask:
             generate_segment(123, 1, 1)
 
     def test_generate_segment_saves_script(self, outputs_root):
-        """Test the happy path with the LLM script generation mocked"""
+        """Happy path: the structured script is stored alongside its flat
+        rendering, and the flat text keeps the `[S1] …` wire format the rest of
+        the pipeline consumes."""
+        from ..content.llm_schemas import Script, ScriptSection
+
         _seed_run()
 
-        script = "[S1] Hey there!\n[S2] Welcome to the show."
-        with patch.object(tasks, "generate_script_v1", return_value=script) as mock_llm:
+        script_obj = Script(title="A Story", sections=[
+            ScriptSection(index=1, speaker="S1", beat="cold_open",
+                          text="Something surprising happened.",
+                          visual_intent="a lab bench at night"),
+            ScriptSection(index=2, speaker="S2", beat="close",
+                          text="And that is why it matters.",
+                          visual_intent="a door closing"),
+        ])
+        with patch.object(tasks, "generate_script", return_value=script_obj) as mock_llm:
             result = generate_segment(123, 1, 1)
 
         assert result == {"status": "ok", "item_id": 123, "run": 1, "seg": 1}
@@ -80,7 +91,11 @@ class TestGenerateSegmentTask:
 
         segment = repo.get_segment(123, 1, 1)
         assert segment is not None
-        assert segment.script == script
+        assert segment.script == (
+            "[S1] Something surprising happened.\n[S2] And that is why it matters."
+        )
+        assert segment.script_json["sections"][0]["beat"] == "cold_open"
+        assert segment.script_json["sections"][0]["visual_intent"] == "a lab bench at night"
 
     def test_generate_segment_imports_work(self):
         """Test that all required imports work for the task"""

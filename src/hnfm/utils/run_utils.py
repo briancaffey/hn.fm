@@ -82,16 +82,11 @@ def summarize_text_v1(text: str) -> str:
     If non-200 or empty, raise an exception.
     """
     try:
-        # Use the existing LLMService
         from ..content.llm_service import LLMService
+        from ..content.prompts import render
 
-        llm_service = LLMService()
-        prompt = (
-            "Summarize the article in 5-7 sentences. Be specific and factual.\n\nArticle:\n"
-            + text
-        )
-
-        summary = llm_service.generate_content(prompt)
+        prompt = render("summary.write", text=text)
+        summary = LLMService(task="summary").generate_content(prompt)
 
         if not summary:
             raise RuntimeError("LLM service returned empty summary")

@@ -35,6 +35,9 @@ RUN pip install uv && \
 # Copy source code and scripts
 COPY src/ ./src/
 COPY config.yaml ./
+# Versioned prompts (plans/08). Required at runtime — a missing prompt raises
+# rather than silently falling back to an inline default.
+COPY prompts/ ./prompts/
 
 # Change ownership to app user
 RUN chown -R app:app /app
