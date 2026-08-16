@@ -16,6 +16,7 @@ interface NavItem {
 
 const navItems: NavItem[] = [
   { label: 'Stories', to: '/hn/items', icon: 'lucide:newspaper', match: '/hn' },
+  { label: 'Triage', to: '/triage', icon: 'lucide:list-checks', match: '/triage' },
   { label: 'Segments', to: '/segments', icon: 'lucide:layers', match: '/segments' },
   { label: 'Observability', to: '/observability', icon: 'lucide:activity', match: '/observability' },
   { label: 'Services', to: '/services', icon: 'lucide:server', match: '/services' },

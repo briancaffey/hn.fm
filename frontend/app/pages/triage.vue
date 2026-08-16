@@ -1,0 +1,304 @@
+<script setup lang="ts">
+import { Button } from '~/components/ui/button'
+import { Input } from '~/components/ui/input'
+import { Icon } from '#components'
+import Pagination from '~/components/Pagination.vue'
+import TriageRow from '~/components/TriageRow.vue'
+import type { TriageItem } from '~/components/TriageRow.vue'
+import { usePaginatedFetch } from '~/composables/usePaginatedFetch'
+
+const config = useRuntimeConfig()
+const apiBase = config.public.apiBase
+
+const {
+  rows,
+  pending,
+  error,
+  page,
+  limit,
+  total,
+  totalPages,
+  hasNextPage,
+  hasPreviousPage,
+  setPage,
+  nextPage,
+  previousPage,
+  filters,
+  setSearch,
+  setFilter,
+  refresh,
+} = usePaginatedFetch<TriageItem>({
+  endpoint: '/api/triage',
+  syncQuery: true,
+  defaultLimit: 25,
+  filters: {
+    verdict: undefined,
+    include_generated: undefined,
+    include_rejected: undefined,
+  },
+})
+
+function firstPage() {
+  setPage(1)
+}
+function lastPage() {
+  setPage(totalPages.value)
+}
+
+// ── search ──────────────────────────────────────────────────────────────────
+
+const searchInput = ref('')
+function onSearch(value: string | number) {
+  setSearch(String(value ?? ''))
+}
+
+// ── verdict filter chips ────────────────────────────────────────────────────
+
+const verdictChips: { value: string | undefined; label: string }[] = [
+  { value: undefined, label: 'All' },
+  { value: 'great', label: 'Great' },
+  { value: 'good', label: 'Good' },
+  { value: 'marginal', label: 'Marginal' },
+  { value: 'unsuitable', label: 'Unsuitable' },
+]
+
+function applyVerdict(value: string | undefined) {
+  setFilter('verdict', value)
+}
+
+// ── include toggles ─────────────────────────────────────────────────────────
+
+function toggleInclude(key: 'include_generated' | 'include_rejected') {
+  setFilter(key, filters[key] ? undefined : true)
+}
+
+// ── pull / score actions ────────────────────────────────────────────────────
+
+const actionBusy = ref<'top' | 'new' | 'score' | null>(null)
+const actionFeedback = ref('')
+const lastActionAt = ref<number | null>(null)
+
+async function pullStories(kind: 'top' | 'new') {
+  actionBusy.value = kind
+  actionFeedback.value = ''
+  try {
+    const res = await $fetch<{ queued_count?: number; skipped_count?: number }>(
+      `${apiBase}/api/hn/queue-${kind}?limit=20`,
+      { method: 'POST' },
+    )
+    actionFeedback.value = `Queued ${res?.queued_count ?? 0} · skipped ${res?.skipped_count ?? 0}`
+    lastActionAt.value = Date.now()
+    await refresh()
+  } catch {
+    actionFeedback.value = `Failed to pull ${kind} stories`
+  } finally {
+    actionBusy.value = null
+  }
+}
+
+async function scoreBacklog() {
+  actionBusy.value = 'score'
+  actionFeedback.value = ''
+  try {
+    const res = await $fetch<{ queued_count?: number; queued_ids?: number[] }>(
+      `${apiBase}/api/triage/score-existing?limit=25`,
+      { method: 'POST' },
+    )
+    actionFeedback.value = `Scoring queued for ${res?.queued_count ?? 0} stories`
+    lastActionAt.value = Date.now()
+  } catch {
+    actionFeedback.value = 'Failed to queue backlog scoring'
+  } finally {
+    actionBusy.value = null
+  }
+}
+
+// ── gentle polling: only while a recent pull/score may still be landing ─────
+
+const POLL_MS = 15_000
+const POLL_WINDOW_MS = 2 * 60_000
+let pollTimer: ReturnType<typeof setInterval> | undefined
+
+onMounted(() => {
+  pollTimer = setInterval(() => {
+    if (
+      lastActionAt.value
+      && Date.now() - lastActionAt.value < POLL_WINDOW_MS
+      && document.visibilityState === 'visible'
+    ) {
+      refresh()
+    }
+  }, POLL_MS)
+})
+
+onUnmounted(() => {
+  if (pollTimer) clearInterval(pollTimer)
+})
+
+// ── rank numbering ──────────────────────────────────────────────────────────
+
+const rankBase = computed(() => (page.value - 1) * limit.value)
+</script>
+
+<template>
+  <div class="h-full flex flex-col">
+    <!-- Toolbar -->
+    <div class="shrink-0 border-b bg-card px-4 py-3 space-y-2.5">
+      <div class="flex flex-wrap items-center gap-3">
+        <div>
+          <h1 class="text-lg font-bold text-orange-600 leading-tight">Triage</h1>
+          <p class="text-xs text-muted-foreground">ranked queue · LLM score + your calls</p>
+        </div>
+
+        <div class="relative w-64">
+          <Icon
+            name="lucide:search"
+            class="pointer-events-none absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground"
+          />
+          <Input
+            v-model="searchInput"
+            type="search"
+            placeholder="Search titles…"
+            class="h-8 pl-8"
+            @update:model-value="onSearch"
+          />
+        </div>
+
+        <!-- Verdict filter chips -->
+        <div class="flex items-center gap-1">
+          <button
+            v-for="chip in verdictChips"
+            :key="chip.label"
+            type="button"
+            class="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+            :class="filters.verdict === chip.value
+              ? 'border-orange-600 bg-orange-600 text-white'
+              : 'border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground'"
+            @click="applyVerdict(chip.value)"
+          >
+            {{ chip.label }}
+          </button>
+        </div>
+
+        <!-- Include toggles -->
+        <div class="flex items-center gap-1">
+          <button
+            type="button"
+            class="flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+            :class="filters.include_generated
+              ? 'border-green-600 bg-green-600/10 text-green-700 dark:text-green-400'
+              : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'"
+            @click="toggleInclude('include_generated')"
+          >
+            <Icon :name="filters.include_generated ? 'lucide:eye' : 'lucide:eye-off'" class="h-3 w-3" />
+            Show generated
+          </button>
+          <button
+            type="button"
+            class="flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+            :class="filters.include_rejected
+              ? 'border-red-600 bg-red-600/10 text-red-700 dark:text-red-400'
+              : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'"
+            @click="toggleInclude('include_rejected')"
+          >
+            <Icon :name="filters.include_rejected ? 'lucide:eye' : 'lucide:eye-off'" class="h-3 w-3" />
+            Show rejected
+          </button>
+        </div>
+
+        <div class="ml-auto flex flex-wrap items-center gap-2">
+          <span v-if="actionFeedback" class="text-xs text-muted-foreground">
+            {{ actionFeedback }}
+          </span>
+          <Button
+            size="sm"
+            class="h-8 bg-orange-600 text-white hover:bg-orange-700"
+            :disabled="actionBusy !== null"
+            @click="pullStories('top')"
+          >
+            <Icon v-if="actionBusy === 'top'" name="lucide:loader-2" class="mr-1 h-3.5 w-3.5 animate-spin" />
+            Pull Top 20
+          </Button>
+          <Button
+            size="sm"
+            class="h-8 bg-blue-600 text-white hover:bg-blue-700"
+            :disabled="actionBusy !== null"
+            @click="pullStories('new')"
+          >
+            <Icon v-if="actionBusy === 'new'" name="lucide:loader-2" class="mr-1 h-3.5 w-3.5 animate-spin" />
+            Pull New 20
+          </Button>
+          <Button
+            size="sm"
+            variant="outline"
+            class="h-8"
+            :disabled="actionBusy !== null"
+            @click="scoreBacklog"
+          >
+            <Icon v-if="actionBusy === 'score'" name="lucide:loader-2" class="mr-1 h-3.5 w-3.5 animate-spin" />
+            <Icon v-else name="lucide:sparkles" class="mr-1 h-3.5 w-3.5" />
+            Score backlog
+          </Button>
+        </div>
+      </div>
+
+      <div
+        v-if="error"
+        class="rounded border border-destructive bg-destructive/10 px-3 py-1.5 text-xs text-destructive"
+      >
+        Failed to load the triage queue. Is the API running?
+      </div>
+    </div>
+
+    <!-- Ranked list -->
+    <div class="min-h-0 flex-1 overflow-auto">
+      <div class="space-y-2 p-4" :class="pending && rows.length ? 'opacity-60' : ''">
+        <!-- loading skeleton -->
+        <template v-if="pending && rows.length === 0">
+          <div v-for="n in 8" :key="`skeleton-${n}`" class="rounded-lg border bg-card px-3 py-2.5">
+            <div class="flex items-start gap-3">
+              <div class="h-14 w-16 shrink-0 animate-pulse rounded bg-muted" />
+              <div class="flex-1 space-y-2 py-1">
+                <div class="h-4 w-2/3 animate-pulse rounded bg-muted" />
+                <div class="h-3 w-1/3 animate-pulse rounded bg-muted" />
+                <div class="h-3 w-1/2 animate-pulse rounded bg-muted" />
+              </div>
+              <div class="h-8 w-48 shrink-0 animate-pulse rounded bg-muted" />
+            </div>
+          </div>
+        </template>
+
+        <TriageRow
+          v-for="(item, index) in rows"
+          :key="item.item_id"
+          :item="item"
+          :rank="rankBase + index + 1"
+          @refresh="refresh"
+        />
+
+        <!-- empty state -->
+        <div v-if="!pending && rows.length === 0" class="py-16 text-center text-muted-foreground">
+          <Icon name="lucide:inbox" class="mx-auto mb-2 h-8 w-8 opacity-50" />
+          <p>No scored stories yet — Pull Top 20 to start.</p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pagination -->
+    <div class="shrink-0 border-t bg-card px-4 py-2">
+      <Pagination
+        :page="page"
+        :total="total"
+        :limit="limit"
+        :total-pages="totalPages"
+        :has-next-page="hasNextPage"
+        :has-previous-page="hasPreviousPage"
+        :set-page="setPage"
+        :next-page="nextPage"
+        :previous-page="previousPage"
+        :first-page="firstPage"
+        :last-page="lastPage"
+      />
+    </div>
+  </div>
+</template>

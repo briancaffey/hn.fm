@@ -200,6 +200,11 @@ class Segment(BaseModel):
         default=False, description="True when video is generated and ready"
     )
 
+    # Audio-first (podcast) fields
+    episode_path: Optional[str] = Field(
+        default=None, description="Path to the finished podcast episode MP3"
+    )
+
 
 class SegmentSection(BaseModel):
     """Model for individual audio sections within a segment"""

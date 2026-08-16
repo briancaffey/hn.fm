@@ -33,6 +33,41 @@ llm:
   model: "${LLM_MODEL}"
   provider: "local"
 
+# Story Triage Configuration (plans/04-story-scoring.md)
+# The rubric is data, not code — tune it here without a deploy.
+triage:
+  # Free models via LiteLLM only (no groq, nothing paid). TRIAGE_LLM_MODEL
+  # env var overrides. Primary NVIDIA-hosted; OpenRouter free nemotron fallback.
+  model: "nvidia-nemotron-super"
+  fallback_model: "openrouter-nemotron-ultra"
+  # Weighted interest profile: topic keyword -> weight (matched against the
+  # LLM-extracted topics; substring, case-insensitive). Negative = penalize.
+  interest_profile:
+    generative-ai: 3.0
+    local-ai: 3.0
+    llm: 2.5
+    machine-learning: 2.0
+    ai: 2.0
+    gpu: 1.5
+    self-hosted: 1.5
+    robotics: 1.0
+    hardware: 1.0
+    programming: 0.5
+    crypto: -2.0
+  # rank = w_suitability*suitability + w_interest*interest_match*100
+  #        + w_hn*log10(hn_score+1)*25  (+ human feedback boosts at query time)
+  weights:
+    suitability: 1.0
+    interest: 0.6
+    hn_score: 0.4
+  rubric: |
+    Favor stories that make ENGAGING videos: concrete stakes, human drama or
+    surprise, broad comprehensibility, and things that can be SHOWN (demos,
+    physical objects, visual metaphors, data). Penalize: obscure dependency
+    changelogs, minor library releases, pure code minutiae, paywalled stubs
+    with no substance, dry corporate announcements, listicles with no angle.
+    A niche topic is fine if the story has tension or a striking visual hook.
+
 # Content Processing Configuration
 content:
   max_episode_length: 15

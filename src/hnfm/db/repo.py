@@ -9,7 +9,7 @@ shapes identical.
 import logging
 from typing import List, Optional, Tuple
 
-from sqlalchemy import Integer, delete, func, select
+from sqlalchemy import Integer, case, delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from ..web.models import HNItem, ProcessedRun, Segment, SegmentImage, SegmentSection
@@ -22,6 +22,8 @@ from .orm import (
     SegmentImageRow,
     SegmentRow,
     SegmentSectionRow,
+    StoryFeedbackRow,
+    TriageScoreRow,
 )
 
 logger = logging.getLogger(__name__)
@@ -253,6 +255,7 @@ def _segment_to_model(row: SegmentRow) -> Segment:
         video_path=row.video_path,
         subtitles_path=row.subtitles_path,
         video_ready=bool(row.video_ready),
+        episode_path=row.episode_path,
     )
 
 
@@ -283,6 +286,7 @@ def save_segment(seg_obj: Segment) -> None:
         row.video_path = seg_obj.video_path
         row.subtitles_path = seg_obj.subtitles_path
         row.video_ready = seg_obj.video_ready
+        row.episode_path = seg_obj.episode_path
 
 
 def get_segment(item_id: int, run: int, seg: int) -> Optional[Segment]:
@@ -605,6 +609,221 @@ def list_generations(item_id: int) -> List[dict]:
             d["run_short_description"] = short_description or ""
             out.append(d)
         return out
+
+
+# ---------------------------------------------------------------------------
+# Triage scores + human story feedback
+# ---------------------------------------------------------------------------
+
+def save_triage_score(item_id: int, run: int, score: dict) -> None:
+    from datetime import datetime as _dt
+
+    with db_session() as s:
+        row = s.get(TriageScoreRow, (item_id, run))
+        if row is None:
+            row = TriageScoreRow(item_id=item_id, run=run, scored_at=_dt.utcnow())
+            s.add(row)
+        row.suitability = int(score.get("suitability") or 0)
+        row.verdict = score.get("verdict")
+        row.reasons = score.get("reasons")
+        row.flags = score.get("flags")
+        row.topics = score.get("topics")
+        row.visual_potential = score.get("visual_potential")
+        row.narrative_potential = score.get("narrative_potential")
+        row.interest_match = float(score.get("interest_match") or 0.0)
+        row.rank_score = float(score.get("rank_score") or 0.0)
+        row.model = score.get("model")
+        row.scored_at = _dt.utcnow()
+
+
+def _triage_to_dict(row: TriageScoreRow) -> dict:
+    return {
+        "item_id": row.item_id,
+        "run": row.run,
+        "suitability": row.suitability,
+        "verdict": row.verdict,
+        "reasons": row.reasons or [],
+        "flags": row.flags or [],
+        "topics": row.topics or [],
+        "visual_potential": row.visual_potential,
+        "narrative_potential": row.narrative_potential,
+        "interest_match": row.interest_match,
+        "rank_score": row.rank_score,
+        "model": row.model,
+        "scored_at": row.scored_at.isoformat() if row.scored_at else None,
+    }
+
+
+def get_triage_score(item_id: int, run: int) -> Optional[dict]:
+    with db_session() as s:
+        row = s.get(TriageScoreRow, (item_id, run))
+        return _triage_to_dict(row) if row else None
+
+
+def save_story_feedback(item_id: int, verdict: Optional[str], note: Optional[str]) -> dict:
+    from datetime import datetime as _dt
+
+    with db_session() as s:
+        row = s.get(StoryFeedbackRow, item_id)
+        if row is None:
+            row = StoryFeedbackRow(item_id=item_id, updated_at=_dt.utcnow())
+            s.add(row)
+        row.verdict = verdict
+        row.note = note
+        row.updated_at = _dt.utcnow()
+        return {"item_id": item_id, "verdict": verdict, "note": note}
+
+
+def get_story_feedback(item_id: int) -> Optional[dict]:
+    with db_session() as s:
+        row = s.get(StoryFeedbackRow, item_id)
+        if not row:
+            return None
+        return {"item_id": row.item_id, "verdict": row.verdict, "note": row.note,
+                "updated_at": row.updated_at.isoformat() if row.updated_at else None}
+
+
+# Human feedback boosts applied at query time so rubric re-scores never
+# clobber Brian's calls: starred > approved > everything > rejected.
+_FEEDBACK_BOOST = {"starred": 20000.0, "approved": 10000.0, "rejected": -20000.0}
+
+
+def list_triage(
+    offset: int = 0,
+    limit: int = 50,
+    verdict: str = None,
+    include_generated: bool = False,
+    include_rejected: bool = False,
+    q: str = None,
+) -> Tuple[List[dict], int]:
+    """The ranked triage queue: newest score per story, joined with the item,
+    human feedback, and generation counts. Ordered by effective rank
+    (rank_score + human boost) descending."""
+    # newest scored run per item
+    latest = (
+        select(
+            TriageScoreRow.item_id.label("item_id"),
+            func.max(TriageScoreRow.run).label("run"),
+        )
+        .group_by(TriageScoreRow.item_id)
+        .subquery()
+    )
+    segs_agg = (
+        select(
+            SegmentRow.item_id.label("item_id"),
+            func.count().label("segments_count"),
+            func.sum(func.coalesce(SegmentRow.video_ready.cast(Integer), 0)).label(
+                "videos_count"
+            ),
+        )
+        .group_by(SegmentRow.item_id)
+        .subquery()
+    )
+
+    boost = func.coalesce(
+        case(
+            (StoryFeedbackRow.verdict == "starred", _FEEDBACK_BOOST["starred"]),
+            (StoryFeedbackRow.verdict == "approved", _FEEDBACK_BOOST["approved"]),
+            (StoryFeedbackRow.verdict == "rejected", _FEEDBACK_BOOST["rejected"]),
+            else_=0.0,
+        ),
+        0.0,
+    )
+    effective_rank = (TriageScoreRow.rank_score + boost).label("effective_rank")
+
+    query = (
+        select(
+            TriageScoreRow,
+            HNItemRow,
+            StoryFeedbackRow.verdict.label("human_verdict"),
+            StoryFeedbackRow.note.label("human_note"),
+            func.coalesce(segs_agg.c.segments_count, 0).label("segments_count"),
+            func.coalesce(segs_agg.c.videos_count, 0).label("videos_count"),
+            effective_rank,
+        )
+        .join(
+            latest,
+            (latest.c.item_id == TriageScoreRow.item_id)
+            & (latest.c.run == TriageScoreRow.run),
+        )
+        .join(HNItemRow, HNItemRow.id == TriageScoreRow.item_id)
+        .outerjoin(StoryFeedbackRow, StoryFeedbackRow.item_id == TriageScoreRow.item_id)
+        .outerjoin(segs_agg, segs_agg.c.item_id == TriageScoreRow.item_id)
+    )
+
+    if verdict:
+        query = query.where(TriageScoreRow.verdict == verdict)
+    if not include_generated:
+        query = query.where(func.coalesce(segs_agg.c.videos_count, 0) == 0)
+    if not include_rejected:
+        query = query.where(
+            (StoryFeedbackRow.verdict.is_(None))
+            | (StoryFeedbackRow.verdict != "rejected")
+        )
+    if q:
+        query = query.where(HNItemRow.title.ilike(f"%{q}%"))
+
+    query = query.order_by(effective_rank.desc(), TriageScoreRow.item_id.desc())
+
+    with db_session() as s:
+        total = int(
+            s.execute(select(func.count()).select_from(query.subquery())).scalar_one()
+        )
+        rows = s.execute(query.offset(offset).limit(limit)).all()
+        out = []
+        for (triage, item, human_verdict, human_note,
+             segments_count, videos_count, eff_rank) in rows:
+            d = _triage_to_dict(triage)
+            d.update(
+                title=item.title,
+                url=item.url,
+                by=item.by,
+                time=item.time,
+                hn_score=item.score,
+                comments=item.descendants,
+                human_verdict=human_verdict,
+                human_note=human_note,
+                segments_count=int(segments_count or 0),
+                videos_count=int(videos_count or 0),
+                effective_rank=float(eff_rank or 0.0),
+            )
+            out.append(d)
+        return out, total
+
+
+def list_episodes(offset: int = 0, limit: int = 100) -> Tuple[List[dict], int]:
+    """Finished podcast episodes (segments with an episode MP3), newest first,
+    joined with story title + run summary — feeds /api/podcast."""
+    base = (
+        select(SegmentRow, HNItemRow.title, RunRow.summary, RunRow.short_description)
+        .join(HNItemRow, HNItemRow.id == SegmentRow.item_id)
+        .join(
+            RunRow,
+            (RunRow.item_id == SegmentRow.item_id) & (RunRow.run == SegmentRow.run),
+        )
+        .where(SegmentRow.episode_path.is_not(None))
+        .order_by(SegmentRow.created_at.desc())
+    )
+    with db_session() as s:
+        total = int(
+            s.execute(select(func.count()).select_from(base.subquery())).scalar_one()
+        )
+        rows = s.execute(base.offset(offset).limit(limit)).all()
+        out = []
+        for seg_row, title, summary, short_description in rows:
+            out.append({
+                "item_id": seg_row.item_id,
+                "run": seg_row.run,
+                "seg": seg_row.seg,
+                "title": title or f"HN {seg_row.item_id}",
+                "summary": summary or "",
+                "short_description": short_description or "",
+                "episode_path": seg_row.episode_path,
+                "created_at": seg_row.created_at.isoformat()
+                if seg_row.created_at else None,
+            })
+        return out, total
+
 
 def load_metrics(item_id: int, run: int, seg: int) -> Optional[dict]:
     with db_session() as s:

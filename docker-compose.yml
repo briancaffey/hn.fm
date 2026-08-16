@@ -6,6 +6,20 @@ x-common-app-config: &common-app-config
   build:
     context: .
     dockerfile: Dockerfile
+  # .lan inference hosts resolve via the Mac's /etc/resolver/lan (loopback
+  # dnsmasq), which containers can't reach — pin them to the cluster's traefik
+  # ingress IP instead (any node IP works; traefik routes by Host header).
+  extra_hosts:
+    - "litellm.lan:192.168.5.173"
+    - "firecrawl.lan:192.168.5.173"
+    - "magpie.lan:192.168.5.173"
+    - "flux.lan:192.168.5.173"
+    - "ltx.lan:192.168.5.173"
+    - "asr.lan:192.168.5.173"
+    - "acestep.lan:192.168.5.173"
+    - "dia.lan:192.168.5.173"
+    - "studio-voice.lan:192.168.5.173"
+    - "omni.lan:192.168.5.173"
   volumes:
     - ./src:/app/src  # Mount source code for hot reloading
     - ./outputs:/app/outputs

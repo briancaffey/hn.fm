@@ -50,8 +50,9 @@ logger = logging.getLogger(__name__)
 
 
 @celery_app.task(name="hnfm.web.tasks.hn_fetch_item")
-def hn_fetch_item(item_id: int) -> Dict[str, any]:
-    """Fetch and store a Hacker News item"""
+def hn_fetch_item(item_id: int, continue_to_triage: bool = False) -> Dict[str, any]:
+    """Fetch and store a Hacker News item; optionally chain into triage
+    (cheap text half + suitability score, no GPU)."""
     try:
         # Check if item already exists
         if exists_item(item_id):
@@ -65,6 +66,14 @@ def hn_fetch_item(item_id: int) -> Dict[str, any]:
         get_item_json_and_store(item_id, outputs_dir=outputs_dir)
 
         logger.info(f"Successfully fetched and stored item {item_id}")
+
+        if continue_to_triage:
+            process_hn_item_run.apply_async(
+                args=[item_id, None, False],
+                kwargs={"continue_to_triage": True},
+                queue="hnfm_tasks",
+            )
+
         return {"status": "fetched", "id": item_id}
 
     except Exception as e:
@@ -76,7 +85,8 @@ def hn_fetch_item(item_id: int) -> Dict[str, any]:
     name="hnfm.web.tasks.process_hn_item_run", time_limit=1800, soft_time_limit=1800
 )
 def process_hn_item_run(
-    item_id: int, run: int = None, continue_chain: bool = False
+    item_id: int, run: int = None, continue_chain: bool = False,
+    continue_to_triage: bool = False,
 ) -> Dict[str, any]:
     """
     Process a HN item run: scrape, clean, summarize, and store.
@@ -197,6 +207,9 @@ def process_hn_item_run(
             generate_segment.apply_async(
                 args=[item_id, run, None, True], queue="hnfm_tasks"
             )
+        elif continue_to_triage:
+            logger.info(f"Continuing to triage: scoring item {item_id}, run {run}")
+            score_run.apply_async(args=[item_id, run], queue="hnfm_tasks")
 
         return {"status": "ok", "item_id": item_id, "run": run}
 
@@ -1248,7 +1261,8 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
     name="hnfm.web.tasks.full_pipeline", time_limit=10800, soft_time_limit=10800
 )
 def full_pipeline(
-    item_id: int, aspect_format: str = None, style_theme: str = None
+    item_id: int, aspect_format: str = None, style_theme: str = None,
+    mode: str = "video",
 ) -> Dict[str, any]:
     """
     Run the entire pipeline in a single task for an item.
@@ -1337,6 +1351,36 @@ def full_pipeline(
                 item_id, run, seg, "all", None, None, continue_chain=False
             )
         logger.info(f"✅ Audio building completed: {audio_result}")
+
+        # Step 3b: podcast episode (audio-first). Always attempted — it's a
+        # cheap encode — but only fatal in audio mode.
+        episode_result = None
+        try:
+            episode_result = build_segment_episode(item_id, run, seg)
+            logger.info(f"🎙️ Episode: {episode_result}")
+        except Exception as _ee:
+            if mode == "audio":
+                raise
+            logger.warning(f"episode build skipped (non-fatal): {_ee}")
+
+        if mode == "audio":
+            metrics.finalize(item_id, run, seg, status="ok")
+            logger.info(
+                f"🎉 Audio pipeline completed for item {item_id}, run {run}, seg {seg}"
+            )
+            return {
+                "status": "completed",
+                "mode": "audio",
+                "item_id": item_id,
+                "run": run,
+                "seg": seg,
+                "results": {
+                    "run": run_result,
+                    "segment": segment_result,
+                    "audio": audio_result,
+                    "episode": episode_result,
+                },
+            }
 
         logger.info(f"📝 Step 4/5: Building images for segment {seg}")
         # Step 4: Build segment images (with continue_chain=False)
@@ -1679,6 +1723,131 @@ def generate_segment_video(
             f"❌ Video generation failed for segment {item_id}:{run}:{seg}: {e}"
         )
         raise
+
+
+@celery_app.task(
+    name="hnfm.web.tasks.score_run", time_limit=600, soft_time_limit=600
+)
+def score_run(item_id: int, run: int) -> Dict[str, any]:
+    """Triage: score a processed run's suitability for a video (free LLM,
+    no GPU). Stores the score + interest match + rank for the triage queue."""
+    from ..content import triage
+
+    pr = get_run(item_id, run)
+    if not pr:
+        raise RuntimeError(f"Run {item_id}:{run} not found")
+    item = get_item(item_id)
+    title = (item.title if item else "") or ""
+
+    # Was this run's content a scrape fallback? (recorded on the scrape step)
+    scrape_fallback = False
+    for st in steps.list_steps(item_id, run):
+        if st["step_key"] == "scrape" and st["status"] in ("ok", "superseded"):
+            scrape_fallback = bool((st.get("outputs") or {}).get("fallback"))
+
+    with steps.step(
+        item_id, run, None, "triage", "triage/score",
+        {"title": title, "model": triage.primary_model(),
+         "scrape_fallback": scrape_fallback},
+    ) as st:
+        score = triage.score_content(
+            title=title,
+            summary=pr.summary,
+            content_clean=pr.content_clean,
+            hn_score=(item.score if item else 0) or 0,
+            comments=(item.descendants if item else 0) or 0,
+        )
+        score["flags"] = list(
+            dict.fromkeys(
+                triage.hard_flags(pr.content_clean, scrape_fallback)
+                + (score.get("flags") or [])
+            )
+        )
+        score["interest_match"] = triage.interest_match(score["topics"], title)
+        score["rank_score"] = triage.rank_score(
+            score["suitability"], score["interest_match"],
+            (item.score if item else 0) or 0,
+        )
+        repo.save_triage_score(item_id, run, score)
+        st.set(**{k: v for k, v in score.items() if k != "reasons"},
+               reasons=score["reasons"])
+
+    logger.info(
+        f"🎯 Triage {item_id}:{run} → {score['verdict']} "
+        f"(suitability={score['suitability']}, rank={score['rank_score']})"
+    )
+    return {"status": "ok", "item_id": item_id, "run": run, **score}
+
+
+@celery_app.task(
+    name="hnfm.web.tasks.build_segment_episode", time_limit=900, soft_time_limit=900
+)
+def build_segment_episode(item_id: int, run: int, seg: int) -> Dict[str, any]:
+    """Audio-first: turn the segment's narration into a finished podcast
+    episode — intro + narration, loudness-normalized MP3 with ID3 tags.
+    Published to MinIO and exposed via /api/podcast for Audiobookshelf."""
+    import subprocess
+    from pathlib import Path as _Path
+
+    from ..audio.audio_utils import seg_root
+
+    outputs_dir = os.getenv("OUTPUTS_DIR", "/app/outputs")
+    segment = get_segment(item_id, run, seg)
+    if not segment or not segment.audio_ready or not segment.audio_combined_path:
+        raise RuntimeError(f"Segment audio not ready: {item_id}:{run}:{seg}")
+    if not os.path.exists(segment.audio_combined_path):
+        raise RuntimeError(f"Audio file missing: {segment.audio_combined_path}")
+
+    item = get_item(item_id)
+    pr = get_run(item_id, run)
+    title = (item.title if item else f"HN {item_id}") or f"HN {item_id}"
+
+    episode_path = os.path.join(
+        seg_root(outputs_dir, item_id, run, seg), "audio", "episode.mp3"
+    )
+    _Path(episode_path).parent.mkdir(parents=True, exist_ok=True)
+
+    intro = _Path(__file__).parent.parent / "video" / "media" / "intro.wav"
+
+    with steps.step(
+        item_id, run, seg, "audio", "audio/episode",
+        {"combined_path": segment.audio_combined_path, "title": title,
+         "intro": intro.exists()},
+    ) as st:
+        if intro.exists():
+            filter_complex = (
+                "[0:a][1:a]concat=n=2:v=0:a=1,loudnorm=I=-16:TP=-1.5:LRA=11[a]"
+            )
+            inputs = ["-i", str(intro), "-i", segment.audio_combined_path]
+        else:
+            filter_complex = "[0:a]loudnorm=I=-16:TP=-1.5:LRA=11[a]"
+            inputs = ["-i", segment.audio_combined_path]
+
+        cmd = [
+            "ffmpeg", "-y", *inputs,
+            "-filter_complex", filter_complex, "-map", "[a]",
+            "-codec:a", "libmp3lame", "-q:a", "2", "-ar", "44100",
+            "-metadata", f"title={title}",
+            "-metadata", "artist=hn.fm",
+            "-metadata", f"comment={(pr.short_description if pr else '') or ''}",
+            episode_path,
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        if result.returncode != 0 or not os.path.exists(episode_path):
+            raise RuntimeError(f"episode encode failed: {result.stderr[-300:]}")
+
+        segment.episode_path = episode_path
+        save_segment(segment, outputs_root=outputs_dir)
+
+        from ..storage import object_store
+
+        object_store.publish_file(episode_path)
+        st.set(episode_path=episode_path,
+               bytes=os.path.getsize(episode_path))
+
+    logger.info(f"🎙️ Episode built for {item_id}:{run}:{seg}: {episode_path}")
+    return {"status": "ok", "item_id": item_id, "run": run, "seg": seg,
+            "episode_path": episode_path}
 
 
 @celery_app.task(

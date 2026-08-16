@@ -190,14 +190,19 @@ def _serve_media(local_path: str, media_type: str, filename: str, proxy: bool = 
 
 
 def queue_item_if_not_exists(item_id: int) -> dict:
-    """Queue an item for processing only if it doesn't already exist in the database"""
+    """Queue an item for processing only if it doesn't already exist in the
+    database. New items chain straight into triage (scrape + summarize +
+    score, no GPU) unless TRIAGE_ON_INGEST=false."""
     if exists_item(item_id):
         logger.info(f"Item {item_id} already exists, skipping queue")
         return {"status": "exists", "id": item_id}
 
-    # Queue the task to fetch the item
-    task = hn_fetch_item.apply_async(args=[item_id], queue="hnfm_tasks")
-    logger.info(f"Item {item_id} queued for fetching")
+    triage_on_ingest = os.getenv("TRIAGE_ON_INGEST", "true").lower() == "true"
+    task = hn_fetch_item.apply_async(
+        args=[item_id], kwargs={"continue_to_triage": triage_on_ingest},
+        queue="hnfm_tasks",
+    )
+    logger.info(f"Item {item_id} queued for fetching (triage={triage_on_ingest})")
     return {"status": "queued", "id": item_id, "task_id": task.id}
 
 
@@ -335,6 +340,207 @@ async def get_single_item(item_id: int):
     except Exception as e:
         logger.error(f"Failed to get item {item_id}: {e}")
         raise HTTPException(status_code=500, detail="Failed to get item")
+
+
+# Triage endpoints (plans/04-story-scoring.md)
+@app.get("/api/triage", tags=["triage"])
+async def triage_queue(
+    offset: int = 0,
+    limit: int = 50,
+    verdict: str = None,
+    include_generated: bool = False,
+    include_rejected: bool = False,
+    q: str = None,
+):
+    """The ranked triage queue: scored stories ordered by effective rank
+    (LLM rank + human feedback boost). Standard pagination contract."""
+    try:
+        from ..db import repo
+
+        rows, total = repo.list_triage(
+            offset=offset, limit=limit, verdict=verdict,
+            include_generated=include_generated,
+            include_rejected=include_rejected, q=q,
+        )
+        return {
+            "items": rows,
+            "pagination": {
+                "offset": offset, "limit": limit, "count": len(rows), "total": total,
+            },
+        }
+    except Exception as e:
+        logger.error(f"Failed to list triage queue: {e}")
+        raise HTTPException(status_code=500, detail="Failed to list triage queue")
+
+
+@app.post("/api/hn/items/{item_id}/feedback", tags=["triage"])
+async def set_story_feedback(item_id: int, request: dict = Body(...)):
+    """Human-in-the-loop call on a story. verdict: starred|approved|rejected|null
+    (null clears). Optional note explains why — future rubric-tuning gold."""
+    from ..db import repo
+
+    verdict = request.get("verdict")
+    if verdict not in ("starred", "approved", "rejected", None):
+        raise HTTPException(
+            status_code=400, detail="verdict must be starred|approved|rejected|null"
+        )
+    if not exists_item(item_id):
+        raise HTTPException(status_code=404, detail="Item not found")
+    return repo.save_story_feedback(item_id, verdict, request.get("note"))
+
+
+@app.post("/api/hn/items/{item_id}/triage", tags=["triage"])
+async def triage_single_item(item_id: int):
+    """Score one story on demand. If it already has a processed run, score the
+    latest; otherwise run the cheap half (scrape+summarize) and score."""
+    from .tasks import score_run, process_hn_item_run
+
+    if not exists_item(item_id):
+        raise HTTPException(status_code=404, detail="Item not found")
+
+    runs = list_runs_for_item(item_id, offset=0, limit=1)
+    if runs:
+        task = score_run.apply_async(args=[item_id, runs[0]], queue="hnfm_tasks")
+        return {"status": "queued", "item_id": item_id, "run": runs[0],
+                "task_id": task.id}
+    task = process_hn_item_run.apply_async(
+        args=[item_id, None, False], kwargs={"continue_to_triage": True},
+        queue="hnfm_tasks",
+    )
+    return {"status": "queued", "item_id": item_id, "run": None, "task_id": task.id}
+
+
+@app.post("/api/triage/score-existing", tags=["triage"])
+async def triage_score_existing(limit: int = 50):
+    """Backfill: queue triage scoring for stories that already have a processed
+    run but no score yet (newest items first)."""
+    from ..db import repo as _repo
+    from ..db.engine import db_session
+    from ..db.orm import RunRow, TriageScoreRow
+    from sqlalchemy import select, func
+    from .tasks import score_run
+
+    with db_session() as s:
+        latest_runs = (
+            select(RunRow.item_id, func.max(RunRow.run).label("run"))
+            .group_by(RunRow.item_id)
+            .subquery()
+        )
+        rows = s.execute(
+            select(latest_runs.c.item_id, latest_runs.c.run)
+            .outerjoin(
+                TriageScoreRow,
+                (TriageScoreRow.item_id == latest_runs.c.item_id),
+            )
+            .where(TriageScoreRow.item_id.is_(None))
+            .order_by(latest_runs.c.item_id.desc())
+            .limit(limit)
+        ).all()
+
+    queued = []
+    for item_id, run in rows:
+        score_run.apply_async(args=[int(item_id), int(run)], queue="hnfm_tasks")
+        queued.append(int(item_id))
+    return {"queued_count": len(queued), "queued_ids": queued}
+
+
+# Podcast endpoints — audio-first output for Audiobookshelf & scripts
+@app.post(
+    "/api/hn/items/{item_id}/runs/{run}/segments/{seg}/episode", tags=["podcast"]
+)
+async def build_episode_endpoint(item_id: int, run: int, seg: int):
+    """Build the podcast episode MP3 for a segment (audio must be ready)."""
+    from .tasks import build_segment_episode
+
+    segment = get_segment(item_id, run, seg)
+    if not segment:
+        raise HTTPException(status_code=404, detail="Segment not found")
+    if not segment.audio_ready or not segment.audio_combined_path:
+        raise HTTPException(status_code=400, detail="Segment audio not ready")
+
+    task = build_segment_episode.apply_async(
+        args=[item_id, run, seg], queue="hnfm_tasks"
+    )
+    return {"status": "queued", "item_id": item_id, "run": run, "seg": seg,
+            "task_id": task.id}
+
+
+@app.get("/api/podcast/episodes", tags=["podcast"])
+async def podcast_episodes(offset: int = 0, limit: int = 100):
+    """Machine-readable episode list (for scripts pushing to Audiobookshelf):
+    each row carries a direct, stable audio URL."""
+    from ..db import repo
+
+    episodes, total = repo.list_episodes(offset=offset, limit=limit)
+    base = os.getenv("PUBLIC_API_BASE", "http://localhost:8000")
+    for ep in episodes:
+        ep["audio_url"] = (
+            f"{base}/api/podcast/episodes/{ep['item_id']}/{ep['run']}/{ep['seg']}.mp3"
+        )
+    return {
+        "items": episodes,
+        "pagination": {"offset": offset, "limit": limit,
+                       "count": len(episodes), "total": total},
+    }
+
+
+@app.get("/api/podcast/episodes/{item_id}/{run}/{seg}.mp3", tags=["podcast"])
+async def podcast_episode_mp3(item_id: int, run: int, seg: int):
+    """Serve an episode MP3 (MinIO-first with local fallback)."""
+    segment = get_segment(item_id, run, seg)
+    if not segment or not segment.episode_path:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    return _serve_media(segment.episode_path, "audio/mpeg",
+                        f"hnfm-{item_id}-{run}-{seg}.mp3")
+
+
+@app.get("/api/podcast/feed.xml", tags=["podcast"])
+async def podcast_feed():
+    """Podcast RSS feed. Point Audiobookshelf (Add Podcast → RSS feed URL)
+    at this endpoint and episodes flow in like any other podcast."""
+    from xml.sax.saxutils import escape
+    from email.utils import formatdate
+    from datetime import datetime as _dt
+    from fastapi.responses import Response
+
+    from ..db import repo
+
+    episodes, _total = repo.list_episodes(limit=200)
+    base = os.getenv("PUBLIC_API_BASE", "http://localhost:8000")
+
+    items_xml = []
+    for ep in episodes:
+        url = f"{base}/api/podcast/episodes/{ep['item_id']}/{ep['run']}/{ep['seg']}.mp3"
+        try:
+            length = os.path.getsize(ep["episode_path"])
+        except OSError:
+            length = 0
+        pub = ep["created_at"]
+        try:
+            pub_rfc = formatdate(_dt.fromisoformat(pub).timestamp()) if pub else ""
+        except ValueError:
+            pub_rfc = ""
+        description = ep["short_description"] or ep["summary"] or ep["title"]
+        items_xml.append(f"""    <item>
+      <title>{escape(ep['title'])}</title>
+      <description>{escape(description)}</description>
+      <guid isPermaLink="false">hnfm-{ep['item_id']}-{ep['run']}-{ep['seg']}</guid>
+      <pubDate>{pub_rfc}</pubDate>
+      <enclosure url="{escape(url)}" length="{length}" type="audio/mpeg"/>
+    </item>""")
+
+    xml = f"""<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:itunes="http://www.itunes.com/dtds/podcast-1.0.dtd">
+  <channel>
+    <title>hn.fm</title>
+    <link>{escape(base)}</link>
+    <description>Hacker News stories as AI-narrated podcast episodes</description>
+    <language>en-us</language>
+    <itunes:author>hn.fm</itunes:author>
+{chr(10).join(items_xml)}
+  </channel>
+</rss>"""
+    return Response(content=xml, media_type="application/rss+xml")
 
 
 # Mission-control endpoints (stories with aggregates, generations, activity)
@@ -513,11 +719,15 @@ async def start_single_task_pipeline(request: dict = Body(...)):
         # Optional per-take overrides (multi-take / multi-format)
         aspect_format = request.get("aspect_format")  # "16:9" | "1:1" | "9:16"
         style_theme = request.get("style_theme")  # art_direction theme key
+        mode = request.get("mode") or "video"  # "video" | "audio" (podcast-only)
+        if mode not in ("video", "audio"):
+            raise HTTPException(status_code=400, detail="mode must be video|audio")
 
         # Queue the full pipeline task
         task = full_pipeline.apply_async(
             args=[item_id],
-            kwargs={"aspect_format": aspect_format, "style_theme": style_theme},
+            kwargs={"aspect_format": aspect_format, "style_theme": style_theme,
+                    "mode": mode},
             queue="hnfm_tasks",
         )
 
@@ -526,8 +736,9 @@ async def start_single_task_pipeline(request: dict = Body(...)):
             "item_id": item_id,
             "aspect_format": aspect_format or "16:9",
             "style_theme": style_theme,
+            "mode": mode,
             "task_id": task.id,
-            "message": f"Full pipeline queued for item {item_id}",
+            "message": f"Full pipeline ({mode}) queued for item {item_id}",
         }
 
     except HTTPException:

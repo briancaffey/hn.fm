@@ -119,6 +119,9 @@ class SegmentRow(Base):
     subtitles_path: Mapped[str] = mapped_column(Text, nullable=True)
     video_ready: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
 
+    # Audio-first: finished podcast episode (normalized MP3 with intro)
+    episode_path: Mapped[str] = mapped_column(Text, nullable=True)
+
 
 class SegmentSectionRow(Base):
     __tablename__ = "segment_sections"
@@ -165,6 +168,47 @@ class SegmentImageRow(Base):
     start_ms: Mapped[int] = mapped_column(Integer, nullable=True)
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class TriageScoreRow(Base):
+    """LLM suitability score for one processed run (the cheap text half).
+    One score per run; the newest run's score represents the story."""
+
+    __tablename__ = "triage_scores"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["item_id", "run"], ["runs.item_id", "runs.run"], ondelete="CASCADE"
+        ),
+    )
+
+    item_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    run: Mapped[int] = mapped_column(Integer, primary_key=True)
+    suitability: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    verdict: Mapped[str] = mapped_column(Text, nullable=True)  # great|good|marginal|unsuitable
+    reasons: Mapped[list] = mapped_column(JSONVariant, nullable=True)
+    flags: Mapped[list] = mapped_column(JSONVariant, nullable=True)
+    topics: Mapped[list] = mapped_column(JSONVariant, nullable=True)
+    visual_potential: Mapped[int] = mapped_column(Integer, nullable=True)
+    narrative_potential: Mapped[int] = mapped_column(Integer, nullable=True)
+    interest_match: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    rank_score: Mapped[float] = mapped_column(Float, nullable=False, default=0.0, index=True)
+    model: Mapped[str] = mapped_column(Text, nullable=True)
+    scored_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class StoryFeedbackRow(Base):
+    """Brian's call on a story — the human in the loop. Approve/star pins it
+    to the top of triage, reject sinks it; notes explain why for future
+    rubric tuning."""
+
+    __tablename__ = "story_feedback"
+
+    item_id: Mapped[int] = mapped_column(
+        BigInteger, ForeignKey("hn_items.id", ondelete="CASCADE"), primary_key=True
+    )
+    verdict: Mapped[str] = mapped_column(Text, nullable=True)  # starred|approved|rejected|None
+    note: Mapped[str] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 

@@ -63,10 +63,21 @@ triage_scores (id PK, run_id FK → runs UNIQUE,
 
 ## Tasks
 
-- [ ] Hard-flag detection in `process_hn_item_run` (surface scrape-fallback as a flag instead of silent)
-- [ ] Triage scoring task + structured-output prompt (rubric as editable config); `triage_scores` table
-- [ ] `triage` becomes the default terminus for queue-top/queue-new (cheap half only); explicit action continues to full pipeline
-- [ ] Ranking function + interest profile config (seed with generative-AI/local-AI weights)
-- [ ] `GET /api/triage?sort=rank` + Triage page + score column on stories table
+- [x] Hard flags: `scrape_fallback` (read off the scrape step's outputs) + `too_short`, merged with LLM flags
+- [x] Triage scoring task (`score_run`) + rubric-driven JSON prompt in `src/hnfm/content/triage.py`; rubric + interest profile + weights live in config.yaml `triage:`; `triage_scores` table (Alembic 0003)
+- [x] queue-top/queue-new chain into triage by default (`TRIAGE_ON_INGEST`, default true): fetch → scrape/summarize/enrich → score, no GPU
+- [x] Ranking: `rank = w·suitability + w·tanh(interest)·100 + w·log10(hn_score+1)·25`, human feedback boost at query time (starred > approved > … > rejected)
+- [x] **Human-in-the-loop feedback** (Brian's addition): `story_feedback` table, `POST /api/hn/items/{id}/feedback` (star/approve/reject + note), boosts applied in `repo.list_triage`
+- [x] `GET /api/triage` (standard pagination contract) + `/triage` page (verdict chips, topic/flag chips, visual/narrative meters, expandable reasons, ⭐/👍/👎 controls, 🎬 Video / 🎙️ Audio generate buttons); sidebar nav entry
+- [x] On-demand scoring: `POST /api/hn/items/{id}/triage` (single) and `POST /api/triage/score-existing?limit=N` (backfill)
+- [x] **Models** (Brian's constraint: free only, no groq): primary `nvidia-nemotron-super`, fallback `openrouter-nemotron-ultra`, `TRIAGE_LLM_MODEL` env override. ⚠️ LiteLLM's `nemotron-omni` route silently fails over to groq when the local box is down — .env temporarily points LLM_MODEL at nvidia-nemotron-super.
+- [x] Live-calibrated on 11 stories 2026-07-01 (titles only — Firecrawl was down): synthetic-cell story → 85/great top; FFmpeg changelog → 30/unsuitable bottom. Sensible ordering.
 - [ ] Algolia HN search endpoint + search-to-generate flow
-- [ ] Calibrate: score 30–50 recent stories, eyeball the ordering, tune rubric/weights
+- [ ] Re-calibrate with full article content once Firecrawl tunnel is back; tune rubric/weights in config.yaml
+- [ ] Stories table: add score/verdict column (small follow-up)
+
+## Audio-first (Brian's addition, landed with this plan)
+
+- [x] `build_segment_episode` task: intro + narration → loudnorm → ID3-tagged MP3, MinIO-published, recorded as `audio/episode` step; `segments.episode_path`
+- [x] `full_pipeline(mode="audio")` stops after audio + episode (no GPU visuals); episode also attempted non-fatally in video mode
+- [x] Podcast API for Audiobookshelf: `GET /api/podcast/feed.xml` (RSS 2.0 — point ABS "Add Podcast" at it), `GET /api/podcast/episodes` (JSON with `audio_url` per episode, for scripts), `GET /api/podcast/episodes/{i}/{r}/{s}.mp3`, `POST .../segments/{s}/episode` (build on demand). Set `PUBLIC_API_BASE` to the URL your k3s ABS can reach.

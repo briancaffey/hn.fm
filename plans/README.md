@@ -11,7 +11,7 @@ This file tracks the sub-plans. Each sub-plan is its own doc with design details
 | 1 | Postgres foundation (replace Redis data store) | [01-postgres-migration.md](01-postgres-migration.md) | **done** (2026-07-01) — data backfilled, 105 tests green; final cleanup of old `hnfm:*` Redis keys pending | — |
 | 2 | Pipeline audit trail + regenerate-from-step | [02-audit-trail.md](02-audit-trail.md) | **done** (2026-07-01) — metrics.py retirement deferred to plan 3 | 1 |
 | 3 | UI overhaul (full-width, dense tables, X-ray view) | [03-ui-overhaul.md](03-ui-overhaul.md) | **core done** (2026-07-01) — a few cleanups listed in the doc | 1 (partially), 2 (X-ray) |
-| 4 | Story scoring & ranked triage | [04-story-scoring.md](04-story-scoring.md) | not started | 1 |
+| 4 | Story scoring & ranked triage (+ human feedback, + audio-first/podcast) | [04-story-scoring.md](04-story-scoring.md) | **done** (2026-07-01) — Algolia search + content re-calibration pending | 1 |
 | 5 | Voice onboarding (YouTube → DIA voice sample) | [05-voice-onboarding.md](05-voice-onboarding.md) | not started | — |
 | 6 | Automation (scheduled ingest → triage → generate) | [06-automation.md](06-automation.md) | not started | 4 |
 | 7 | MinIO object store for media artifacts | [07-minio-object-store.md](07-minio-object-store.md) | **done** (2026-07-01) — publish hooks + MinIO-first serving; local-disk reclaim pending | — |

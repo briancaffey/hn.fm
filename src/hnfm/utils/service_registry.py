@@ -50,7 +50,7 @@ def get_service_specs() -> List[ServiceSpec]:
             name="Scrape · Firecrawl",
             role="Scrape",
             base_url=os.getenv("FIRECRAWL_BASE_URL", "").rstrip("/"),
-            health_path="/health",
+            health_path="/",  # self-hosted firecrawl greets on / (no /health route)
             optional=True,  # pipeline degrades to HN title/text if scrape is down
         ),
         ServiceSpec(
@@ -83,6 +83,15 @@ def get_service_specs() -> List[ServiceSpec]:
             health_path="/health",
             enabled=_bool("MUSIC_ENABLED", False),
             optional=True,
+        ),
+        ServiceSpec(
+            name="Video · LTX-2",
+            role="Video",
+            base_url=os.getenv("LTX_BASE_URL", "").rstrip("/"),
+            health_path="/health",
+            enabled=_bool("VIDEO_ENABLED", False),
+            optional=True,  # sections fall back to image sequences
+            note="image-to-video motion clips",
         ),
         ServiceSpec(
             name="Audio enhance · Studio Voice",
