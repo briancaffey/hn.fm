@@ -80,6 +80,15 @@ llm:
       model: "nemotron-omni"
       temperature: 0.85
       max_tokens: 500
+    # The two halves of the Story Brief run at deliberately different
+    # temperatures — that difference is the main reason they are separate
+    # calls (see content/story_brief.py).
+    brief.framing:
+      temperature: 0.7      # finding the angle is a creative act
+      max_tokens: 1500
+    brief.evidence:
+      temperature: 0.15     # extraction must be faithful, not imaginative
+      max_tokens: 2500
     summary:
       temperature: 0.3
       max_tokens: 1000
@@ -115,12 +124,23 @@ triage:
     hardware: 1.0
     programming: 0.5
     crypto: -2.0
-  # rank = w_suitability*suitability + w_interest*interest_match*100
-  #        + w_hn*log10(hn_score+1)*25  (+ human feedback boosts at query time)
+  # Two-axis ranking (plans/09):
+  #   base = w_interest*interest + w_interest_match*match*100
+  #          + w_hn*log10(hn_score+1)*25
+  #   rank = base * (producibility_floor + (1-floor)*producibility/100)
+  # Producibility multiplies rather than adds: a story we cannot build should
+  # sink regardless of how interesting it is, but never vanish (the floor) —
+  # this is ordering, not censorship. Human feedback boosts apply at query time.
   weights:
-    suitability: 1.0
-    interest: 0.6
+    interest: 1.0
+    interest_match: 0.6
     hn_score: 0.4
+    producibility_floor: 0.15
+  # "Worth it, needs a better source": high interest, low producibility. A
+  # fix-the-scrape signal, surfaced as its own bucket rather than a reject.
+  buckets:
+    needs_source_min_interest: 65
+    needs_source_max_producibility: 45
   rubric: |
     Favor stories that make ENGAGING videos: concrete stakes, human drama or
     surprise, broad comprehensibility, and things that can be SHOWN (demos,

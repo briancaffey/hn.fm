@@ -190,7 +190,15 @@ class TriageScoreRow(Base):
 
     item_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     run: Mapped[int] = mapped_column(Integer, primary_key=True)
+    # Legacy single blend (pre-plans/09). Kept so rows scored before the split
+    # still read; new scores write it equal to `interest` for old consumers.
     suitability: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    # Two axes (plans/09). NULL on pre-split rows — readers fall back to
+    # `suitability` for interest and treat producibility as unknown.
+    interest: Mapped[int] = mapped_column(Integer, nullable=True)
+    producibility: Mapped[int] = mapped_column(Integer, nullable=True)
+    # Deterministic retrieval report from content/scrape_signals.py.
+    scrape_signals: Mapped[dict] = mapped_column(JSONVariant, nullable=True)
     verdict: Mapped[str] = mapped_column(Text, nullable=True)  # great|good|marginal|unsuitable
     reasons: Mapped[list] = mapped_column(JSONVariant, nullable=True)
     flags: Mapped[list] = mapped_column(JSONVariant, nullable=True)
@@ -216,6 +224,29 @@ class StoryFeedbackRow(Base):
     verdict: Mapped[str] = mapped_column(Text, nullable=True)  # starred|approved|rejected|None
     note: Mapped[str] = mapped_column(Text, nullable=True)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class StoryBriefRow(Base):
+    """The structured Story Brief for one run (plans/09).
+
+    The cheap text half's output artifact: framing, evidence and unknowns,
+    consumed by the script room (plan 11) and the art direction (plans 12/13).
+    One per run, replaced wholesale on re-run.
+    """
+
+    __tablename__ = "story_briefs"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["item_id", "run"], ["runs.item_id", "runs.run"], ondelete="CASCADE"
+        ),
+    )
+
+    item_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    run: Mapped[int] = mapped_column(Integer, primary_key=True)
+    brief: Mapped[dict] = mapped_column(JSONVariant, nullable=False)
+    model: Mapped[str] = mapped_column(Text, nullable=True)
+    prompt_version: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
 
 
 class PipelineStepRow(Base):

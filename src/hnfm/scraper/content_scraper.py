@@ -57,6 +57,10 @@ class ScrapedContent:
     url: str
     success: bool
     error: Optional[str] = None
+    # Which retrieval path produced this: firecrawl | wayback. An archived copy
+    # is materially different material from a live fetch, so `producibility`
+    # (plans/09) needs to distinguish them.
+    source: str = "firecrawl"
 
 
 class ContentScraper:
@@ -116,7 +120,9 @@ class ContentScraper:
                     logger.info(
                         f"Attempting to scrape Wayback Machine URL: {wayback_url}"
                     )
-                    return self._scrape_with_local_firecrawl(wayback_url)
+                    archived = self._scrape_with_local_firecrawl(wayback_url)
+                    archived.source = "wayback"
+                    return archived
                 except Exception as wayback_error:
                     logger.error(
                         f"Failed to scrape Wayback Machine URL {wayback_url}: {wayback_error}"

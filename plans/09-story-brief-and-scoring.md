@@ -55,12 +55,20 @@ neither has the whole picture.
 let the writer invent (the UCSD fabrication in plan 8's evidence is exactly this
 failure).
 
-## Search-to-generate
+## Search-to-generate — CUT (2026-08-21)
 
-Plan 4 left this open. Add the Algolia HN search endpoint
-(`https://hn.algolia.com/api/v1/search?query=…`) behind `GET /api/hn/search`, wired
-to the triage page so "find the story about X and make a video" is one action. The
-same Algolia client is what plan 10 uses for comments, so build it here.
+Originally scoped as an Algolia-backed `GET /api/hn/search`. **Dropped: this project
+takes no third-party data dependencies.**
+
+The `hn.algolia.com/api/v1` endpoint is genuinely free and keyless (verified: a
+credential-free request returns 200, and no API key exists in this repo), but it is
+a third-party service outside the cluster, rate-limited, and free on terms its owner
+controls. Brian's call is that HN data comes from HN.
+
+The official Firebase API has **no search endpoint at all**, so there is no
+equivalent to build — search-to-generate is removed from the plan rather than
+reimplemented. Fetching a story by ID already works, which covers the same need with
+one extra step.
 
 ## Storage
 
@@ -75,13 +83,67 @@ story_briefs (id PK, run_id FK → runs UNIQUE, brief JSONB,
 
 ## Tasks
 
-- [ ] Scrape step records `scrape_signals` (chars, paragraphs, boilerplate ratio,
-      source used, image count, stub/paywall heuristic)
-- [ ] Split scoring into `interest` + `producibility`; keep `rank_score` as the blend;
-      re-tune weights in `config.yaml`
-- [ ] `build_story_brief` task + `story_briefs` table (Alembic) + structured schema
-      (uses plan 8's `generate_structured`)
-- [ ] Triage page: two meters instead of one; "worth it, needs a better source" bucket
-- [ ] `GET /api/hn/search` (Algolia) + search box → triage → generate flow
-- [ ] Re-calibrate the rubric against full article content now that Firecrawl is up
-      (plan 4 calibrated on titles only, because Firecrawl was down that day)
+- [x] Scrape step records `scrape_signals` (`content/scrape_signals.py`: chars,
+      words, paragraphs, boilerplate ratio, code ratio, source used, image/link/
+      heading counts, stub-or-paywall heuristic). `ScrapedContent.source` now
+      distinguishes a live Firecrawl fetch from a Wayback copy
+- [x] Split scoring into `interest` + `producibility` (prompt v3, schema-enforced);
+      `producibility_ceiling()` caps the model's optimism from the signals; weights
+      and bucket thresholds in `config.yaml`
+- [x] `build_story_brief` task + `story_briefs` table (Alembic 0005) + schema
+- [x] Triage page: two meters, "needs source" chip, and a bucket filter
+      (`GET /api/triage?bucket=needs_better_source`)
+- [x] ~~`GET /api/hn/search` (Algolia) + search box~~ — **cut**, see above
+- [ ] **Re-calibrate the rubric against full article content** — BLOCKED, see below
+
+### Design decisions taken during implementation
+
+**Producibility multiplies rather than adds** in `rank_score`. An additive weight
+lets a high interest score paper over an unusable scrape; a multiplier makes an
+unbuildable story sink regardless. It is scaled to `[floor, 1]` (floor 0.15) so such
+stories sink but never vanish — ordering, not censorship.
+
+**The ceiling is deterministic and overrides the model.** The signals are ground
+truth about what we hold; the score is an opinion about it. A capped story is also
+demoted out of `great`/`good`, because a verdict that survives the cap would still
+pull it into auto-generation later (plan 15).
+
+**Interest is never capped.** The story is still good — that is the entire point of
+splitting the axes, and it is what makes the "needs better source" bucket meaningful.
+
+**The brief is two LLM calls, not one.** Framing is editorial judgement and wants a
+higher temperature; evidence extraction wants a low one and a verbatim-quote rule.
+One call cannot run at two temperatures. It also degrades better — either half can
+fail and the brief is still usable, recorded as `partial`.
+
+**Every article-sourced `key_fact` has its quote verified against the article** and
+is dropped if absent (whitespace- and smart-quote-insensitive). Everything downstream
+treats `key_facts` as ground truth, so a fabricated quote is the most dangerous thing
+this stage can emit. Cheap to check, so checked.
+
+### Verified
+
+Offline end-to-end (real code, real DB, mocked LLM), with the model claiming
+`producibility=85, verdict=great` for both stories:
+
+| | 214-char stub (the fabrication case) | real 7.7k article |
+|---|---|---|
+| stored producibility | **20** (capped) | 85 |
+| verdict | **marginal** (demoted) | great |
+| flags | `too_short`, `needs_better_source` | — |
+| rank | **37.1** | **101.2** |
+
+219 tests pass. Migration 0005 verified up and down.
+
+## Blocked — needs the inference cluster
+
+The `inference-club` box (192.168.5.173) was unreachable throughout this work, so
+nothing below could run against a live model:
+
+- **Rubric re-calibration** (the remaining task). Needs real scores over a spread of
+  real stories to tune `interest`/`producibility` weights and the bucket thresholds.
+- **Brief quality**: prompts `brief.framing` / `brief.evidence` are unexercised. In
+  particular `unknowns` — the field plan 11's fact-checker depends on — has never
+  been generated. Expect to iterate on that prompt once it can run.
+- **One-call vs two-call**: the split was chosen on the temperature argument above,
+  which stands on its own, but the schema-adherence half of the case is untested.

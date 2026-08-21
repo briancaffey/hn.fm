@@ -48,7 +48,7 @@ class TestRunTasks:
         with (
             patch.object(
                 tasks,
-                "scrape_url_firecrawl",
+                "scrape_url_with_source",
                 side_effect=RuntimeError("Failed to scrape"),
             ),
             patch.object(tasks, "summarize_text_v1", return_value="Summary") as mock_sum,
@@ -76,7 +76,9 @@ class TestRunTasks:
 
         with (
             patch.object(
-                tasks, "scrape_url_firecrawl", return_value="Scraped article body"
+                tasks,
+                "scrape_url_with_source",
+                return_value=("Scraped article body", "firecrawl"),
             ),
             patch.object(
                 tasks,
@@ -96,7 +98,9 @@ class TestRunTasks:
         p_desc, p_tags, p_emoji, p_haiku = _mock_metadata()
         with (
             patch.object(
-                tasks, "scrape_url_firecrawl", return_value="  Scraped   article body  "
+                tasks,
+                "scrape_url_with_source",
+                return_value=("  Scraped   article body  ", "firecrawl"),
             ),
             patch.object(tasks, "summarize_text_v1", return_value="Summary"),
             p_desc,

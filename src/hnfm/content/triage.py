@@ -51,7 +51,8 @@ def _clamp(data: dict) -> dict:
     as chips.
     """
     return {
-        "suitability": data["suitability"],
+        "interest": data["interest"],
+        "producibility": data["producibility"],
         "verdict": data["verdict"],
         "reasons": [str(r)[:300] for r in data["reasons"]][:5],
         "flags": [str(f)[:60] for f in data["flags"]][:10],
@@ -62,12 +63,19 @@ def _clamp(data: dict) -> dict:
 
 
 def score_content(title: str, summary: str, content_clean: str,
-                  hn_score: int = 0, comments: int = 0) -> dict:
-    """LLM suitability score, schema-enforced.
+                  hn_score: int = 0, comments: int = 0,
+                  signals: Optional[dict] = None) -> dict:
+    """Two-axis score (interest x producibility), schema-enforced.
+
+    `signals` is the deterministic retrieval report from `scrape_signals`. It
+    is shown to the model AND used to cap `producibility` afterwards — the cap
+    is what stops a 214-character stub scoring well because its headline
+    sounds exciting.
 
     Raises RuntimeError if no model produces a valid score — a triage score
     that silently defaulted to "marginal" would quietly mis-rank the queue.
     """
+    from . import scrape_signals as _sig
     from .llm_service import LLMService, LLMError
     from .llm_schemas import TriageScore
     from .prompts import render
@@ -81,6 +89,7 @@ def score_content(title: str, summary: str, content_clean: str,
         comments=comments or 0,
         summary=(summary or "")[:2000],
         excerpt=(content_clean or "")[:3000],
+        signals=_sig.summarize(signals) if signals else "no retrieval report available",
     )
 
     model = primary_model()
@@ -96,6 +105,18 @@ def score_content(title: str, summary: str, content_clean: str,
 
     result = _clamp(scored.model_dump())
     result["model"] = service.model
+
+    # Deterministic ceiling wins over the model's optimism. The signals are
+    # ground truth about what we hold; the score is an opinion about it.
+    ceiling = _sig.producibility_ceiling(signals or {})
+    if ceiling is not None and result["producibility"] > ceiling:
+        logger.info(
+            f"producibility {result['producibility']} -> {ceiling} "
+            f"(capped by retrieval signals)"
+        )
+        result["producibility"] = ceiling
+        if result["verdict"] in ("great", "good"):
+            result["verdict"] = "marginal"
     return result
 
 
@@ -114,17 +135,47 @@ def interest_match(topics: list, title: str = "") -> float:
     return math.tanh(total / 3.0)
 
 
-def rank_score(suitability: int, interest: float, hn_score: int) -> float:
+def rank_score(interest: int, interest_match: float, hn_score: int,
+               producibility: int = 100) -> float:
+    """Blend both axes into one queue order.
+
+    `producibility` enters as a MULTIPLIER, not another additive term: a story
+    we cannot actually build should sink regardless of how well it scores
+    elsewhere, and an additive weight lets a high interest score paper over an
+    unusable scrape. `interest_match` is the topic-profile overlap in [-1, 1].
+    """
     weights = _triage_config().get("weights") or {}
-    w_suit = float(weights.get("suitability", 1.0))
-    w_int = float(weights.get("interest", 0.6))
+    w_int = float(weights.get("interest", 1.0))
+    w_profile = float(weights.get("interest_match", 0.6))
     w_hn = float(weights.get("hn_score", 0.4))
-    return round(
-        w_suit * suitability
-        + w_int * interest * 100.0
-        + w_hn * math.log10((hn_score or 0) + 1) * 25.0,
-        2,
+    floor = float(weights.get("producibility_floor", 0.15))
+
+    base = (
+        w_int * interest
+        + w_profile * interest_match * 100.0
+        + w_hn * math.log10((hn_score or 0) + 1) * 25.0
     )
+    # Scaled to [floor, 1] so an unbuildable story sinks but never vanishes —
+    # Brian's standing position is that this is ordering, not censorship.
+    multiplier = floor + (1.0 - floor) * (max(0, min(100, producibility)) / 100.0)
+    return round(base * multiplier, 2)
+
+
+NEEDS_BETTER_SOURCE = "needs_better_source"
+
+
+def bucket(interest: int, producibility: int) -> Optional[str]:
+    """The "worth it, needs a better source" bucket (plans/09).
+
+    A high-interest / low-producibility story is a fix-the-scrape signal, not a
+    reject: re-run it against a better source and it may be a great video.
+    """
+    thresholds = _triage_config().get("buckets") or {}
+    min_interest = int(thresholds.get("needs_source_min_interest", 65))
+    max_prod = int(thresholds.get("needs_source_max_producibility", 45))
+    if interest >= min_interest and producibility <= max_prod:
+        return NEEDS_BETTER_SOURCE
+    return None
 
 
 def hard_flags(content_clean: str, scrape_fallback: bool) -> list:

@@ -35,6 +35,7 @@ const {
     verdict: undefined,
     include_generated: undefined,
     include_rejected: undefined,
+    bucket: undefined,
   },
 })
 
@@ -64,6 +65,16 @@ const verdictChips: { value: string | undefined; label: string }[] = [
 
 function applyVerdict(value: string | undefined) {
   setFilter('verdict', value)
+}
+
+// ── "needs better source" bucket ────────────────────────────────────────────
+// High interest, low producibility: worth making, but the scrape was too thin.
+// A fix-the-scrape queue, not a reject pile (plans/09).
+
+const needsSourceOn = computed(() => filters.bucket === 'needs_better_source')
+
+function toggleNeedsSource() {
+  setFilter('bucket', needsSourceOn.value ? undefined : 'needs_better_source')
 }
 
 // ── include toggles ─────────────────────────────────────────────────────────
@@ -179,6 +190,20 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
             {{ chip.label }}
           </button>
         </div>
+
+        <!-- Needs-better-source bucket -->
+        <button
+          type="button"
+          class="flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+          :class="needsSourceOn
+            ? 'border-purple-600 bg-purple-600 text-white'
+            : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'"
+          title="High interest, low producibility — worth making, but the scrape was too thin"
+          @click="toggleNeedsSource"
+        >
+          <Icon name="lucide:file-search" class="h-3 w-3" />
+          Needs source
+        </button>
 
         <!-- Include toggles -->
         <div class="flex items-center gap-1">

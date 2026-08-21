@@ -11,7 +11,7 @@ This file tracks the sub-plans. Each sub-plan is its own doc with design details
 | 1 | Postgres foundation (replace Redis data store) | [01-postgres-migration.md](01-postgres-migration.md) | **done** (2026-07-01) — data backfilled, 105 tests green; final cleanup of old `hnfm:*` Redis keys pending | — |
 | 2 | Pipeline audit trail + regenerate-from-step | [02-audit-trail.md](02-audit-trail.md) | **done** (2026-07-01) — metrics.py retirement deferred to plan 3 | 1 |
 | 3 | UI overhaul (full-width, dense tables, X-ray view) | [03-ui-overhaul.md](03-ui-overhaul.md) | **core done** (2026-07-01) — a few cleanups listed in the doc | 1 (partially), 2 (X-ray) |
-| 4 | Story scoring & ranked triage (+ human feedback, + audio-first/podcast) | [04-story-scoring.md](04-story-scoring.md) | **done** (2026-07-01) — Algolia search + content re-calibration pending | 1 |
+| 4 | Story scoring & ranked triage (+ human feedback, + audio-first/podcast) | [04-story-scoring.md](04-story-scoring.md) | **done** (2026-07-01) — Algolia search cut 2026-08-21; content re-calibration pending | 1 |
 | 5 | Voice onboarding (YouTube → DIA voice sample) | [05-voice-onboarding.md](05-voice-onboarding.md) | not started | — |
 | 6 | Automation (scheduled ingest → triage → generate) | [06-automation.md](06-automation.md) | not started | 4 |
 | 7 | MinIO object store for media artifacts | [07-minio-object-store.md](07-minio-object-store.md) | **done** (2026-07-01) — publish hooks + MinIO-first serving; local-disk reclaim pending | — |
@@ -24,7 +24,7 @@ scripts, better visuals, comment-aware storytelling, measurable quality, and vol
 | # | Milestone | Doc | Status | Depends on |
 |---|------|-----|--------|------------|
 | 8 | LLM foundation: structured output, versioned prompts, loud failures | [08-llm-foundation.md](08-llm-foundation.md) | **done** (2026-08-16) — + model allowlist, structured script, 200 tests green | — |
-| 9 | Two-axis scoring (interest × producibility) + the Story Brief | [09-story-brief-and-scoring.md](09-story-brief-and-scoring.md) | not started | 8, extends 4 |
+| 9 | Two-axis scoring (interest × producibility) + the Story Brief | [09-story-brief-and-scoring.md](09-story-brief-and-scoring.md) | **built** (2026-08-21) — 219 tests green; rubric calibration blocked on the cluster | 8, extends 4 |
 | 10 | Comment mining with provenance | [10-comment-mining.md](10-comment-mining.md) | not started | 9 |
 | 11 | The agentic script room | [11-agentic-script-room.md](11-agentic-script-room.md) | not started | 9, 10 |
 | 12 | Style Bible + per-story Style Contract | [12-style-system.md](12-style-system.md) | not started | 9 |

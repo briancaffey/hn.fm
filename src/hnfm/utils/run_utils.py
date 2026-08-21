@@ -37,6 +37,16 @@ def scrape_url_firecrawl(url: str) -> str:
     Use requests.post to your Firecrawl endpoint and return the raw text/markdown.
     If non-200 or empty payload, raise an exception.
     """
+    return scrape_url_with_source(url)[0]
+
+
+def scrape_url_with_source(url: str) -> tuple:
+    """`(content, source)` where source is "firecrawl" or "wayback".
+
+    Which path answered is a `producibility` input (plans/09) — an archived
+    copy is materially different material from a live fetch — so the caller
+    needs it, not just the text.
+    """
     try:
         # Use the existing ContentScraper logic
         from ..scraper.content_scraper import ContentScraper
@@ -47,7 +57,7 @@ def scrape_url_firecrawl(url: str) -> str:
         if not scraped.success:
             raise RuntimeError(f"Failed to scrape {url}: {scraped.error}")
 
-        return scraped.content
+        return scraped.content, getattr(scraped, "source", "firecrawl")
 
     except Exception as e:
         logger.error(f"Failed to scrape {url}: {e}")

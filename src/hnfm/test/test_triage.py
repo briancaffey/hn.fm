@@ -21,13 +21,16 @@ def _seed(item_id: int, title: str, hn_score: int = 100, summary: str = "s"):
         summary=summary, short_description="sd", tags=[], emoji=[], haiku="h"))
 
 
-def _score(item_id: int, suitability: int, topics=None, verdict="good"):
-    interest = triage.interest_match(topics or [], "")
+def _score(item_id: int, interest_score: int, topics=None, verdict="good",
+           producibility: int = 90):
+    match = triage.interest_match(topics or [], "")
     repo.save_triage_score(item_id, 1, {
-        "suitability": suitability, "verdict": verdict, "reasons": ["r"],
+        "interest": interest_score, "producibility": producibility,
+        "verdict": verdict, "reasons": ["r"],
         "flags": [], "topics": topics or [], "visual_potential": 5,
-        "narrative_potential": 5, "interest_match": interest,
-        "rank_score": triage.rank_score(suitability, interest, 100),
+        "narrative_potential": 5, "interest_match": match,
+        "rank_score": triage.rank_score(interest_score, match, 100,
+                                        producibility=producibility),
         "model": "test-model",
     })
 
@@ -37,7 +40,8 @@ class TestScorerPlumbing:
         """The schema guarantees types, ranges and the verdict enum; `_clamp`
         bounds the sizes it can't (the triage UI renders these as chips)."""
         out = triage._clamp({
-            "suitability": 100, "verdict": "great", "reasons": ["x"] * 10,
+            "interest": 100, "producibility": 80,
+            "verdict": "great", "reasons": ["x"] * 10,
             "flags": ["f"] * 20, "topics": ["AI", "Local-AI"] * 8,
             "visual_potential": 5, "narrative_potential": 5,
         })
@@ -66,13 +70,14 @@ class TestScorerPlumbing:
         from ..content.llm_schemas import TriageScore
 
         scored = TriageScore(
-            suitability=70, verdict="good", reasons=[], flags=[],
+            interest=70, producibility=80, verdict="good", reasons=[], flags=[],
             topics=["ai"], visual_potential=6, narrative_potential=7,
         )
         with patch("hnfm.content.llm_service.LLMService.generate_structured",
                    return_value=scored):
-            out = triage.score_content("t", "s", "c")
-        assert out["suitability"] == 70
+            out = triage.score_content("t", "s", "c", signals={"chars": 9000})
+        assert out["interest"] == 70
+        assert out["producibility"] == 80
         assert out["verdict"] == "good"
         assert out["model"] == triage.primary_model()
 
@@ -92,7 +97,8 @@ class TestScoreRunTask:
     def test_score_run_persists(self):
         _seed(11, "AI story")
         fake = {
-            "suitability": 80, "verdict": "great", "reasons": ["visual"],
+            "interest": 80, "producibility": 85,
+            "verdict": "great", "reasons": ["visual"],
             "flags": [], "topics": ["generative-ai"], "visual_potential": 8,
             "narrative_potential": 7, "model": "test-model",
         }
@@ -102,7 +108,8 @@ class TestScoreRunTask:
             result = tasks.score_run(11, 1)
         assert result["verdict"] == "great"
         stored = repo.get_triage_score(11, 1)
-        assert stored["suitability"] == 80
+        assert stored["interest"] == 80
+        assert stored["producibility"] == 85
         assert stored["interest_match"] > 0.5  # generative-ai matched profile
         assert stored["rank_score"] > 0
 

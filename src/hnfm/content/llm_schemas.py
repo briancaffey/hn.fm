@@ -61,7 +61,24 @@ def _tighten(node: Any) -> None:
 
 
 class TriageScore(BaseModel):
-    suitability: int = Field(ge=0, le=100)
+    """Two axes, not one (plans/09).
+
+    `suitability` used to blend "is this interesting?" with "can we make
+    something of it?" — and those come apart constantly: a fascinating
+    paywalled story scored low for the wrong reason, a thin but well-scraped
+    post scored high for the wrong reason. Splitting them also yields a
+    "worth it, needs a better source" bucket, which is a fix-the-scrape signal
+    rather than a reject.
+    """
+
+    interest: int = Field(
+        ge=0, le=100,
+        description="Is this intrinsically worth an audience's attention?",
+    )
+    producibility: int = Field(
+        ge=0, le=100,
+        description="Given what we RETRIEVED, can we build a good video?",
+    )
     verdict: Literal["great", "good", "marginal", "unsuitable"]
     reasons: List[str]
     flags: List[str]
@@ -148,3 +165,81 @@ class SequenceEdits(BaseModel):
     edits: List[str] = Field(
         description="One image-to-image instruction per follow-on frame."
     )
+
+
+# ---------------------------------------------------------------------------
+# Story Brief (content/story_brief.py) — plans/09
+# ---------------------------------------------------------------------------
+
+# The brief is the cheap half's output artifact and the input to the script
+# room (plan 11) and the art direction (plans 12/13). Before it, the script
+# prompt got `content_clean` + `summary` and the image prompt got
+# `run_summary` + one line — neither had the whole picture.
+
+
+class KeyFact(BaseModel):
+    claim: str = Field(description="The fact, stated plainly in our own words.")
+    source: Literal["article", "comment"]
+    quote: str = Field(description="Verbatim span from the source supporting it.")
+    # Populated by plan 10 for comment-sourced facts; empty string for article.
+    hn_user: str = ""
+    comment_id: int = 0
+
+
+class Entity(BaseModel):
+    name: str
+    kind: Literal["person", "org", "product", "place", "technology"]
+    role: str = Field(description="What this entity does in THIS story.")
+
+
+class Number(BaseModel):
+    value: str = Field(description='As it should be spoken, e.g. "forty percent".')
+    of: str = Field(description="What the number measures.")
+    context: str = Field(description="What makes it meaningful.")
+
+
+class StoryFraming(BaseModel):
+    """The editorial half of the brief: what this story IS."""
+
+    thesis: str = Field(description="One sentence: what this story actually is.")
+    why_now: str = Field(description="Why it is on the front page today.")
+    stakes: str = Field(description="Who is affected, and how much.")
+    angle: str = Field(
+        description="The framing that makes this a video rather than a summary."
+    )
+    tension: str = Field(description="The disagreement, risk, or open question.")
+    visual_affordances: List[str] = Field(
+        description="Things in this story that can literally be SHOWN."
+    )
+    unknowns: List[str] = Field(
+        description=(
+            "What the source does NOT establish. Load-bearing: the script "
+            "fact-checker uses this to refuse to let the writer invent."
+        )
+    )
+
+
+class StoryEvidence(BaseModel):
+    """The extractive half of the brief: what the source actually says."""
+
+    key_facts: List[KeyFact]
+    entities: List[Entity]
+    numbers: List[Number]
+
+
+class StoryBrief(BaseModel):
+    """Framing + evidence + scores. Assembled from two LLM calls; see
+    `content/story_brief.py` for why it is not requested in one."""
+
+    thesis: str
+    why_now: str
+    stakes: str
+    angle: str
+    tension: str
+    visual_affordances: List[str]
+    unknowns: List[str]
+    key_facts: List[KeyFact]
+    entities: List[Entity]
+    numbers: List[Number]
+    # Populated by plan 10; present here so the shape is stable for consumers.
+    comment_insights: List[dict] = Field(default_factory=list)

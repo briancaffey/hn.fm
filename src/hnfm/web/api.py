@@ -351,16 +351,21 @@ async def triage_queue(
     include_generated: bool = False,
     include_rejected: bool = False,
     q: str = None,
+    bucket: str = None,
 ):
     """The ranked triage queue: scored stories ordered by effective rank
-    (LLM rank + human feedback boost). Standard pagination contract."""
+    (LLM rank + human feedback boost). Standard pagination contract.
+
+    `bucket=needs_better_source` filters to high-interest / low-producibility
+    stories — worth making, but the scrape was too thin (plans/09).
+    """
     try:
         from ..db import repo
 
         rows, total = repo.list_triage(
             offset=offset, limit=limit, verdict=verdict,
             include_generated=include_generated,
-            include_rejected=include_rejected, q=q,
+            include_rejected=include_rejected, q=q, bucket=bucket,
         )
         return {
             "items": rows,

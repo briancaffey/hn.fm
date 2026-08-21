@@ -9,7 +9,7 @@ from .celery_app import celery_app
 from ..db import repo, steps
 from ..utils.hn_utils import exists_item, get_item, get_item_json_and_store
 from ..utils.run_utils import (
-    scrape_url_firecrawl,
+    scrape_url_with_source,
     clean_content,
     summarize_text_v1,
     save_processed_run,
@@ -47,6 +47,7 @@ from ..audio.audio_utils import (
     combined_audio_path,
 )
 from ..audio.asr_service import ASRService
+from ..content import scrape_signals
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +97,7 @@ def process_hn_item_run(
     Steps:
     1) Load the HN item from the database. If missing → raise.
     2) Read item.url. If missing → raise.
-    3) content_raw = scrape_url_firecrawl(url)
+    3) content_raw, source = scrape_url_with_source(url)
     4) content_clean = clean_content(content_raw)
     5) summary = summarize_text_v1(content_clean)
     6) Build ProcessedRun(...) with created_at=utcnow()
@@ -130,9 +131,9 @@ def process_hn_item_run(
         # so paywalled/blocked URLs don't kill the whole pipeline)
         logger.info(f"Scraping content from {url}")
         with steps.step(item_id, run, None, "scrape", "scrape", {"url": url}) as st:
+            scrape_source, scrape_fallback = "firecrawl", False
             try:
-                content_raw = scrape_url_firecrawl(url)
-                st.set(chars=len(content_raw), fallback=False)
+                content_raw, scrape_source = scrape_url_with_source(url)
             except Exception as scrape_err:
                 logger.warning(
                     f"⚠️ Scrape failed ({scrape_err}); falling back to HN title/text"
@@ -146,11 +147,25 @@ def process_hn_item_run(
                         f"The linked source could not be retrieved, so discuss the topic "
                         f"based on the title and general knowledge."
                     )
-                st.set(chars=len(content_raw), fallback=True,
-                       fallback_reason=str(scrape_err))
+                scrape_source, scrape_fallback = "hn_fallback", True
+                st.set(fallback_reason=str(scrape_err))
 
-        # Step 4: Clean content
-        content_clean = clean_content(content_raw)
+            # Step 4: Clean content. Inside the scrape step because the quality
+            # signals below describe the CLEANED text — the text the pipeline
+            # actually uses — and they belong on this step's record.
+            content_clean = clean_content(content_raw)
+
+            # Deterministic quality signals: the cheap, reliable half of
+            # `producibility` (plans/09).
+            signals = scrape_signals.extract(
+                content_clean,
+                content_raw=content_raw,
+                source=scrape_source,
+                fallback=scrape_fallback,
+            )
+            st.set(chars=len(content_raw), fallback=scrape_fallback,
+                   source=scrape_source, signals=signals)
+            logger.info(f"📄 scrape signals: {scrape_signals.summarize(signals)}")
 
         # Step 5: Summarize content
         logger.info(f"Summarizing content for item {item_id}, run {run}")
@@ -1765,16 +1780,26 @@ def score_run(item_id: int, run: int) -> Dict[str, any]:
     item = get_item(item_id)
     title = (item.title if item else "") or ""
 
-    # Was this run's content a scrape fallback? (recorded on the scrape step)
-    scrape_fallback = False
+    # The deterministic retrieval report, recorded on the scrape step. Older
+    # runs predate it — fall back to recomputing from the stored content so
+    # re-scoring an old run still gets real signals.
+    signals, scrape_fallback = None, False
     for st in steps.list_steps(item_id, run):
         if st["step_key"] == "scrape" and st["status"] in ("ok", "superseded"):
-            scrape_fallback = bool((st.get("outputs") or {}).get("fallback"))
+            outputs = st.get("outputs") or {}
+            scrape_fallback = bool(outputs.get("fallback"))
+            signals = outputs.get("signals") or signals
+    if signals is None:
+        signals = scrape_signals.extract(
+            pr.content_clean or "",
+            content_raw=pr.content_raw or "",
+            fallback=scrape_fallback,
+        )
 
     with steps.step(
         item_id, run, None, "triage", "triage/score",
         {"title": title, "model": triage.primary_model(),
-         "scrape_fallback": scrape_fallback},
+         "scrape_fallback": scrape_fallback, "signals": signals},
     ) as st:
         score = triage.score_content(
             title=title,
@@ -1782,6 +1807,7 @@ def score_run(item_id: int, run: int) -> Dict[str, any]:
             content_clean=pr.content_clean,
             hn_score=(item.score if item else 0) or 0,
             comments=(item.descendants if item else 0) or 0,
+            signals=signals,
         )
         score["flags"] = list(
             dict.fromkeys(
@@ -1789,10 +1815,15 @@ def score_run(item_id: int, run: int) -> Dict[str, any]:
                 + (score.get("flags") or [])
             )
         )
+        bucket = triage.bucket(score["interest"], score["producibility"])
+        if bucket:
+            score["flags"].append(bucket)
+        score["scrape_signals"] = signals
         score["interest_match"] = triage.interest_match(score["topics"], title)
         score["rank_score"] = triage.rank_score(
-            score["suitability"], score["interest_match"],
+            score["interest"], score["interest_match"],
             (item.score if item else 0) or 0,
+            producibility=score["producibility"],
         )
         repo.save_triage_score(item_id, run, score)
         st.set(**{k: v for k, v in score.items() if k != "reasons"},
@@ -1800,9 +1831,72 @@ def score_run(item_id: int, run: int) -> Dict[str, any]:
 
     logger.info(
         f"🎯 Triage {item_id}:{run} → {score['verdict']} "
-        f"(suitability={score['suitability']}, rank={score['rank_score']})"
+        f"(interest={score['interest']}, producibility={score['producibility']}, "
+        f"rank={score['rank_score']})"
     )
+
+    # Build the Story Brief for stories we might actually make (plans/09).
+    # Non-fatal, and skipped for stories we would never generate — the brief
+    # costs two LLM calls and nothing downstream will read it for a dud.
+    if score["verdict"] != "unsuitable":
+        try:
+            build_story_brief(item_id, run)
+        except Exception as e:
+            logger.warning(f"story brief failed for {item_id}:{run} (non-fatal): {e}")
+
     return {"status": "ok", "item_id": item_id, "run": run, **score}
+
+
+@celery_app.task(
+    name="hnfm.web.tasks.build_story_brief", time_limit=900, soft_time_limit=900
+)
+def build_story_brief(item_id: int, run: int) -> Dict[str, any]:
+    """Build and store the Story Brief for a run (plans/09).
+
+    The cheap half's output artifact: framing, evidence and — critically —
+    what the source does NOT establish. Consumed by the script room (plan 11)
+    and the art direction (plans 12/13).
+    """
+    from ..content import story_brief
+
+    pr = get_run(item_id, run)
+    if not pr:
+        raise RuntimeError(f"Run {item_id}:{run} not found")
+    item = get_item(item_id)
+    title = (item.title if item else "") or ""
+
+    signals = None
+    for st in steps.list_steps(item_id, run):
+        if st["step_key"] == "scrape" and st["status"] in ("ok", "superseded"):
+            signals = (st.get("outputs") or {}).get("signals") or signals
+
+    with steps.step(
+        item_id, run, None, "brief", "brief/build",
+        {"title": title, "content_chars": len(pr.content_clean or "")},
+    ) as st:
+        brief = story_brief.build(
+            title=title,
+            summary=pr.summary,
+            content_clean=pr.content_clean,
+            signals=signals,
+        )
+        repo.save_story_brief(item_id, run, brief)
+        st.set(
+            thesis=brief.get("thesis"),
+            angle=brief.get("angle"),
+            key_facts=len(brief.get("key_facts") or []),
+            entities=len(brief.get("entities") or []),
+            numbers=len(brief.get("numbers") or []),
+            unknowns=len(brief.get("unknowns") or []),
+            partial=brief.get("partial"),
+        )
+
+    logger.info(
+        f"📋 Brief {item_id}:{run} → {len(brief.get('key_facts') or [])} facts, "
+        f"{len(brief.get('unknowns') or [])} unknowns"
+    )
+    return {"status": "ok", "item_id": item_id, "run": run,
+            "key_facts": len(brief.get("key_facts") or [])}
 
 
 @celery_app.task(

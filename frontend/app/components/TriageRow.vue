@@ -41,12 +41,21 @@ function ageFromUnix(time: number | null): string {
   return `${Math.floor(mo / 12)}y`
 }
 
-const suitabilityClass = computed(() => {
-  const s = props.item.suitability
+function scoreClass(s: number | null | undefined) {
+  if (s == null) return 'text-muted-foreground/50'
   if (s >= 70) return 'text-green-600 dark:text-green-400'
   if (s >= 40) return 'text-amber-600 dark:text-amber-400'
   return 'text-muted-foreground'
-})
+}
+
+const interestClass = computed(() => scoreClass(props.item.interest))
+const producibilityClass = computed(() => scoreClass(props.item.producibility))
+
+// "Worth it, needs a better source": high interest, low producibility. A
+// fix-the-scrape signal rather than a reject (plans/09).
+const needsBetterSource = computed(() =>
+  (props.item.flags || []).includes('needs_better_source'),
+)
 
 const verdictBadgeClass = computed(() => {
   switch (props.item.verdict) {
@@ -171,6 +180,10 @@ export interface TriageItem {
   item_id: number
   run: unknown
   suitability: number
+  // Two axes (plans/09). `producibility` is null on rows scored before the
+  // split — shown as "—" rather than a number we never measured.
+  interest: number
+  producibility: number | null
   verdict: 'great' | 'good' | 'marginal' | 'unsuitable'
   reasons: string[]
   flags: string[]
@@ -198,17 +211,39 @@ export interface TriageItem {
 <template>
   <div class="rounded-lg border bg-card px-3 py-2.5 transition-colors hover:border-orange-300 dark:hover:border-orange-900">
     <div class="flex items-start gap-3">
-      <!-- Rank + suitability -->
+      <!-- Rank + the two axes -->
       <div class="flex w-16 shrink-0 flex-col items-center pt-0.5">
         <span class="text-[10px] font-medium tabular-nums text-muted-foreground">#{{ rank }}</span>
-        <span class="text-2xl font-bold leading-tight tabular-nums" :class="suitabilityClass">
-          {{ item.suitability }}
+        <span
+          class="text-2xl font-bold leading-tight tabular-nums"
+          :class="interestClass"
+          :title="`Interest ${item.interest}/100 — is the story worth attention`"
+        >
+          {{ item.interest }}
+        </span>
+        <span
+          class="text-xs font-semibold leading-tight tabular-nums"
+          :class="producibilityClass"
+          :title="
+            item.producibility == null
+              ? 'Producibility not scored (run predates the two-axis split)'
+              : `Producibility ${item.producibility}/100 — can we build it from what we retrieved`
+          "
+        >
+          {{ item.producibility ?? '—' }}
         </span>
         <span
           class="mt-0.5 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize"
           :class="verdictBadgeClass"
         >
           {{ item.verdict }}
+        </span>
+        <span
+          v-if="needsBetterSource"
+          class="mt-1 inline-flex rounded-full bg-purple-100 px-1.5 py-0.5 text-center text-[9px] font-medium leading-tight text-purple-800 dark:bg-purple-900/30 dark:text-purple-300"
+          title="Worth making, but the scrape was too thin — retry with a better source"
+        >
+          needs source
         </span>
       </div>
 

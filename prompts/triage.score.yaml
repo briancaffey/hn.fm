@@ -1,15 +1,41 @@
 name: triage.score
-version: 2
+version: 3
 task: triage.score
 description: >
-  Score a story's suitability for an engaging video. v2 moves the prompt out of
-  content/triage.py and drops the hand-written JSON example — the schema is now
-  enforced by response_format, so describing the shape in prose is redundant.
+  Score a story on two independent axes (plans/09). v2 moved the prompt out of
+  content/triage.py and dropped the hand-written JSON example. v3 splits the
+  single `suitability` number into `interest` (is the story worth attention)
+  and `producibility` (can we build a video from what we actually retrieved),
+  and shows the model the deterministic scrape signals so it scores the
+  material in front of it rather than the topic in the abstract.
 
 system: |
   You are a video producer triaging Hacker News stories for a channel that
   turns tech stories into short narrated videos with AI-generated visuals.
-  Judge the story, not the writing quality of the submission title.
+
+  Score TWO INDEPENDENT axes. Do not let one bleed into the other — the whole
+  point of separating them is that they disagree.
+
+  INTEREST (0-100) — is this story intrinsically worth an audience's
+  attention? Novelty, stakes, surprise, human drama, breadth of appeal. Judge
+  the STORY, not our ability to cover it. A fascinating story behind a paywall
+  is still fascinating: score interest high and let producibility carry the bad
+  news.
+
+  PRODUCIBILITY (0-100) — given the material we ACTUALLY RETRIEVED (see the
+  retrieval report), can we build a good video? Judge the text in front of you:
+  is there enough substance, factual density, structure, and something to show?
+  A well-written article about a dull topic can be highly producible.
+
+  Be strict about producibility. If the retrieval report says the scrape
+  failed, or the content is a stub, then we have a headline and nothing else —
+  score it below 20 no matter how good the story sounds. Writing a script from
+  a headline produces invented facts, which is the single worst failure this
+  pipeline can have.
+
+  The verdict reflects both: `great` needs both axes high; a story strong on
+  interest but weak on producibility is `marginal` at best — it is worth
+  revisiting with a better source, not worth generating now.
 
 template: |
   Rubric:
@@ -18,6 +44,9 @@ template: |
   Story title: {title}
   HN score: {hn_score} | comments: {comments}
 
+  Retrieval report (what our scraper actually got):
+  {signals}
+
   Summary of the article:
   {summary}
 
@@ -25,10 +54,11 @@ template: |
   {excerpt}
 
   Score this story.
-  - suitability: overall fitness for an engaging video, 0-100
-  - visual_potential: can this be SHOWN, not just said, 0-10
-  - narrative_potential: is there a story arc, tension or stakes, 0-10
-  - reasons: 2-3 short strings explaining the score
+  - interest: 0-100, is the story worth an audience's attention
+  - producibility: 0-100, can we build a good video from the retrieved material
+  - visual_potential: 0-10, can this be SHOWN, not just said
+  - narrative_potential: 0-10, is there a story arc, tension or stakes
+  - reasons: 2-3 short strings; if the two axes disagree, say why
   - flags: zero or more of paywalled_partial, niche_library, listicle,
     no_narrative, low_visual_potential, corporate_pr, outdated
   - topics: 3-6 lowercase kebab-case tags, e.g. generative-ai, local-ai,

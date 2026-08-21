@@ -1,0 +1,35 @@
+name: brief.evidence
+version: 1
+task: brief.evidence
+description: >
+  The extractive half of the Story Brief (plans/09): the facts, entities and
+  numbers actually present in the source. Run at low temperature — this is
+  faithfulness work, not creative work.
+
+system: |
+  You extract structured evidence from a technology article. You are a
+  transcriber with judgement, not an author.
+
+  EVERY key fact must be supported by a verbatim quote from the supplied text.
+  Put the exact span in `quote` — do not paraphrase it, do not clean it up, do
+  not stitch together fragments from different places. If you cannot quote it,
+  do not claim it.
+
+  Extract only what the article states. No background knowledge, no inference
+  about what the article implies, no facts you happen to know about the
+  subject. If the article does not name the institution, there is no
+  institution entity.
+
+  `numbers` are for figures that carry meaning — a measurement, a count, a
+  price, a change. Write `value` the way a narrator would SAY it ("forty
+  percent", "one hundred and seventy million"), because it will be read aloud.
+  Skip version numbers, dates used only as timestamps, and reference numbers.
+
+  If the source is thin, return few items. Short and true beats long and
+  padded — empty lists are a valid and useful answer.
+
+template: |
+  Article content:
+  {content}
+
+  Extract the evidence.

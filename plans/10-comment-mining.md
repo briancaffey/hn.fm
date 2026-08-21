@@ -12,9 +12,24 @@ is dead config that no code reads.
 
 ## Fetching
 
-Use Algolia, not Firebase. `https://hn.algolia.com/api/v1/items/{id}` returns the
-**entire comment tree nested in one request** — Firebase would need one call per
-comment (hundreds per story). The same client is built in plan 9 for search.
+**Official HN Firebase API, fetched concurrently** (decided 2026-08-21).
+
+Algolia's `/api/v1/items/{id}` returns the whole tree in one request and was the
+original plan. It was dropped because this project takes no third-party data
+dependencies — see plan 9's cut search section for the reasoning.
+
+The cost is real but affordable. Measured on a 275-comment thread:
+`hacker-news.firebaseio.com/v0/item/{id}.json` needs **276 calls at ~173ms each —
+~48s sequential**, versus one 1.3s Algolia call. With a 16-way thread pool that is
+~3–5s, which is fine for a background pipeline stage that already waits on GPUs.
+
+Implementation notes:
+- One `ThreadPoolExecutor`, bounded concurrency (HN is a free service — do not
+  hammer it), walking `kids` breadth-first with a depth cap.
+- Firebase gives `kids` but no descendant counts, so compute them during the walk —
+  plan 10's ranker needs them as the crowd's own upvote signal.
+- Deleted/dead comments keep their `kids`: recurse through them, skip emitting them.
+- Cache per item; a thread only grows, so a re-fetch can start from what we have.
 
 Store the tree flattened, preserving structure:
 
@@ -80,7 +95,7 @@ attribution is a field, not a turn of phrase.
 
 ## Tasks
 
-- [ ] Algolia client (shared with plan 9) + `fetch_item_comments` task
+- [ ] Concurrent Firebase comment-tree fetcher + `fetch_item_comments` task
 - [ ] `story_comments` + `comment_insights` tables (Alembic)
 - [ ] Heuristic pre-ranker (depth / descendants / length band / first-hand markers)
 - [ ] Structured insight-extraction call → `comment_insights`

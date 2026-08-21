@@ -44,7 +44,7 @@ Rubric in the prompt: favor concrete stories with stakes, visuals, and broad com
 - Profile is data, not code — editable in the UI later; supports multiple profiles if you ever want channel-specific feeds.
 
 ### Search / targeted generation
-- Keep the existing single-item fetch, plus a search box that runs Algolia HN search (`hn.algolia.com/api`) so "find me the story about X and make a video" is one action: search → pick → triage → generate.
+- ~~Keep the existing single-item fetch, plus a search box that runs Algolia HN search.~~ **Cut 2026-08-21** — no third-party data dependencies; the official HN API has no search endpoint. See plans/09.
 
 ## Storage
 
@@ -72,7 +72,7 @@ triage_scores (id PK, run_id FK → runs UNIQUE,
 - [x] On-demand scoring: `POST /api/hn/items/{id}/triage` (single) and `POST /api/triage/score-existing?limit=N` (backfill)
 - [x] **Models** (Brian's constraint: free only, no groq): primary `nvidia-nemotron-super`, fallback `openrouter-nemotron-ultra`, `TRIAGE_LLM_MODEL` env override. ⚠️ LiteLLM's `nemotron-omni` route silently fails over to groq when the local box is down — .env temporarily points LLM_MODEL at nvidia-nemotron-super.
 - [x] Live-calibrated on 11 stories 2026-07-01 (titles only — Firecrawl was down): synthetic-cell story → 85/great top; FFmpeg changelog → 30/unsuitable bottom. Sensible ordering.
-- [ ] Algolia HN search endpoint + search-to-generate flow
+- [x] ~~Algolia HN search endpoint + search-to-generate flow~~ — **cut** (see above)
 - [ ] Re-calibrate with full article content once Firecrawl tunnel is back; tune rubric/weights in config.yaml
 - [ ] Stories table: add score/verdict column (small follow-up)
 

@@ -15,6 +15,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ..web.models import HNItem, ProcessedRun, Segment, SegmentImage, SegmentSection
 from .engine import db_session
 from .orm import (
+    StoryBriefRow,
     HNItemRow,
     IdCounter,
     PipelineMetricsRow,
@@ -625,7 +626,14 @@ def save_triage_score(item_id: int, run: int, score: dict) -> None:
         if row is None:
             row = TriageScoreRow(item_id=item_id, run=run, scored_at=_dt.utcnow())
             s.add(row)
-        row.suitability = int(score.get("suitability") or 0)
+        # `interest` is the new primary axis; `suitability` is kept in step for
+        # pre-plans/09 readers rather than left to drift.
+        row.interest = int(score.get("interest") or 0)
+        row.producibility = (
+            int(score["producibility"]) if score.get("producibility") is not None else None
+        )
+        row.suitability = int(score.get("suitability") or score.get("interest") or 0)
+        row.scrape_signals = score.get("scrape_signals")
         row.verdict = score.get("verdict")
         row.reasons = score.get("reasons")
         row.flags = score.get("flags")
@@ -643,6 +651,12 @@ def _triage_to_dict(row: TriageScoreRow) -> dict:
         "item_id": row.item_id,
         "run": row.run,
         "suitability": row.suitability,
+        # Pre-plans/09 rows have no split scores: interest falls back to the
+        # old blend, producibility stays None so the UI can show "unscored"
+        # rather than implying a real measurement.
+        "interest": row.interest if row.interest is not None else row.suitability,
+        "producibility": row.producibility,
+        "scrape_signals": row.scrape_signals,
         "verdict": row.verdict,
         "reasons": row.reasons or [],
         "flags": row.flags or [],
@@ -697,6 +711,7 @@ def list_triage(
     include_generated: bool = False,
     include_rejected: bool = False,
     q: str = None,
+    bucket: str = None,
 ) -> Tuple[List[dict], int]:
     """The ranked triage queue: newest score per story, joined with the item,
     human feedback, and generation counts. Ordered by effective rank
@@ -755,6 +770,20 @@ def list_triage(
 
     if verdict:
         query = query.where(TriageScoreRow.verdict == verdict)
+    if bucket == "needs_better_source":
+        # High interest, low producibility — worth making, but the scrape was
+        # too thin (plans/09). Thresholds live in config so this view tracks
+        # whatever the scorer is actually using.
+        from ..content import triage as _triage
+
+        thresholds = (_triage._triage_config().get("buckets") or {})
+        query = query.where(
+            TriageScoreRow.interest
+            >= int(thresholds.get("needs_source_min_interest", 65)),
+            TriageScoreRow.producibility.isnot(None),
+            TriageScoreRow.producibility
+            <= int(thresholds.get("needs_source_max_producibility", 45)),
+        )
     if not include_generated:
         query = query.where(func.coalesce(segs_agg.c.videos_count, 0) == 0)
     if not include_rejected:
@@ -860,3 +889,39 @@ def all_metrics_records(limit: int = 200) -> List[dict]:
             .limit(limit)
         ).scalars()
         return [dict(d) for d in rows]
+
+
+# ---------------------------------------------------------------------------
+# Story briefs (plans/09)
+# ---------------------------------------------------------------------------
+
+
+def save_story_brief(item_id: int, run: int, brief: dict,
+                     model: str = None, prompt_version: str = None) -> None:
+    from datetime import datetime as _dt
+
+    with db_session() as s:
+        row = s.get(StoryBriefRow, (item_id, run))
+        if row is None:
+            row = StoryBriefRow(item_id=item_id, run=run, brief=brief,
+                                created_at=_dt.utcnow())
+            s.add(row)
+        row.brief = brief
+        row.model = model
+        row.prompt_version = prompt_version
+        row.created_at = _dt.utcnow()
+
+
+def get_story_brief(item_id: int, run: int) -> Optional[dict]:
+    with db_session() as s:
+        row = s.get(StoryBriefRow, (item_id, run))
+        if not row:
+            return None
+        return {
+            "item_id": row.item_id,
+            "run": row.run,
+            "brief": row.brief,
+            "model": row.model,
+            "prompt_version": row.prompt_version,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
