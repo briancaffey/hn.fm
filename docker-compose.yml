@@ -30,6 +30,9 @@ x-common-app-config: &common-app-config
     # Mounted (not just baked in) so prompts can be edited against a running
     # worker; set PROMPTS_NO_CACHE=1 to pick up edits without a restart.
     - ./prompts:/app/prompts:ro
+    # Same reasoning as prompts: a new migration should apply without a rebuild.
+    - ./alembic:/app/alembic:ro
+    - ./alembic.ini:/app/alembic.ini:ro
   depends_on:
     redis:
       condition: service_healthy
@@ -37,6 +40,9 @@ x-common-app-config: &common-app-config
       condition: service_healthy
     minio:
       condition: service_healthy
+    # Nothing that queries the DB starts until the schema is at head.
+    migrate:
+      condition: service_completed_successfully
   restart: unless-stopped
   networks:
     - hnfm-network
@@ -56,7 +62,9 @@ x-common-env: &common-env
   CELERY_RESULT_BACKEND: redis://redis:6379/0
   # Postgres (application data store)
   DATABASE_URL: postgresql+psycopg://hnfm:hnfm@postgres:5432/hnfm
-  HNFM_DB_AUTO_CREATE: "true"
+  # Off: the `migrate` service owns the schema. create_all cannot ALTER an
+  # existing table, so leaving it on just hides drift until a query fails.
+  HNFM_DB_AUTO_CREATE: "false"
   # MinIO object store (media artifacts). S3_PUBLIC_URL is what the browser
   # can reach (presigned URLs are signed against it); S3_ENDPOINT_URL is the
   # in-network address the app uses.
@@ -215,6 +223,22 @@ services:
     restart: unless-stopped
     networks:
       - hnfm-network
+
+  # Schema migrations. Runs to completion before web/worker/beat/jupyter
+  # start, so a fresh checkout and an existing volume both converge on head
+  # with no manual step. One-shot: `restart: "no"` overrides the shared
+  # `unless-stopped`, and depends_on is narrowed to postgres so it does not
+  # inherit the anchor's dependency on itself.
+  migrate:
+    <<: *common-app-config
+    container_name: hnfm-migrate
+    environment:
+      <<: *common-env
+    command: ["alembic", "upgrade", "head"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   # FastAPI web server with hot reloading
   web:

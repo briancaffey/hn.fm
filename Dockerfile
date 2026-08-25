@@ -35,6 +35,12 @@ RUN pip install uv && \
 # Copy source code and scripts
 COPY src/ ./src/
 COPY config.yaml ./
+# Alembic owns schema evolution. Without these the migration chain simply
+# isn't in the image, `alembic upgrade` can't run, and create_all silently
+# papers over the gap — it adds new tables but never new columns, so drift
+# surfaces later as UndefinedColumn at query time instead of at deploy.
+COPY alembic.ini ./
+COPY alembic/ ./alembic/
 # Versioned prompts (plans/08). Required at runtime — a missing prompt raises
 # rather than silently falling back to an inline default.
 COPY prompts/ ./prompts/
