@@ -96,7 +96,32 @@ logger.info(f"Registered tasks: {list(celery_app.tasks.keys())}")
 
 # Optional: Configure Celery Beat for periodic tasks
 # Removed cleanup task - simplified task system
+#
+# The nightly Kindle digest. Off unless DIGEST_SCHEDULE_ENABLED is true, so a
+# checkout without mail credentials does not attempt a send every morning.
+# DIGEST_SCHEDULE_HOUR/MINUTE are UTC (the app runs enable_utc) — set them for
+# when you want it waiting on the device, not when you wake up.
 celery_app.conf.beat_schedule = {}
+
+if os.getenv("DIGEST_SCHEDULE_ENABLED", "false").lower() == "true":
+    from celery.schedules import crontab
+
+    celery_app.conf.beat_schedule["nightly-kindle-digest"] = {
+        "task": "hnfm.web.tasks.build_digest",
+        "schedule": crontab(
+            hour=int(os.getenv("DIGEST_SCHEDULE_HOUR", "10")),
+            minute=int(os.getenv("DIGEST_SCHEDULE_MINUTE", "0")),
+        ),
+        # send=True is the whole point of the schedule; score_first keeps the
+        # digest from shrinking to whatever happened to be triaged by hand.
+        "kwargs": {"send": True, "score_first": True},
+        "options": {"queue": "hnfm_tasks"},
+    }
+    logger.info(
+        "Nightly digest scheduled at "
+        f"{os.getenv('DIGEST_SCHEDULE_HOUR', '10')}:"
+        f"{os.getenv('DIGEST_SCHEDULE_MINUTE', '0'):0>2} UTC"
+    )
 
 
 if __name__ == "__main__":

@@ -912,6 +912,33 @@ def save_story_brief(item_id: int, run: int, brief: dict,
         row.created_at = _dt.utcnow()
 
 
+def get_latest_story_brief(item_id: int) -> Optional[dict]:
+    """The newest brief for a story, whichever run produced it.
+
+    Briefs are keyed (item_id, run), but the run a story was last *scored* on
+    is often not the run it was last *briefed* on — triage and generation
+    advance independently. A reader only wants the most recent brief, so
+    looking it up by run would miss one that plainly exists.
+    """
+    with db_session() as s:
+        row = (
+            s.query(StoryBriefRow)
+            .filter(StoryBriefRow.item_id == item_id)
+            .order_by(StoryBriefRow.run.desc())
+            .first()
+        )
+        if not row:
+            return None
+        return {
+            "item_id": row.item_id,
+            "run": row.run,
+            "brief": row.brief,
+            "model": row.model,
+            "prompt_version": row.prompt_version,
+            "created_at": row.created_at.isoformat() if row.created_at else None,
+        }
+
+
 def get_story_brief(item_id: int, run: int) -> Optional[dict]:
     with db_session() as s:
         row = s.get(StoryBriefRow, (item_id, run))

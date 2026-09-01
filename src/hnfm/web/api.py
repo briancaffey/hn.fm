@@ -1483,3 +1483,93 @@ async def serve_video_file(item_id: int, run: int, seg: int, filename: str):
     except Exception as e:
         logger.error(f"Failed to serve video file {filename}: {e}")
         raise HTTPException(status_code=500, detail="Failed to serve video file")
+
+
+# Kindle digest endpoints
+@app.post("/api/digests", tags=["digest"])
+async def create_digest(request: dict = Body(default={})):
+    """Build a digest (and optionally email it to the Kindle)."""
+    from .tasks import build_digest
+
+    task = build_digest.apply_async(
+        kwargs={
+            "limit": request.get("limit"),
+            "since_hours": request.get("since_hours"),
+            "fmt": request.get("format"),
+            "send": bool(request.get("send", False)),
+            "score_first": bool(request.get("score_first", True)),
+        },
+        queue="hnfm_tasks",
+    )
+    return {"status": "queued", "task_id": task.id}
+
+
+@app.get("/api/digests", tags=["digest"])
+async def list_digests():
+    """Digests on disk, newest first, plus whether emailing is configured."""
+    from ..digest.deliver import delivery_config
+
+    out_dir = os.path.join(os.getenv("OUTPUTS_ROOT", "/app/outputs"), "digests")
+    items = []
+    if os.path.isdir(out_dir):
+        seen = {}
+        for name in os.listdir(out_dir):
+            slug, ext = os.path.splitext(name)
+            if ext not in (".html", ".epub"):
+                continue
+            entry = seen.setdefault(
+                slug, {"slug": slug, "formats": [], "bytes": 0, "modified": None}
+            )
+            entry["formats"].append(ext.lstrip("."))
+            path = os.path.join(out_dir, name)
+            entry["bytes"] += os.path.getsize(path)
+            entry["modified"] = datetime.fromtimestamp(
+                os.path.getmtime(path)
+            ).isoformat()
+        items = sorted(seen.values(), key=lambda d: d["slug"], reverse=True)
+
+    ready, reason = delivery_config()
+    return {"digests": items, "delivery_ready": ready, "delivery": reason}
+
+
+@app.get("/api/digests/{slug}.{ext}", tags=["digest"])
+async def get_digest_file(slug: str, ext: str):
+    """Serve a rendered digest. HTML renders inline; EPUB downloads."""
+    if ext not in ("html", "epub"):
+        raise HTTPException(status_code=404, detail="Unsupported format")
+    # `slug` is path-joined below, so reject anything that could escape the
+    # digests directory rather than trusting the route pattern.
+    if "/" in slug or "\\" in slug or slug.startswith("."):
+        raise HTTPException(status_code=400, detail="Invalid digest name")
+
+    path = os.path.join(
+        os.getenv("OUTPUTS_ROOT", "/app/outputs"), "digests", f"{slug}.{ext}"
+    )
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Digest not found")
+    if ext == "html":
+        return FileResponse(path, media_type="text/html")
+    return FileResponse(
+        path, media_type="application/epub+zip", filename=f"{slug}.epub"
+    )
+
+
+@app.post("/api/digests/{slug}/send", tags=["digest"])
+async def send_existing_digest(slug: str):
+    """Email a digest that has already been rendered."""
+    from ..digest.deliver import send_digest, delivery_config, DeliveryError
+
+    ready, reason = delivery_config()
+    if not ready:
+        raise HTTPException(status_code=400, detail=f"Delivery not configured: {reason}")
+
+    out_dir = os.path.join(os.getenv("OUTPUTS_ROOT", "/app/outputs"), "digests")
+    # Prefer HTML: Brevo rejects .epub outright, and Amazon converts HTML fine.
+    for ext, media in (("html", None), ("epub", None)):
+        path = os.path.join(out_dir, f"{slug}.{ext}")
+        if os.path.exists(path):
+            try:
+                return {"status": "sent", "message_id": send_digest(path), "file": f"{slug}.{ext}"}
+            except DeliveryError as e:
+                raise HTTPException(status_code=502, detail=str(e))
+    raise HTTPException(status_code=404, detail="Digest not found")

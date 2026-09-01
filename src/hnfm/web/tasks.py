@@ -2104,3 +2104,131 @@ def rerun_step(step_id: int, overrides: dict = None) -> Dict:
     # Unreachable: rerun_supported() gated above covers exactly these kinds
     result = generate_segment_video(item_id, run, seg)
     return {"status": "ok", "step_key": key, "stale": stale_count, "result": result}
+
+
+# ---------------------------------------------------------------------------
+# Kindle digest
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(
+    name="hnfm.web.tasks.build_digest", time_limit=3600, soft_time_limit=3600
+)
+def build_digest(
+    limit: int = None,
+    since_hours: int = None,
+    fmt: str = None,
+    send: bool = False,
+    score_first: bool = True,
+) -> Dict[str, any]:
+    """Render a digest of the top-ranked stories, optionally emailing it.
+
+    `score_first` is on by default and matters more than it looks: a digest can
+    only contain stories that have a Story Brief, and briefs are produced by
+    triage scoring — which `full_pipeline` never runs. Without this the nightly
+    digest would quietly shrink to whatever was scored by hand.
+    """
+    from ..digest import select_stories, render_html, write_epub
+    from ..digest.deliver import send_digest, delivery_config, DeliveryError
+
+    limit = int(limit or os.getenv("DIGEST_STORY_COUNT", "5"))
+    fmt = (fmt or os.getenv("DIGEST_FORMAT", "html")).lower()
+    outputs_root = os.getenv("OUTPUTS_ROOT", "/app/outputs")
+
+    if score_first:
+        # Score unscored stories so tonight's arrivals can appear tomorrow.
+        # Best-effort: a scoring failure should shorten the digest, not cancel it.
+        try:
+            scored = _score_unbriefed(limit * 3)
+            logger.info(f"digest: scored {scored} stories before rendering")
+        except Exception as e:
+            logger.warning(f"digest: pre-scoring failed (non-fatal): {e}")
+
+    digest = select_stories(limit=limit, since_hours=since_hours)
+    if not digest.stories:
+        logger.warning("digest: nothing to send — no stories have a Story Brief")
+        return {"status": "empty", "stories": 0}
+
+    out_dir = os.path.join(outputs_root, "digests")
+    base = f"hnfm-digest-{digest.generated_at:%Y-%m-%d}"
+
+    # Always write the HTML: it is the browser view regardless of what gets
+    # emailed, so the UI has something to link to even when fmt is epub.
+    os.makedirs(out_dir, exist_ok=True)
+    html_path = os.path.join(out_dir, f"{base}.html")
+    with open(html_path, "w", encoding="utf-8") as f:
+        f.write(render_html(digest))
+
+    epub_path = None
+    if fmt == "epub":
+        epub_path = write_epub(digest, os.path.join(out_dir, f"{base}.epub"))
+
+    result = {
+        "status": "ok",
+        "stories": len(digest.stories),
+        "slug": digest.slug,
+        "html_path": html_path,
+        "epub_path": epub_path,
+        "titles": [s.title for s in digest.stories],
+    }
+
+    if send:
+        ready, why = delivery_config()
+        if not ready:
+            result["status"] = "built_not_sent"
+            result["send_error"] = why
+            logger.warning(f"digest: built but not sent — {why}")
+            return result
+        # Brevo rejects .epub attachments ("Unsupported file format"), so the
+        # emailed artifact is the HTML unless a provider that accepts EPUB is
+        # configured. Amazon converts HTML to a proper Kindle document anyway.
+        to_send = epub_path if (fmt == "epub" and _provider_accepts_epub()) else html_path
+        try:
+            result["message_id"] = send_digest(
+                to_send, subject=f"hn.fm Digest {digest.generated_at:%d %b %Y}"
+            )
+            result["sent_file"] = os.path.basename(to_send)
+        except DeliveryError as e:
+            result["status"] = "built_not_sent"
+            result["send_error"] = str(e)
+            logger.error(f"digest: send failed — {e}")
+
+    return result
+
+
+def _provider_accepts_epub() -> bool:
+    """Which providers allow an .epub attachment.
+
+    Brevo — the default, and the only free one needing no domain — rejects it
+    outright. Kept as data here so switching provider changes the emailed
+    format automatically instead of silently sending a file Amazon ignores.
+    """
+    return os.getenv("EMAIL_PROVIDER", "brevo").strip().lower() in {
+        "resend",
+        "postmark",
+        "mailgun",
+        "mailjet",
+    }
+
+
+def _score_unbriefed(limit: int) -> int:
+    """Triage stories that have a run but no Story Brief yet. Returns the count."""
+    from ..db import repo
+
+    rows, _ = repo.list_triage(offset=0, limit=limit, include_generated=True)
+    scored = 0
+    for row in rows:
+        item_id = row.get("item_id")
+        if item_id is None:
+            continue
+        if repo.get_latest_story_brief(item_id):
+            continue
+        runs = repo.list_runs_for_item(item_id, offset=0, limit=1)
+        if not runs:
+            continue
+        try:
+            score_run(item_id, runs[0])
+            scored += 1
+        except Exception as e:
+            logger.warning(f"digest: scoring {item_id} failed (non-fatal): {e}")
+    return scored
