@@ -46,6 +46,8 @@ def select_stories(
     limit: int = 5,
     since_hours: Optional[int] = 24,
     require_brief: bool = True,
+    skip: int = 0,
+    title: str = "hn.fm Digest",
 ) -> Digest:
     """Top `limit` stories by effective rank, newest scores first.
 
@@ -88,6 +90,10 @@ def select_stories(
 
     stories: List[DigestStory] = []
     skipped_no_brief = 0
+    # `skip` counts stories that PASSED the brief filter, not raw rows — an
+    # edition of "the next five" must not shift depending on how many
+    # unbriefed rows happened to precede it.
+    passed = 0
     for row in rows:
         if len(stories) >= limit:
             break
@@ -108,6 +114,10 @@ def select_stories(
         brief = record.get("brief") or {}
         if require_brief and not brief.get("thesis"):
             skipped_no_brief += 1
+            continue
+
+        passed += 1
+        if passed <= skip:
             continue
 
         stories.append(
@@ -136,7 +146,7 @@ def select_stories(
 
     now = datetime.now()
     return Digest(
-        title="hn.fm Digest",
+        title=title,
         subtitle=f"{len(stories)} stories · {now:%A %d %B %Y}",
         generated_at=now,
         stories=stories,
