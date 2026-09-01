@@ -837,6 +837,45 @@ def write_ass_from_asr(asr_data: dict, out_path: str, width: int = 1280, height:
     subs.save(out_path)
 
 
+def write_vtt_from_asr(asr_data: dict, out_path: str) -> None:
+    """Plain WebVTT from the same ASR timings `write_ass_from_asr` uses.
+
+    The ASS file is for burning into the video; it cannot serve as the browser
+    `<track>`, because `<track>` accepts WebVTT only and would ignore ASS even
+    if it were served. So both are written from one ASR source: ASS for the
+    burn-in, this for the player.
+
+    Cue boundaries and the 4s INTRO_OFFSET deliberately mirror the ASS writer —
+    if the two drift apart, the on-screen captions and the track disagree.
+    Karaoke markup is dropped; per-word highlighting has no WebVTT equivalent
+    worth emulating here, and the burned-in captions already carry it.
+    """
+    from pathlib import Path
+
+    INTRO_OFFSET = 4.0
+    Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+
+    segments = asr_data.get("segments") or []
+    if not segments and asr_data.get("words"):
+        segments = [{"words": asr_data["words"]}]
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("WEBVTT\n\n")
+        for seg in segments:
+            words = [
+                w for w in (seg.get("words") or []) if (w.get("word") or "").strip()
+            ]
+            if not words:
+                continue
+            start = float(words[0].get("start", 0)) + INTRO_OFFSET
+            end = float(words[-1].get("end", 0)) + INTRO_OFFSET
+            if end <= start:
+                end = start + 0.6
+            text = " ".join((w.get("word") or "").strip() for w in words)
+            f.write(f"{_ms_to_vtt_time(int(start * 1000))} --> ")
+            f.write(f"{_ms_to_vtt_time(int(end * 1000))}\n{text}\n\n")
+
+
 def _seconds_to_ass_time(seconds: float) -> str:
     """Convert seconds to ASS time format (H:MM:SS.cc)."""
     hours = int(seconds // 3600)

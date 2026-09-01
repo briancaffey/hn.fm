@@ -1546,33 +1546,50 @@ def generate_segment_video(
         os.makedirs(video_dir_path, exist_ok=True)
 
         # 4) Write subtitles file from ASR data or timeline
-        from ..utils.segment_utils import write_ass_from_asr, write_vtt_from_timeline
+        from ..utils.segment_utils import (
+            write_ass_from_asr,
+            write_vtt_from_asr,
+            write_vtt_from_timeline,
+        )
         from ..content.art_direction import format_dims
 
         _fmt = getattr(segment, "aspect_format", None) or "16:9"
         _vw, _vh = format_dims(_fmt)
 
-        # Initialize subtitle path variable
+        # Two subtitle paths with different jobs: `burn_in_path` is what ffmpeg
+        # renders into the frames, `subtitle_path` is what gets recorded on the
+        # segment and served to the player's <track>. They were one variable,
+        # which broke the moment ASR came online: the ASR branch produced .ass,
+        # so the recorded path became a file <track> cannot render and the media
+        # endpoint does not serve. Burned-in captions still appeared, so the
+        # only symptom was a silent 404.
         subtitle_path = None
+        burn_in_path = None
 
         # Load ASR data if available
         if segment.asr_json_path and os.path.exists(segment.asr_json_path):
-            # Generate word-level ASS subtitles from ASR data
+            # Word-level karaoke ASS for the burn-in, plus a plain VTT sidecar
+            # from the same timings for the player.
             ass_path = subtitles_path(outputs_root, item_id, run, seg).replace(
                 ".vtt", ".ass"
             )
+            vtt_path = subtitles_path(outputs_root, item_id, run, seg)
             import json
 
             with open(segment.asr_json_path, "r") as f:
                 asr_data = json.load(f)
             write_ass_from_asr(asr_data, ass_path, width=_vw, height=_vh)
-            subtitle_path = ass_path
+            write_vtt_from_asr(asr_data, vtt_path)
+            burn_in_path = ass_path
+            subtitle_path = vtt_path
             logger.info(f"📝 Created word-level ASS subtitles: {ass_path}")
+            logger.info(f"📝 Created WebVTT sidecar for the player: {vtt_path}")
         else:
             # Fallback to VTT from timeline if no ASR data
             vtt_path = subtitles_path(outputs_root, item_id, run, seg)
             write_vtt_from_timeline(timeline, vtt_path)
             subtitle_path = vtt_path
+            burn_in_path = vtt_path
             logger.info(f"📝 Created VTT subtitles (fallback): {vtt_path}")
 
         # 5) Save timeline debug JSON
@@ -1704,7 +1721,9 @@ def generate_segment_video(
             result = video_generator.create_video(
                 audio_path=combined_audio_path,
                 timeline=timeline,
-                subtitles_path=subtitle_path,
+                # The ASS when ASR gave us one — ffmpeg renders the karaoke
+                # styling, which the VTT sidecar deliberately drops.
+                subtitles_path=burn_in_path,
                 output_path=output_video_path,
                 size=(_vw, _vh),
                 fps=30,

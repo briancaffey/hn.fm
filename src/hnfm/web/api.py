@@ -1451,7 +1451,10 @@ async def serve_video_file(item_id: int, run: int, seg: int, filename: str):
                 "video",
                 "segment.mp4",
             )
-        elif filename == "captions.vtt":
+        # .ass is served as well as .vtt: the burn-in source is useful to fetch
+        # when checking caption timing, and segments recorded before the VTT
+        # sidecar existed still point at a .ass path.
+        elif filename in ("captions.vtt", "captions.ass"):
             file_path = os.path.join(
                 outputs_dir,
                 "hn",
@@ -1462,7 +1465,7 @@ async def serve_video_file(item_id: int, run: int, seg: int, filename: str):
                 "segments",
                 str(seg),
                 "video",
-                "captions.vtt",
+                filename,
             )
         else:
             raise HTTPException(status_code=404, detail="File not found")
@@ -1471,6 +1474,8 @@ async def serve_video_file(item_id: int, run: int, seg: int, filename: str):
         # (not redirected) so <track> stays same-origin.
         if filename.endswith(".vtt"):
             return _serve_media(file_path, "text/vtt", filename, proxy=True)
+        if filename.endswith(".ass"):
+            return _serve_media(file_path, "text/plain", filename, proxy=True)
         return _serve_media(file_path, "video/mp4", filename)
 
     except HTTPException:
