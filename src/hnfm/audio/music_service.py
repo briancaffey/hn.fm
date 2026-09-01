@@ -24,12 +24,54 @@ def _base_url() -> str:
     return os.getenv("ACESTEP_BASE_URL", "http://host.docker.internal:8015").rstrip("/")
 
 
+def _ensure_initialized() -> bool:
+    """Make sure ACE-Step has its models loaded, loading them if not.
+
+    ACE-Step serves /health from process start but loads models only on POST
+    /v1/init, and it loses them whenever the pod moves — which is how music
+    generation was silently broken for a week while health still read 200.
+    Checking costs one cheap GET; the load itself takes ~30s and happens once
+    per pod, so it is done lazily here rather than being a deploy-time step
+    someone has to remember.
+    """
+    base = _base_url()
+    try:
+        h = requests.get(f"{base}/health", timeout=10)
+        if h.status_code == 200 and (h.json().get("data") or {}).get(
+            "models_initialized"
+        ):
+            return True
+    except requests.RequestException as e:
+        logger.warning(f"ACE-Step health check failed: {e}")
+        return False
+
+    logger.info("ACE-Step models not loaded — calling /v1/init")
+    try:
+        # init_llm=False: the lyric LM is a separate ~4B load and instrumental
+        # beds do not use it.
+        r = requests.post(
+            f"{base}/v1/init",
+            json={"init_llm": False},
+            timeout=int(os.getenv("MUSIC_INIT_TIMEOUT_SECONDS", "600")),
+        )
+        if r.status_code != 200:
+            logger.error(f"ACE-Step init {r.status_code}: {r.text[:160]}")
+            return False
+        logger.info("ACE-Step models loaded")
+        return True
+    except requests.RequestException as e:
+        logger.error(f"ACE-Step init failed: {e}")
+        return False
+
+
 def generate_music_bed(prompt: str, out_wav: str) -> bool:
     """Generate an instrumental music piece and write it as a 48k stereo WAV.
 
     The full clip is kept (looped/volume-shaped by the caller into a bed under
     the whole video). Returns True on success, False on any failure.
     """
+    if not _ensure_initialized():
+        return False
     try:
         r = requests.post(
             f"{_base_url()}/v1/chat/completions",

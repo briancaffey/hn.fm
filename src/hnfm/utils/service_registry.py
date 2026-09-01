@@ -27,6 +27,12 @@ class ServiceSpec:
     enabled: bool = True     # disabled services show as "disabled", not "offline"
     auth_env: Optional[str] = None        # env var holding a bearer token
     expect_json_key: Optional[str] = None  # require this key in a 200 JSON body
+    # Dotted path into a 200 JSON body that must be truthy, e.g.
+    # "data.models_initialized". For services that answer 200 while being unable
+    # to do the work — ACE-Step serves health from process start but returns no
+    # audio until its models are loaded, so HTTP status alone reports a green
+    # service that fails on first use.
+    expect_json_true: Optional[str] = None
     note: str = ""          # extra context (model name, backend, etc.)
     optional: bool = False  # if True, an offline status doesn't fail "all_healthy"
 
@@ -83,6 +89,10 @@ def get_service_specs() -> List[ServiceSpec]:
             health_path="/health",
             enabled=_bool("MUSIC_ENABLED", False),
             optional=True,
+            # Models are loaded by POST /v1/init, not at process start, and are
+            # lost when the pod moves. Without this the page showed "online" for
+            # a week while every music call would have failed.
+            expect_json_true="data.models_initialized",
         ),
         ServiceSpec(
             name="Video · LTX-2",

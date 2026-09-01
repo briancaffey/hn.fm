@@ -79,6 +79,7 @@ class SystemChecker:
             r = requests.get(url, headers=headers, timeout=self.timeout)
             dt = round(time.time() - t0, 3)
             ok = r.status_code == 200
+            not_ready = None
             if ok and spec.expect_json_key:
                 try:
                     body = r.json()
@@ -89,12 +90,25 @@ class SystemChecker:
                         ][:6]
                 except Exception:
                     ok = False
+            if ok and spec.expect_json_true:
+                # A 200 only means the process is up. Some services answer
+                # health long before they can do any work, so treat a falsy
+                # readiness flag as "offline" rather than reporting green.
+                try:
+                    node = r.json()
+                    for part in spec.expect_json_true.split("."):
+                        node = node.get(part) if isinstance(node, dict) else None
+                    ok = bool(node)
+                    if not ok:
+                        not_ready = f"reachable but {spec.expect_json_true} is false"
+                except Exception:
+                    ok = False
             return ServiceStatus(
                 name=spec.name,
                 url=spec.base_url,
                 status="online" if ok else "offline",
                 response_time=dt,
-                error_message=None if ok else f"HTTP {r.status_code}",
+                error_message=None if ok else (not_ready or f"HTTP {r.status_code}"),
                 details=details,
             )
         except requests.exceptions.RequestException as e:
