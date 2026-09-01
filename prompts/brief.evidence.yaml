@@ -1,5 +1,5 @@
 name: brief.evidence
-version: 1
+version: 2
 task: brief.evidence
 description: >
   The extractive half of the Story Brief (plans/09): the facts, entities and
@@ -21,9 +21,13 @@ system: |
   institution entity.
 
   `numbers` are for figures that carry meaning — a measurement, a count, a
-  price, a change. Write `value` the way a narrator would SAY it ("forty
-  percent", "one hundred and seventy million"), because it will be read aloud.
+  price, a change. Give BOTH forms: `value` as it is WRITTEN ("40%", "1,208",
+  "$2.3M") for the page, and `spoken` as it would be READ ALOUD ("forty
+  percent", "one thousand two hundred and eight") for the narrator.
+
   Skip version numbers, dates used only as timestamps, and reference numbers.
+  Skip the story's own Hacker News score and comment count — those describe the
+  discussion, not the subject, and they are already known.
 
   If the source is thin, return few items. Short and true beats long and
   padded — empty lists are a valid and useful answer.

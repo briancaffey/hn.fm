@@ -114,7 +114,44 @@ def _story_body(story: DigestStory) -> str:
     return "\n".join(out)
 
 
-def render_html(digest: Digest) -> str:
+def _section_body(sec) -> str:
+    """One composed section as XHTML, shared by both output formats."""
+    out = []
+    if sec.kind == "teaser":
+        out.append(f'<p class="thesis">{_esc(sec.body)}</p>')
+        return "\n".join(out)
+
+    if sec.kind == "bonus":
+        out.append(f"<h2>{_esc(sec.title)}</h2><ul>")
+        for line in sec.body.splitlines():
+            if line.strip():
+                out.append(f"<li>{_esc(line.strip())}</li>")
+        out.append("</ul>")
+        return "\n".join(out)
+
+    # quick | deep. The kicker is what tells a commuter, at a glance, whether
+    # this is a 30-second item or the one to settle into.
+    out.append(
+        f'<p class="kicker">{"Feature" if sec.kind == "deep" else "In brief"}</p>'
+    )
+    out.append(f"<h2>{_esc(sec.title)}</h2>")
+    for para in [p for p in sec.body.split("\n\n") if p.strip()]:
+        out.append(f"<p>{_esc(para.strip())}</p>")
+
+    links = []
+    if sec.hn_url:
+        links.append(f'<a href="{_esc(sec.hn_url)}">Discussion</a>')
+    if sec.url:
+        links.append(f'<a href="{_esc(sec.url)}">Source</a>')
+    for src in sec.sources or []:
+        if src.get("url"):
+            links.append(f'<a href="{_esc(src["url"])}">{_esc(src.get("title") or "Reference")}</a>')
+    if links:
+        out.append(f'<p class="footer">{" · ".join(links)}</p>')
+    return "\n".join(out)
+
+
+def render_html(digest: Digest, sections=None) -> str:
     """One self-contained HTML document — browser view and Send-to-Kindle HTML."""
     parts = [
         "<!DOCTYPE html>",
@@ -126,9 +163,17 @@ def render_html(digest: Digest) -> str:
         f"<h1>{_esc(digest.title)}</h1>",
         f'<p class="meta">{_esc(digest.subtitle)}</p>',
     ]
-    for story in digest.stories:
-        parts.append('<hr class="rule"/>')
-        parts.append(_story_body(story))
+    if sections:
+        # Composed edition: teaser, quick hits, feature, bonus. No rule before
+        # the teaser — it reads as part of the masthead.
+        for sec in sections:
+            if sec.kind != "teaser":
+                parts.append('<hr class="rule"/>')
+            parts.append(_section_body(sec))
+    else:
+        for story in digest.stories:
+            parts.append('<hr class="rule"/>')
+            parts.append(_story_body(story))
     if not digest.stories:
         parts.append("<p>No stories with a Story Brief were available.</p>")
     parts.append("</body></html>")
@@ -146,7 +191,7 @@ def _xhtml(title: str, body: str) -> str:
     )
 
 
-def write_epub(digest: Digest, out_path: str) -> str:
+def write_epub(digest: Digest, out_path: str, sections=None) -> str:
     """Write an EPUB and return its path.
 
     `mimetype` must be the first entry and stored uncompressed — readers check
@@ -158,12 +203,23 @@ def write_epub(digest: Digest, out_path: str) -> str:
     stamp = digest.generated_at.strftime("%Y-%m-%dT%H:%M:%SZ")
 
     chapters = []
-    for i, story in enumerate(digest.stories, start=1):
-        chapters.append((f"s{i}.xhtml", story.title, _xhtml(story.title, _story_body(story))))
+    if sections:
+        # The teaser rides on the cover rather than becoming a chapter of its
+        # own — a one-paragraph entry in the table of contents is noise.
+        teaser = next((s for s in sections if s.kind == "teaser"), None)
+        body_sections = [s for s in sections if s.kind != "teaser"]
+        for i, sec in enumerate(body_sections, start=1):
+            label = sec.title or ("Also worth knowing" if sec.kind == "bonus" else f"Item {i}")
+            chapters.append((f"s{i}.xhtml", label, _xhtml(label, _section_body(sec))))
+    else:
+        teaser = None
+        for i, story in enumerate(digest.stories, start=1):
+            chapters.append((f"s{i}.xhtml", story.title, _xhtml(story.title, _story_body(story))))
 
     cover = _xhtml(
         digest.title,
         f"<h1>{_esc(digest.title)}</h1><p class='meta'>{_esc(digest.subtitle)}</p>"
+        + (f'<p class="thesis">{_esc(teaser.body)}</p>' if teaser else "")
         + "<ul>" + "".join(
             f'<li><a href="{fn}">{_esc(t)}</a></li>' for fn, t, _ in chapters
         ) + "</ul>",

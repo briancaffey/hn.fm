@@ -1876,13 +1876,42 @@ def build_story_brief(item_id: int, run: int) -> Dict[str, any]:
     what the source does NOT establish. Consumed by the script room (plan 11)
     and the art direction (plans 12/13).
     """
-    from ..content import story_brief
+    from ..content import story_brief, comments as _comments
+    from ..scraper import context_links
 
     pr = get_run(item_id, run)
     if not pr:
         raise RuntimeError(f"Run {item_id}:{run} not found")
     item = get_item(item_id)
     title = (item.title if item else "") or ""
+
+    # The discussion. Fetched here rather than at scrape time because a brief
+    # can be rebuilt against a thread that has since grown, and because a
+    # failure must not cost us the article we already have.
+    thread = []
+    try:
+        import requests as _rq
+
+        raw = _rq.get(
+            f"https://hacker-news.firebaseio.com/v0/item/{item_id}.json", timeout=15
+        ).json()
+        thread = _comments.fetch_thread(raw or {})
+    except Exception as e:
+        logger.warning(f"brief: comment fetch failed for {item_id} (non-fatal): {e}")
+
+    # A couple of high-value links off the submitted page — the paper, the
+    # About page. Capped in context_links; see that module for why so few.
+    context_pages = []
+    if os.getenv("CONTEXT_LINKS_ENABLED", "true").lower() == "true" and item and item.url:
+        try:
+            from ..scraper.content_scraper import ContentScraper
+
+            scraped = ContentScraper().scrape_url(item.url)
+            context_pages = context_links.fetch_context(
+                item.url, getattr(scraped, "links", []) or []
+            )
+        except Exception as e:
+            logger.warning(f"brief: context links failed for {item_id} (non-fatal): {e}")
 
     signals = None
     for st in steps.list_steps(item_id, run):
@@ -1891,13 +1920,16 @@ def build_story_brief(item_id: int, run: int) -> Dict[str, any]:
 
     with steps.step(
         item_id, run, None, "brief", "brief/build",
-        {"title": title, "content_chars": len(pr.content_clean or "")},
+        {"title": title, "content_chars": len(pr.content_clean or ""),
+         "comments": len(thread), "context_pages": len(context_pages)},
     ) as st:
         brief = story_brief.build(
             title=title,
             summary=pr.summary,
             content_clean=pr.content_clean,
             signals=signals,
+            thread=thread,
+            context_pages=context_pages,
         )
         repo.save_story_brief(item_id, run, brief)
         st.set(
@@ -1907,11 +1939,14 @@ def build_story_brief(item_id: int, run: int) -> Dict[str, any]:
             entities=len(brief.get("entities") or []),
             numbers=len(brief.get("numbers") or []),
             unknowns=len(brief.get("unknowns") or []),
+            comment_insights=len(brief.get("comment_insights") or []),
+            context_pages=len(brief.get("context_pages") or []),
             partial=brief.get("partial"),
         )
 
     logger.info(
         f"📋 Brief {item_id}:{run} → {len(brief.get('key_facts') or [])} facts, "
+        f"{len(brief.get('comment_insights') or [])} comment insights, "
         f"{len(brief.get('unknowns') or [])} unknowns"
     )
     return {"status": "ok", "item_id": item_id, "run": run,
@@ -2129,6 +2164,7 @@ def build_digest(
     digest would quietly shrink to whatever was scored by hand.
     """
     from ..digest import select_stories, render_html, write_epub
+    from ..digest.compose import compose
     from ..digest.deliver import send_digest, delivery_config, DeliveryError
 
     limit = int(limit or os.getenv("DIGEST_STORY_COUNT", "5"))
@@ -2149,6 +2185,16 @@ def build_digest(
         logger.warning("digest: nothing to send — no stories have a Story Brief")
         return {"status": "empty", "stories": 0}
 
+    # Compose the edition — teaser, quick hits, feature, bonus. Falls back to
+    # the flat per-story layout if composition yields nothing, so a model
+    # outage degrades the reading experience rather than producing no digest.
+    sections = None
+    if os.getenv("DIGEST_COMPOSE", "true").lower() == "true":
+        try:
+            sections = compose(digest) or None
+        except Exception as e:
+            logger.warning(f"digest: composition failed, using flat layout: {e}")
+
     out_dir = os.path.join(outputs_root, "digests")
     base = f"hnfm-digest-{digest.generated_at:%Y-%m-%d}"
 
@@ -2157,11 +2203,13 @@ def build_digest(
     os.makedirs(out_dir, exist_ok=True)
     html_path = os.path.join(out_dir, f"{base}.html")
     with open(html_path, "w", encoding="utf-8") as f:
-        f.write(render_html(digest))
+        f.write(render_html(digest, sections=sections))
 
     epub_path = None
     if fmt == "epub":
-        epub_path = write_epub(digest, os.path.join(out_dir, f"{base}.epub"))
+        epub_path = write_epub(
+            digest, os.path.join(out_dir, f"{base}.epub"), sections=sections
+        )
 
     result = {
         "status": "ok",
@@ -2170,6 +2218,7 @@ def build_digest(
         "html_path": html_path,
         "epub_path": epub_path,
         "titles": [s.title for s in digest.stories],
+        "sections": [s.kind for s in (sections or [])],
     }
 
     if send:

@@ -1,0 +1,33 @@
+name: digest.bonus
+version: 1
+task: digest.bonus
+description: >
+  The closing section: the genuinely surprising leftovers that did not fit
+  the main coverage.
+
+system: |
+  You write the closing section of a daily technology brief: 3-5 short items,
+  one or two sentences each, of things that are simply interesting.
+
+  Each item must be:
+    - surprising, specific, and checkable against the supplied material
+    - self-contained — it makes sense without having read the rest
+    - about the SUBJECT, not about Hacker News. Never a story's score, its
+      comment count, or how popular it was. Those describe the website.
+
+  Good: a number that reframes the scale of something. A constraint that
+  explains why an obvious approach fails. A detail of method that is quietly
+  clever. A genuine open question a working expert raised.
+
+  Bad: restating a headline. A definition. Anything you knew before reading
+  this material. Anything that begins "Did you know".
+
+  Return one item per line, no numbering, no bullets, no heading. If the
+  material yields only two good items, return two — padding is worse than
+  brevity.
+
+template: |
+  Material from today's stories:
+  {material}
+
+  Write the closing items.

@@ -166,12 +166,29 @@ triage:
     needs_source_min_interest: 65
     needs_source_max_producibility: 45
   rubric: |
-    Favor stories that make ENGAGING videos: concrete stakes, human drama or
-    surprise, broad comprehensibility, and things that can be SHOWN (demos,
-    physical objects, visual metaphors, data). Penalize: obscure dependency
-    changelogs, minor library releases, pure code minutiae, paywalled stubs
-    with no substance, dry corporate announcements, listicles with no angle.
-    A niche topic is fine if the story has tension or a striking visual hook.
+    Score for a curious, technically literate reader who wants to LEARN
+    something on a 20-minute commute — not for what is popular on Hacker News.
+
+    Rank highest: a genuine discovery or result (especially with a mechanism
+    that can be explained); a constraint or trade-off that changes how you
+    think about a problem; a first-hand account from someone who actually did
+    the thing; a well-argued disagreement among people who know the field; a
+    story whose numbers reframe the scale of something.
+
+    Rank low even when heavily upvoted: a library or framework release with no
+    idea behind it; a benchmark or micro-optimisation of interest only to its
+    users; a funding round, acquisition, or executive change; an opinion piece
+    with no new evidence; a "X considered harmful" rehash; a listicle; a
+    paywalled stub; anything whose whole content is its headline.
+
+    The test is: after reading it, does the reader know something true and
+    non-obvious that they did not know before? A modest scientific result
+    beats a popular C++ optimisation library, because one teaches and the
+    other only informs people already in that niche.
+
+    A niche topic is fine when the story carries tension, a real mechanism, or
+    a surprising number. Popularity is weak evidence of interest and should
+    never override the test above.
 
 # Content Processing Configuration
 content:

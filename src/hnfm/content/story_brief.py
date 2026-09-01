@@ -31,11 +31,16 @@ logger = logging.getLogger(__name__)
 
 FRAMING_PROMPT = "brief.framing"
 EVIDENCE_PROMPT = "brief.evidence"
+COMMENTS_PROMPT = "brief.comments"
 
 # Framing sees a trimmed article (the angle is visible early); extraction gets
 # more, since a fact can appear anywhere.
 _FRAMING_CHARS = 6000
 _EVIDENCE_CHARS = 12000
+# Words of consecutive overlap required to accept a non-verbatim quote. Eight is
+# long enough that hitting one by chance is implausible, short enough to survive
+# a model tidying punctuation mid-sentence.
+_SHINGLE = 8
 
 
 def build(
@@ -43,6 +48,8 @@ def build(
     summary: str,
     content_clean: str,
     signals: Optional[dict] = None,
+    thread: Optional[list] = None,
+    context_pages: Optional[list] = None,
 ) -> dict:
     """Assemble a Story Brief. Returns a dict shaped like `llm_schemas.StoryBrief`.
 
@@ -50,9 +57,10 @@ def build(
     more than none, and the caller records which half is missing.
     """
     from .llm_service import LLMService
-    from .llm_schemas import StoryFraming, StoryEvidence
+    from .llm_schemas import StoryFraming, StoryEvidence, DiscussionEvidence
     from .prompts import render
     from . import scrape_signals as _sig
+    from . import comments as _comments
 
     signal_line = (
         _sig.summarize(signals) if signals else "no retrieval report available"
@@ -84,6 +92,25 @@ def build(
         errors.append(f"evidence: {e}")
         logger.warning(f"brief evidence failed: {e}")
 
+    # The discussion is its own extraction rather than extra context on the
+    # article call. A thin article with an expert thread is common on HN, and
+    # merging them lets the article's emptiness suppress the thread's value.
+    discussion = None
+    if thread:
+        try:
+            discussion = LLMService(task=COMMENTS_PROMPT).generate_structured(
+                render(
+                    COMMENTS_PROMPT,
+                    title=title or "(untitled)",
+                    summary=(summary or "")[:1500],
+                    comments=_comments.as_prompt_block(thread),
+                ),
+                DiscussionEvidence,
+            )
+        except Exception as e:
+            errors.append(f"comments: {e}")
+            logger.warning(f"brief comments failed: {e}")
+
     if framing is None and evidence is None:
         raise RuntimeError(f"story brief failed entirely — {'; '.join(errors)}")
 
@@ -91,7 +118,8 @@ def build(
         "thesis": "", "why_now": "", "stakes": "", "angle": "", "tension": "",
         "visual_affordances": [], "unknowns": [],
         "key_facts": [], "entities": [], "numbers": [],
-        "comment_insights": [],  # plan 10 fills this
+        "comment_insights": [],
+        "context_pages": [],
     }
     if framing:
         brief.update(framing.model_dump())
@@ -100,6 +128,22 @@ def build(
         brief["key_facts"] = _verified_facts(ev["key_facts"], content_clean or "")
         brief["entities"] = ev["entities"]
         brief["numbers"] = ev["numbers"]
+    if discussion:
+        # Verified against the ids actually fetched: the model is shown real
+        # comment ids, so an id that is not among them is fabrication, not a
+        # near miss.
+        brief["comment_insights"] = _comments.verify_comment_facts(
+            [ci if isinstance(ci, dict) else ci.model_dump()
+             for ci in discussion.comment_insights],
+            thread or [],
+        )
+    if context_pages:
+        # Recorded for provenance, so a reader can see which extra sources the
+        # brief drew on and the renderer can cite them.
+        brief["context_pages"] = [
+            {"url": p.url, "title": p.title, "reason": p.reason}
+            for p in context_pages
+        ]
     if errors:
         brief["partial"] = errors
     return brief
@@ -122,10 +166,25 @@ def _verified_facts(facts: list, content: str) -> list:
     downstream treats `key_facts` as ground truth — the script writer is
     explicitly told it may rely on them. Cheap to verify, so verify.
 
-    Comment-sourced facts are left alone here: their text lives in the comment
-    tree, not the article, and plan 10 checks them against that.
+    Comment-sourced facts are verified separately, against the comment tree —
+    see content/comments.verify_comment_facts.
+
+    Two-stage check. An exact substring match is the clean case. Failing that,
+    an 8-word shingle from the quote must appear in the article: local models
+    reliably identify the right sentence but often normalise it slightly while
+    copying — a dropped article, an expanded contraction, a joined hyphenate —
+    and exact matching alone rejected *every* fact on a story whose article
+    plainly contained the material. A paraphrase invented from nothing shares
+    no 8-word run with the source, so this still catches fabrication; it just
+    stops punishing transcription drift.
     """
     haystack = _normalize(content)
+    haystack_words = haystack.split()
+    shingles = {
+        " ".join(haystack_words[i:i + _SHINGLE])
+        for i in range(max(0, len(haystack_words) - _SHINGLE + 1))
+    }
+
     kept = []
     for fact in facts:
         if fact.get("source") == "comment":
@@ -137,9 +196,19 @@ def _verified_facts(facts: list, content: str) -> list:
             continue
         if quote in haystack:
             kept.append(fact)
-        else:
-            logger.info(
-                f"brief: dropped fact with unverifiable quote — "
-                f"{str(fact.get('claim'))[:80]}"
-            )
+            continue
+        words = quote.split()
+        if len(words) >= _SHINGLE and any(
+            " ".join(words[i:i + _SHINGLE]) in shingles
+            for i in range(len(words) - _SHINGLE + 1)
+        ):
+            # Grounded but not verbatim. Recorded on the fact so a consumer
+            # that needs a literal quote can tell the difference.
+            fact["quote_match"] = "partial"
+            kept.append(fact)
+            continue
+        logger.info(
+            f"brief: dropped fact with unverifiable quote — "
+            f"{str(fact.get('claim'))[:80]}"
+        )
     return kept

@@ -1,0 +1,41 @@
+name: digest.quickhit
+version: 1
+task: digest.quickhit
+description: >
+  A short treatment of a secondary story — enough to understand why it
+  matters, not enough to be a deep dive.
+
+system: |
+  You write a short item for a daily technology brief: 70-110 words, one or
+  two paragraphs, for a curious technical reader.
+
+  Cover, in this order of priority:
+    1. what happened, concretely
+    2. why it matters or what it changes
+    3. the single most interesting wrinkle — often the disagreement or the
+       thing the discussion caught that the article missed
+
+  Ground every claim in the supplied brief. If something is listed under
+  "unknowns", either say it is unknown or leave it out — never resolve it.
+  Where the discussion corrects the article, prefer the correction and say
+  where it came from ("commenters pointed out…").
+
+  No headline — that is added separately. No "in conclusion", no advice to the
+  reader, no speculation about the future beyond what the brief supports.
+
+template: |
+  Story: {title}
+  Thesis: {thesis}
+  Why now: {why_now}
+  Tension: {tension}
+
+  Key facts:
+  {facts}
+
+  From the discussion:
+  {discussion}
+
+  Not established by the source (do not resolve these):
+  {unknowns}
+
+  Write the item.

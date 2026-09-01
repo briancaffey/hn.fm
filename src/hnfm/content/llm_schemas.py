@@ -193,9 +193,30 @@ class Entity(BaseModel):
 
 
 class Number(BaseModel):
-    value: str = Field(description='As it should be spoken, e.g. "forty percent".')
+    # Two forms because the brief now feeds two very different outputs. The
+    # narrator needs "forty percent"; the Kindle page needs "40%". Writing one
+    # and deriving the other is lossy in both directions, so ask for both.
+    value: str = Field(description='As WRITTEN, e.g. "40%", "1,208", "$2.3M".')
+    spoken: str = Field(description='As SPOKEN aloud, e.g. "forty percent".')
     of: str = Field(description="What the number measures.")
     context: str = Field(description="What makes it meaningful.")
+
+
+class CommentInsight(BaseModel):
+    """A point worth carrying from the Hacker News discussion.
+
+    `comment_id` is required and checked against the ids actually retrieved —
+    the whole reason the thread is now fetched rather than summarised from a
+    count. See content/comments.verify_comment_facts.
+    """
+
+    comment_id: int = Field(description="The id of the comment, exactly as given.")
+    author: str = Field(description="The commenter's username.")
+    insight: str = Field(description="The point, in your own words, one sentence.")
+    quote: str = Field(description="A verbatim span from that comment.")
+    kind: Literal["correction", "context", "expertise", "dissent", "anecdote"] = Field(
+        description="What this contributes that the article does not."
+    )
 
 
 class StoryFraming(BaseModel):
@@ -227,6 +248,13 @@ class StoryEvidence(BaseModel):
     numbers: List[Number]
 
 
+class DiscussionEvidence(BaseModel):
+    """What the thread adds. Extracted separately from the article evidence so
+    a story with a rich discussion and a thin article still yields something."""
+
+    comment_insights: List[CommentInsight]
+
+
 class StoryBrief(BaseModel):
     """Framing + evidence + scores. Assembled from two LLM calls; see
     `content/story_brief.py` for why it is not requested in one."""
@@ -241,5 +269,4 @@ class StoryBrief(BaseModel):
     key_facts: List[KeyFact]
     entities: List[Entity]
     numbers: List[Number]
-    # Populated by plan 10; present here so the shape is stable for consumers.
     comment_insights: List[dict] = Field(default_factory=list)

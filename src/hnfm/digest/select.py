@@ -68,6 +68,20 @@ def select_stories(
         offset=0, limit=max(limit * 6, 30), include_generated=True
     )
 
+    # Re-order by INTEREST, not by the queue's rank_score. rank_score is
+    # `interest * producibility` — producibility being "can we shoot a video of
+    # this", which is meaningless for reading and actively harmful here: it
+    # promoted a corporate announcement (easy to illustrate, interest 75) over
+    # a synthetic-cell result (harder to illustrate, interest 85). The video
+    # queue should keep its ranking; the reader wants the other one.
+    # Human feedback still counts — effective_rank breaks ties so a starred
+    # story rises.
+    rows = sorted(
+        rows,
+        key=lambda r: (r.get("interest") or 0, r.get("effective_rank") or 0),
+        reverse=True,
+    )
+
     cutoff = (
         datetime.utcnow() - timedelta(hours=since_hours) if since_hours else None
     )

@@ -3,8 +3,8 @@
 import requests
 import logging
 import urllib.parse
-from typing import Dict, Any, Optional
-from dataclasses import dataclass
+from typing import Dict, Any, List, Optional
+from dataclasses import dataclass, field
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +61,10 @@ class ScrapedContent:
     # is materially different material from a live fetch, so `producibility`
     # (plans/09) needs to distinguish them.
     source: str = "firecrawl"
+    # Outbound links from the page, for context_links to pick a few worth
+    # following. default_factory, not [], so ScrapedContent instances never
+    # share one list.
+    links: List[dict] = field(default_factory=list)
 
 
 class ContentScraper:
@@ -148,7 +152,11 @@ class ContentScraper:
         """Scrape using local Firecrawl (current v1 API)."""
         data = {
             "url": url,
-            "formats": ["markdown"],
+            # `links` as well as markdown: context_links follows a couple of
+            # high-value ones (the paper, the About page). Firecrawl collects
+            # them from the whole document, so this is not affected by
+            # onlyMainContent/includeTags narrowing the markdown below.
+            "formats": ["markdown", "links"],
             "onlyMainContent": True,
             "includeTags": ["h1", "h2", "h3", "p", "article"],
             "excludeTags": ["nav", "footer", "aside", "script", "style"],
@@ -166,9 +174,19 @@ class ContentScraper:
         if not markdown.strip():
             raise RuntimeError("Firecrawl returned empty markdown")
 
+        # Firecrawl returns links either as bare strings or as {url, text}
+        # depending on version; normalise so callers see one shape.
+        raw_links = d.get("links") or []
+        links = [
+            {"url": ln, "text": ""} if isinstance(ln, str) else
+            {"url": ln.get("url") or ln.get("href") or "", "text": ln.get("text") or ""}
+            for ln in raw_links
+        ]
+
         return ScrapedContent(
             title=meta.get("title") or meta.get("ogTitle") or "Unknown Title",
             content=markdown,
             url=url,
             success=True,
+            links=[ln for ln in links if ln["url"]],
         )
