@@ -42,12 +42,28 @@ llm:
   # an unexpected substitution fatal rather than a loud error.
   models:
     allow:
+      - "spark-omni"
       - "nvidia-nemotron-super"
       - "openrouter-nemotron-ultra"
       - "nemotron-omni"
     deny:
       - "groq*"
       - "*/groq*"
+
+  # Reasoning control, keyed by model pattern (fnmatch). `spark-omni` is
+  # nvidia/nemotron-3-nano-omni served by LM Studio on the spark box, and it is
+  # a reasoning model: measured on a bare "what is 2+2" it spent 33 reasoning
+  # tokens before answering, and a call capped below that budget returns an
+  # empty string rather than an error.
+  #
+  # Deliberately per-model rather than a single global setting: LM Studio
+  # honours `reasoning_effort` (33 tokens -> 0), while the NVIDIA-hosted
+  # `nvidia-nemotron-super` route answers 410 Gone to any request carrying the
+  # field at all — so a global default would break the triage fallback.
+  # `chat_template_kwargs.enable_thinking` (sent separately, in code) is the
+  # vLLM spelling and is silently ignored by LM Studio; both are sent.
+  reasoning_effort:
+    "spark-omni": "none"
 
   # Per-task profiles. One model at temperature 0.7 used to serve triage,
   # summaries, scripts, image prompts and the director alike; these want
@@ -73,11 +89,14 @@ llm:
       # The only multimodal call in the pipeline: it sends a rendered frame.
       # nvidia-nemotron-super is text-only and cloud-routed, and the gateway's
       # PII guard fail-closes on image payloads to it (500 "rampart PII guard
-      # failed"), so this must be the omni route.
-      # nemotron-omni has been observed failing over to groq when the local box
-      # is down — llm.models now checks the served model on every response, so
-      # that substitution surfaces instead of passing silently.
-      model: "nemotron-omni"
+      # failed"), so this must be an omni route.
+      #
+      # `spark-omni`, not `nemotron-omni`: the latter's upstream (in-cluster
+      # vLLM) is scaled to 0 and its gateway alias now resolves to Qwen, so it
+      # fell through to text-only backends and failed outright on any image.
+      # spark-omni goes straight to LM Studio on the spark box and carries no
+      # fallbacks, so a substitution cannot happen silently.
+      model: "spark-omni"
       temperature: 0.85
       max_tokens: 500
     # The two halves of the Story Brief run at deliberately different
@@ -107,8 +126,13 @@ show:
 # The rubric is data, not code — tune it here without a deploy.
 triage:
   # Free models via LiteLLM only (no groq, nothing paid). TRIAGE_LLM_MODEL
-  # env var overrides. Primary NVIDIA-hosted; OpenRouter free nemotron fallback.
-  model: "nvidia-nemotron-super"
+  # env var overrides. Primary is now the local spark box; the OpenRouter free
+  # nemotron stays as the fallback so triage still runs when spark is off.
+  # Note the fallback is a *cloud* route and so is PII-guarded: names in story
+  # text arrive there as [GIVEN_NAME_1]. That is tolerable for scoring, which
+  # reads topics and stakes rather than who did the thing — but it is the
+  # reason the fallback is kept here and deliberately absent from script.write.
+  model: "spark-omni"
   fallback_model: "openrouter-nemotron-ultra"
   # Weighted interest profile: topic keyword -> weight (matched against the
   # LLM-extracted topics; substring, case-insensitive). Negative = penalize.

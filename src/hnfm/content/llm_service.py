@@ -19,6 +19,7 @@ Every call is checked against the model allowlist before and after the request
 paid route.
 """
 
+import fnmatch
 import json
 import logging
 import os
@@ -148,7 +149,22 @@ class LLMService:
             # suppresses the preamble on `nvidia-nemotron-super` but NOT on the
             # multimodal `nemotron-omni` route, which returns null content until
             # thinking is disabled. The two options compose fine.
-            kwargs["extra_body"] = {"chat_template_kwargs": {"enable_thinking": False}}
+            extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
+
+            # `enable_thinking` is a vLLM convention and is silently ignored by
+            # LM Studio, which serves the omni model on the spark box — measured
+            # there, it still burned 33 reasoning tokens on "what is 2+2".
+            # `reasoning_effort` is what LM Studio honours (33 -> 0), and the two
+            # compose, so both are sent rather than one replacing the other.
+            #
+            # Per-model, never global: `nvidia-nemotron-super` answers 410 Gone
+            # when the parameter is present at all, so sending it everywhere
+            # would break the triage fallback. Sent via extra_body so it does not
+            # depend on the installed openai SDK knowing the field.
+            effort = _reasoning_effort_for(model)
+            if effort:
+                extra_body["reasoning_effort"] = effort
+            kwargs["extra_body"] = extra_body
 
         response = self.client.chat.completions.create(**kwargs)
         self._record_usage(response, model, prompt)
@@ -310,3 +326,24 @@ def _profile_for(task: Optional[str]) -> dict:
     except Exception as e:
         logger.debug(f"profile lookup failed for {task!r} (non-fatal): {e}")
         return {}
+
+
+def _reasoning_effort_for(model: str) -> Optional[str]:
+    """The `reasoning_effort` to send for `model`, or None to omit the field.
+
+    Data, not code — config.yaml `llm.reasoning_effort` maps an fnmatch pattern
+    to a value, so a new route is a config edit. Keyed by model rather than by
+    task because whether the parameter is even *accepted* is a property of the
+    route: LM Studio honours it, and `nvidia-nemotron-super` returns 410 Gone
+    for any request carrying it.
+    """
+    try:
+        from ..utils.config import config_manager
+
+        mapping = (config_manager.get("llm", {}) or {}).get("reasoning_effort") or {}
+        for pattern, value in mapping.items():
+            if fnmatch.fnmatch(model, pattern):
+                return value
+    except Exception as e:
+        logger.debug(f"reasoning_effort lookup failed for {model!r} (non-fatal): {e}")
+    return None
