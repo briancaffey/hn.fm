@@ -11,7 +11,12 @@ export default defineNuxtConfig({
     devProxy: {
       '/api': {
         target: 'http://localhost:8000',
-        changeOrigin: true
+        changeOrigin: true,
+        // SSE (/api/activity/stream) is proxied too; without disabling the
+        // proxy's response buffering, events arrive in bursts long after the
+        // work happened, which defeats the point of a live view.
+        selfHandleResponse: false,
+        buffer: false
       }
     }
   },

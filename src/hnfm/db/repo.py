@@ -16,6 +16,8 @@ from ..web.models import HNItem, ProcessedRun, Segment, SegmentImage, SegmentSec
 from .engine import db_session
 from .orm import (
     StoryBriefRow,
+    DigestEditionRow,
+    DigestEditionStoryRow,
     HNItemRow,
     IdCounter,
     PipelineMetricsRow,
@@ -952,3 +954,57 @@ def get_story_brief(item_id: int, run: int) -> Optional[dict]:
             "prompt_version": row.prompt_version,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
+
+
+# --- digest editions -------------------------------------------------------
+
+
+def record_digest_edition(
+    slug: str, title: str, shape: str, stories: list, meta: dict = None,
+    sent: bool = False,
+) -> None:
+    """Remember what an edition contained, so the next one can avoid repeating it.
+
+    Upsert on slug: rebuilding the same day's edition should replace its story
+    list, not accumulate two overlapping sets that then both count as "recently
+    seen" and starve tomorrow.
+    """
+    from datetime import datetime as _dt
+
+    with db_session() as s:
+        row = s.get(DigestEditionRow, slug)
+        if row is None:
+            row = DigestEditionRow(slug=slug, title=title, created_at=_dt.utcnow())
+            s.add(row)
+        row.title = title
+        row.shape = shape
+        row.meta = meta or {}
+        if sent:
+            row.sent_at = _dt.utcnow()
+        s.query(DigestEditionStoryRow).filter(
+            DigestEditionStoryRow.slug == slug
+        ).delete()
+        for position, (item_id, role) in enumerate(stories):
+            s.add(DigestEditionStoryRow(
+                slug=slug, item_id=item_id, position=position, role=role
+            ))
+        s.commit()
+
+
+def recently_published_item_ids(days: int = 7) -> set:
+    """Item ids carried by any edition in the last `days`.
+
+    Time-boxed rather than forever: a story worth re-reading a month later is
+    fine, and an unbounded exclusion list would eventually starve the digest.
+    """
+    from datetime import datetime as _dt, timedelta as _td
+
+    cutoff = _dt.utcnow() - _td(days=days)
+    with db_session() as s:
+        rows = (
+            s.query(DigestEditionStoryRow.item_id)
+            .join(DigestEditionRow, DigestEditionRow.slug == DigestEditionStoryRow.slug)
+            .filter(DigestEditionRow.created_at >= cutoff)
+            .all()
+        )
+    return {r[0] for r in rows}

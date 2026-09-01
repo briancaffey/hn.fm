@@ -182,3 +182,58 @@ def compose(digest, deep_dives: int = None) -> List[Section]:
                     for k in ("teaser", "quick", "deep", "bonus"))
     )
     return sections
+
+
+def _narrative_material(story) -> str:
+    """Everything about one story the essay writer may draw on.
+
+    Deliberately richer than the per-section blocks: a narrative earns its
+    length by making connections, and it can only connect what it can see.
+    Commenter usernames are included because naming them is what makes the
+    essay feel reported rather than summarised — and because an unnamed
+    attribution is unverifiable.
+    """
+    b = story.brief or {}
+    parts = [
+        f'TITLE: "{story.title}"',
+        f"thesis: {b.get('thesis') or '(none)'}",
+        f"why now: {b.get('why_now') or '(none)'}",
+        f"tension: {b.get('tension') or '(none)'}",
+        f"stakes: {b.get('stakes') or '(none)'}",
+        f"facts:\n{_facts_block(b, limit=6)}",
+        f"numbers:\n{_numbers_block(b, limit=4)}",
+        f"discussion (use these usernames verbatim):\n{_discussion_block(b, limit=5)}",
+        f"researched sources:\n{_context_block(b)}",
+        f"open questions (never resolve):\n{_unknowns_block(b, limit=4)}",
+    ]
+    return "\n".join(parts)
+
+
+def compose_narrative(digest) -> List[Section]:
+    """One essay across the whole edition, instead of discrete sections.
+
+    Returns a single `deep` section so the renderers need no special case: to
+    them it is one long piece with a title, which is exactly what it is.
+    """
+    if not digest.stories:
+        return []
+
+    material = "\n\n---\n\n".join(_narrative_material(s) for s in digest.stories)
+    body = _write("digest.narrative", material=material[:22000])
+    if not body:
+        logger.warning("digest: narrative failed — no edition produced")
+        return []
+
+    # Sources from every story, so the essay's claims stay traceable even
+    # though the prose itself names them inline.
+    sources = []
+    for s in digest.stories:
+        sources.extend(s.brief.get("context_pages") or [])
+
+    logger.info(f"digest: narrative composed ({len(body)} chars over {len(digest.stories)} stories)")
+    return [Section(
+        kind="deep",
+        title=f"{digest.generated_at:%A}'s reading",
+        body=body,
+        sources=sources[:8],
+    )]

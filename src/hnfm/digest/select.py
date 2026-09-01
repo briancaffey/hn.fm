@@ -48,6 +48,8 @@ def select_stories(
     require_brief: bool = True,
     skip: int = 0,
     title: str = "hn.fm Digest",
+    exclude_recent_days: Optional[int] = None,
+    exclude_ids: Optional[set] = None,
 ) -> Digest:
     """Top `limit` stories by effective rank, newest scores first.
 
@@ -84,6 +86,13 @@ def select_stories(
         reverse=True,
     )
 
+    # Stories already sent recently. The reader's complaint is not "this was
+    # ranked low", it is "I read this yesterday" — so exclusion happens here,
+    # after ranking, rather than by penalising the score.
+    excluded = set(exclude_ids or ())
+    if exclude_recent_days:
+        excluded |= repo.recently_published_item_ids(days=exclude_recent_days)
+
     cutoff = (
         datetime.utcnow() - timedelta(hours=since_hours) if since_hours else None
     )
@@ -100,6 +109,8 @@ def select_stories(
         item_id = row.get("item_id")
         run = row.get("run")
         if item_id is None or run is None:
+            continue
+        if item_id in excluded:
             continue
 
         created = row.get("created_at") or row.get("scored_at")

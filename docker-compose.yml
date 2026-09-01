@@ -9,17 +9,18 @@ x-common-app-config: &common-app-config
   # .lan inference hosts resolve via the Mac's /etc/resolver/lan (loopback
   # dnsmasq), which containers can't reach — pin them to the cluster's traefik
   # ingress IP instead (any node IP works; traefik routes by Host header).
+  # Pointed at .174 since 2026-09-01: .173 is down. Any live node works.
   extra_hosts:
-    - "litellm.lan:192.168.5.173"
-    - "firecrawl.lan:192.168.5.173"
-    - "magpie.lan:192.168.5.173"
-    - "flux.lan:192.168.5.173"
-    - "ltx.lan:192.168.5.173"
-    - "asr.lan:192.168.5.173"
-    - "acestep.lan:192.168.5.173"
-    - "dia.lan:192.168.5.173"
-    - "studio-voice.lan:192.168.5.173"
-    - "omni.lan:192.168.5.173"
+    - "litellm.lan:192.168.5.174"
+    - "firecrawl.lan:192.168.5.174"
+    - "magpie.lan:192.168.5.174"
+    - "flux.lan:192.168.5.174"
+    - "ltx.lan:192.168.5.174"
+    - "asr.lan:192.168.5.174"
+    - "acestep.lan:192.168.5.174"
+    - "dia.lan:192.168.5.174"
+    - "studio-voice.lan:192.168.5.174"
+    - "omni.lan:192.168.5.174"
   volumes:
     - ./src:/app/src  # Mount source code for hot reloading
     - ./outputs:/app/outputs

@@ -42,6 +42,10 @@ llm:
   # an unexpected substitution fatal rather than a loud error.
   models:
     allow:
+      # Direct LM Studio model id — used while failed over past the gateway
+      # (see .env). The gateway aliases stay allowed so reverting is a
+      # one-line .env change, not a config edit.
+      - "nvidia/nemotron-3-nano-omni"
       - "spark-omni"
       - "nvidia-nemotron-super"
       - "openrouter-nemotron-ultra"
@@ -64,6 +68,8 @@ llm:
   # vLLM spelling and is silently ignored by LM Studio; both are sent.
   reasoning_effort:
     "spark-omni": "none"
+    # Same model, reached directly rather than through the gateway.
+    "nvidia/nemotron-3-nano-omni": "none"
 
   # Per-task profiles. One model at temperature 0.7 used to serve triage,
   # summaries, scripts, image prompts and the director alike; these want
@@ -96,7 +102,7 @@ llm:
       # fell through to text-only backends and failed outright on any image.
       # spark-omni goes straight to LM Studio on the spark box and carries no
       # fallbacks, so a substitution cannot happen silently.
-      model: "spark-omni"
+      model: "nvidia/nemotron-3-nano-omni"
       temperature: 0.85
       max_tokens: 500
     # The two halves of the Story Brief run at deliberately different
@@ -132,8 +138,10 @@ triage:
   # text arrive there as [GIVEN_NAME_1]. That is tolerable for scoring, which
   # reads topics and stakes rather than who did the thing — but it is the
   # reason the fallback is kept here and deliberately absent from script.write.
-  model: "spark-omni"
-  fallback_model: "openrouter-nemotron-ultra"
+  model: "nvidia/nemotron-3-nano-omni"
+  # No fallback while the gateway is down — the cloud routes were reached
+  # through it, so naming one here would only produce a confusing error.
+  fallback_model: null
   # Weighted interest profile: topic keyword -> weight (matched against the
   # LLM-extracted topics; substring, case-insensitive). Negative = penalize.
   interest_profile:

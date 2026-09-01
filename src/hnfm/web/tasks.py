@@ -2155,6 +2155,9 @@ def build_digest(
     fmt: str = None,
     send: bool = False,
     score_first: bool = True,
+    shape: str = "daily",
+    skip: int = 0,
+    exclude_recent_days: int = 7,
 ) -> Dict[str, any]:
     """Render a digest of the top-ranked stories, optionally emailing it.
 
@@ -2164,10 +2167,20 @@ def build_digest(
     digest would quietly shrink to whatever was scored by hand.
     """
     from ..digest import select_stories, render_html, write_epub
-    from ..digest.compose import compose
+    from ..digest.compose import compose, compose_narrative
     from ..digest.deliver import send_digest, delivery_config, DeliveryError
 
-    limit = int(limit or os.getenv("DIGEST_STORY_COUNT", "5"))
+    # Shape drives both how many stories are drawn and how they are written.
+    # Kept as data so a new shape is one entry, not a branch in three places.
+    SHAPES = {
+        "daily":     {"stories": 5, "deep": 2},
+        "deep":      {"stories": 3, "deep": 2},
+        "scan":      {"stories": 8, "deep": 0},
+        "narrative": {"stories": 6, "deep": 0},
+    }
+    spec = SHAPES.get(shape, SHAPES["daily"])
+
+    limit = int(limit or spec["stories"])
     fmt = (fmt or os.getenv("DIGEST_FORMAT", "html")).lower()
     outputs_root = os.getenv("OUTPUTS_ROOT", "/app/outputs")
 
@@ -2180,7 +2193,15 @@ def build_digest(
         except Exception as e:
             logger.warning(f"digest: pre-scoring failed (non-fatal): {e}")
 
-    digest = select_stories(limit=limit, since_hours=since_hours)
+    digest = select_stories(
+        limit=limit,
+        since_hours=since_hours,
+        skip=int(skip or 0),
+        # Dedup so consecutive editions do not re-tell the same stories. 0
+        # disables, for a deliberate re-run of the same material.
+        exclude_recent_days=int(exclude_recent_days) or None,
+        title=f"hn.fm · {shape.title()}" if shape != "daily" else "hn.fm Digest",
+    )
     if not digest.stories:
         logger.warning("digest: nothing to send — no stories have a Story Brief")
         return {"status": "empty", "stories": 0}
@@ -2191,12 +2212,19 @@ def build_digest(
     sections = None
     if os.getenv("DIGEST_COMPOSE", "true").lower() == "true":
         try:
-            sections = compose(digest) or None
+            sections = (
+                compose_narrative(digest) if shape == "narrative"
+                else compose(digest, deep_dives=spec["deep"])
+            ) or None
         except Exception as e:
             logger.warning(f"digest: composition failed, using flat layout: {e}")
 
     out_dir = os.path.join(outputs_root, "digests")
     base = f"hnfm-digest-{digest.generated_at:%Y-%m-%d}"
+    if shape != "daily":
+        # Distinct slug per shape so several editions can coexist on one day
+        # instead of overwriting each other.
+        base = f"{base}-{shape}"
 
     # Always write the HTML: it is the browser view regardless of what gets
     # emailed, so the UI has something to link to even when fmt is epub.
@@ -2219,7 +2247,21 @@ def build_digest(
         "epub_path": epub_path,
         "titles": [s.title for s in digest.stories],
         "sections": [s.kind for s in (sections or [])],
+        "shape": shape,
     }
+
+    # Record what this edition carried, so the next one can avoid repeating it.
+    try:
+        roles = {}
+        for i, st in enumerate(digest.stories):
+            roles[st.item_id] = "feature" if i < spec["deep"] else "item"
+        repo.record_digest_edition(
+            slug=base, title=digest.title, shape=shape,
+            stories=[(s.item_id, roles.get(s.item_id)) for s in digest.stories],
+            meta={"titles": [s.title for s in digest.stories]},
+        )
+    except Exception as e:
+        logger.warning(f"digest: could not record edition (non-fatal): {e}")
 
     if send:
         ready, why = delivery_config()

@@ -308,3 +308,38 @@ class PipelineMetricsRow(Base):
     finalized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     started_ts: Mapped[float] = mapped_column(Float, nullable=True)
     finished_ts: Mapped[float] = mapped_column(Float, nullable=True)
+
+
+class DigestEditionRow(Base):
+    """One published digest. See alembic 0006 for why editions are their own
+    entity rather than a kind of run."""
+
+    __tablename__ = "digest_editions"
+
+    slug: Mapped[str] = mapped_column(Text, primary_key=True)
+    title: Mapped[str] = mapped_column(Text, nullable=False)
+    shape: Mapped[str] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+    sent_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    meta: Mapped[dict] = mapped_column(JSONVariant, nullable=True)
+
+
+class DigestEditionStoryRow(Base):
+    """Which stories an edition carried, and in what role.
+
+    `role` records feature vs quick-hit so a story can be re-used in a
+    different role later without reading identically — a story that was a
+    30-second item is fair game as a feature once there is more to say.
+    """
+
+    __tablename__ = "digest_edition_stories"
+    __table_args__ = (Index("ix_digest_edition_stories_item", "item_id"),)
+
+    slug: Mapped[str] = mapped_column(
+        Text, ForeignKey("digest_editions.slug", ondelete="CASCADE"), primary_key=True
+    )
+    item_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    position: Mapped[int] = mapped_column(Integer, nullable=False)
+    role: Mapped[str] = mapped_column(Text, nullable=True)

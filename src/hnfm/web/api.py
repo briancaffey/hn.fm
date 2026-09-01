@@ -1498,6 +1498,9 @@ async def create_digest(request: dict = Body(default={})):
             "fmt": request.get("format"),
             "send": bool(request.get("send", False)),
             "score_first": bool(request.get("score_first", True)),
+            "shape": request.get("shape") or "daily",
+            "skip": int(request.get("skip") or 0),
+            "exclude_recent_days": int(request.get("exclude_recent_days", 7)),
         },
         queue="hnfm_tasks",
     )
@@ -1573,3 +1576,101 @@ async def send_existing_digest(slug: str):
             except DeliveryError as e:
                 raise HTTPException(status_code=502, detail=str(e))
     raise HTTPException(status_code=404, detail="Digest not found")
+
+
+# Live activity stream
+@app.get("/api/activity/stream", tags=["activity"])
+async def activity_stream(after: int = 0, poll_ms: int = 1000):
+    """Server-sent events: pipeline steps as they start and finish.
+
+    Polls `pipeline_steps` rather than using Redis pub/sub. The table already
+    is the event log — every stage writes a row on entry and updates it on
+    exit — so a second event path would be a second source of truth that can
+    disagree with the audit trail the UI links to.
+
+    Two cursors are needed, not one. `id` catches newly started steps, but a
+    step's interesting transition is running -> ok, which mutates an existing
+    row and never advances the max id. So finished rows are re-emitted by
+    watching `finished_at`. Clients dedupe on (id, status).
+    """
+    import asyncio
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import text as _text
+    from ..db import db_session
+
+    async def events():
+        cursor = after
+        if cursor < 0:
+            # after=-1 means "only what happens from now on". A live view that
+            # replayed the whole audit trail on connect would take minutes to
+            # reach the present and bury the work actually running.
+            with db_session() as s0:
+                cursor = int(
+                    s0.execute(_text("SELECT COALESCE(MAX(id), 0) FROM pipeline_steps"))
+                    .scalar() or 0
+                )
+        # Start slightly in the past so a step that finished during connection
+        # setup is not missed entirely.
+        seen_finished = datetime.utcnow() - timedelta(seconds=5)
+        # Bounded so a long-lived tab cannot grow this without limit.
+        emitted: dict = {}
+
+        yield f": connected, cursor={cursor}\n\n"
+        while True:
+            try:
+                with db_session() as s:
+                    rows = s.execute(_text("""
+                        SELECT id, item_id, run, seg, stage, step_key, status,
+                               started_at, finished_at, seconds, model, error
+                        FROM pipeline_steps
+                        WHERE id > :cursor
+                           OR (finished_at IS NOT NULL AND finished_at > :since)
+                           OR status = 'running'
+                        ORDER BY id ASC LIMIT 200
+                    """), {"cursor": cursor, "since": seen_finished}).mappings().all()
+
+                seen_finished = datetime.utcnow()
+                for r in rows:
+                    cursor = max(cursor, int(r["id"]))
+                    key = int(r["id"])
+                    if emitted.get(key) == r["status"]:
+                        continue  # unchanged since last emit
+                    emitted[key] = r["status"]
+                    payload = {
+                        "id": key, "item_id": r["item_id"], "run": r["run"],
+                        "seg": r["seg"], "stage": r["stage"],
+                        "step_key": r["step_key"], "status": r["status"],
+                        "seconds": float(r["seconds"]) if r["seconds"] else None,
+                        "model": r["model"], "error": r["error"],
+                        "started_at": r["started_at"].isoformat() if r["started_at"] else None,
+                    }
+                    yield f"data: {json.dumps(payload)}\n\n"
+
+                if len(emitted) > 2000:
+                    # Keep only what could still change; finished steps never
+                    # transition again.
+                    emitted = {k: v for k, v in emitted.items() if v == "running"}
+
+                # Comment frame doubles as a keepalive: proxies drop an idle
+                # SSE connection, and a quiet pipeline is the normal case.
+                yield ": keepalive\n\n"
+                await asyncio.sleep(max(0.25, poll_ms / 1000))
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"activity stream error: {e}")
+                yield f": error {str(e)[:80]}\n\n"
+                await asyncio.sleep(2)
+
+    return StreamingResponse(
+        events(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            # Nuxt's dev proxy buffers by default; without this the stream
+            # arrives in chunks long after the work happened.
+            "X-Accel-Buffering": "no",
+        },
+    )
