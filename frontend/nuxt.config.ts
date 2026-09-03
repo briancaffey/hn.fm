@@ -7,6 +7,11 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
 
+  // Node resolves the default host `localhost` to ::1 on macOS, so the dev
+  // server would listen on [::1]:3000 only — 127.0.0.1:3000 refused the
+  // connection and Chrome showed an error page. Bind both stacks.
+  devServer: { host: '0.0.0.0', port: 3000 },
+
   nitro: {
     devProxy: {
       '/api': {

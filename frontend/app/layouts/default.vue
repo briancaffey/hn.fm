@@ -22,7 +22,6 @@ const navItems: NavItem[] = [
   { label: 'Live', to: '/live', icon: 'lucide:radio', match: '/live' },
   { label: 'Observability', to: '/observability', icon: 'lucide:activity', match: '/observability' },
   { label: 'Services', to: '/services', icon: 'lucide:server', match: '/services' },
-  { label: 'Admin', to: '/admin', icon: 'lucide:shield', match: '/admin' },
 ]
 
 function isActive(item: NavItem): boolean {
