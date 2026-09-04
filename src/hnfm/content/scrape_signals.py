@@ -79,7 +79,15 @@ def _boilerplate_ratio(text: str) -> float:
 
 
 def _looks_like_stub(text: str, chars: int) -> bool:
-    """Short AND wall-shaped. Both conditions matter — see _STUB_MARKERS."""
+    """Short AND wall-shaped. Both conditions matter — see _STUB_MARKERS.
+
+    Deliberately NOT length-only. A short genuine post ("We shipped a new
+    compiler backend today") is not a paywall stub, and `summarize()` reports
+    this flag to the model as "looks like a paywall/consent stub" — saying that
+    about a real short post would be a lie. Shortness is already handled, twice
+    over: `producibility_ceiling` caps anything under 400 chars, and the
+    scrape-time gate stops it before triage.
+    """
     if chars > 1500:
         return False
     low = text.lower()

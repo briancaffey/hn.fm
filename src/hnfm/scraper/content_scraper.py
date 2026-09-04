@@ -9,6 +9,17 @@ from dataclasses import dataclass, field
 logger = logging.getLogger(__name__)
 
 
+# Below this an "archive" is an archived error page, not the article. Real
+# scrapes in this corpus average ~18,000 characters; the two wayback hits that
+# reached triage averaged 43.
+MIN_ARCHIVE_CHARS = 500
+
+# A story submitted less recently than this may have been archived; below it,
+# the Wayback lookup is a guaranteed miss. Most `newstories` items are hours
+# old, and every failed scrape on one was paying for the round trip.
+MIN_HOURS_FOR_ARCHIVE = 24
+
+
 def get_wayback_url(url: str) -> Optional[str]:
     """Get the closest Wayback Machine URL for a given URL.
 
@@ -99,15 +110,33 @@ class ContentScraper:
         else:
             return {"title": "Error", "content": "", "url": url}
 
-    def scrape_url(self, url: str) -> ScrapedContent:
+    def scrape_url(
+        self, url: str, submitted_hours_ago: Optional[float] = None
+    ) -> ScrapedContent:
         """Scrape content from a URL with Wayback Machine fallback.
 
         Args:
             url: URL to scrape
+            submitted_hours_ago: age of the HN item, when known. A story
+                submitted today has not been archived yet, so the Wayback
+                lookup is a guaranteed miss and is skipped.
 
         Returns:
             ScrapedContent object
         """
+        from . import scrape_cache
+
+        # A URL that failed recently will fail again, and the retry costs a
+        # full firecrawl timeout plus a Wayback lookup. Observed: the same
+        # Twitter URL attempted twice within an hour, failing identically.
+        cached = scrape_cache.recent_failure(url)
+        if cached:
+            logger.info(f"Skipping {url}: {cached}")
+            return ScrapedContent(
+                title="Error", content="", url=url, success=False,
+                error=f"Skipped without retrying: {cached}",
+            )
+
         try:
             logger.info(f"Extracting content from: {url}")
 
@@ -116,8 +145,23 @@ class ContentScraper:
 
         except Exception as e:
             logger.warning(f"Failed to scrape original URL {url}: {e}")
+            scrape_cache.record_failure(url, str(e))
 
-            # Try Wayback Machine as fallback
+            # Try Wayback Machine as fallback. Skipped for a fresh story:
+            # nothing has archived a URL submitted hours ago, so the lookup is
+            # a guaranteed miss that every failed scrape was paying for.
+            if (
+                submitted_hours_ago is not None
+                and submitted_hours_ago < MIN_HOURS_FOR_ARCHIVE
+            ):
+                logger.info(
+                    f"Skipping Wayback for {url}: submitted "
+                    f"{submitted_hours_ago:.1f}h ago, too recent to be archived"
+                )
+                return ScrapedContent(
+                    title="Error", content="", url=url, success=False,
+                    error=f"Scraping failed, too recent for a Wayback archive: {e}",
+                )
             wayback_url = get_wayback_url(url)
             if wayback_url:
                 try:
@@ -125,6 +169,17 @@ class ContentScraper:
                         f"Attempting to scrape Wayback Machine URL: {wayback_url}"
                     )
                     archived = self._scrape_with_local_firecrawl(wayback_url)
+                    # An archive can "succeed" while returning the archived
+                    # copy of an error page. Observed: 43 characters of an HTTP
+                    # status page, recorded as source="wayback", fallback=False
+                    # — so everything downstream read it as a real article.
+                    # Real scrapes in this corpus average ~18,000 characters.
+                    if len(archived.content or "") < MIN_ARCHIVE_CHARS:
+                        raise RuntimeError(
+                            f"Wayback archive has only "
+                            f"{len(archived.content or '')} chars — an error "
+                            f"page, not the article"
+                        )
                     archived.source = "wayback"
                     return archived
                 except Exception as wayback_error:

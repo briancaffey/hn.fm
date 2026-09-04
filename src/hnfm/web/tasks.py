@@ -1,6 +1,7 @@
 """Celery tasks for Hacker News operations"""
 
 import os
+import time
 import logging
 from typing import Dict
 from datetime import datetime
@@ -233,7 +234,14 @@ def process_hn_item_run(
                     ).strip()
                     scrape_source = "hn_text"
                 else:
-                    content_raw, scrape_source = scrape_url_with_source(url)
+                    # Age lets the scraper skip a Wayback lookup that cannot
+                    # hit for a story submitted hours ago.
+                    _age_h = None
+                    if getattr(item, "time", None):
+                        _age_h = max(
+                            0.0, (time.time() - float(item.time)) / 3600.0
+                        )
+                    content_raw, scrape_source = scrape_url_with_source(url, _age_h)
             except Exception as scrape_err:
                 logger.warning(
                     f"⚠️ Scrape failed ({scrape_err}); falling back to HN title/text"

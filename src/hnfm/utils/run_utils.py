@@ -40,7 +40,7 @@ def scrape_url_firecrawl(url: str) -> str:
     return scrape_url_with_source(url)[0]
 
 
-def scrape_url_with_source(url: str) -> tuple:
+def scrape_url_with_source(url: str, submitted_hours_ago: float = None) -> tuple:
     """`(content, source)` where source is "firecrawl" or "wayback".
 
     Which path answered is a `producibility` input (plans/09) — an archived
@@ -52,7 +52,7 @@ def scrape_url_with_source(url: str) -> tuple:
         from ..scraper.content_scraper import ContentScraper
 
         scraper = ContentScraper()
-        scraped = scraper.scrape_url(url)
+        scraped = scraper.scrape_url(url, submitted_hours_ago)
 
         if not scraped.success:
             raise RuntimeError(f"Failed to scrape {url}: {scraped.error}")
