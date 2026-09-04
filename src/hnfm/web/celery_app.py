@@ -122,6 +122,7 @@ celery_app.conf.task_routes = {
     "hnfm.web.tasks.hn_fetch_item": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.process_hn_item_run": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.score_run": {"queue": QUEUE_TRIAGE},
+    "hnfm.web.tasks.enrich_run": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.build_story_brief": {"queue": QUEUE_TRIAGE},
     "hnfm.web.tasks.build_digest": {"queue": QUEUE_DIGEST},
     # Everything below contends for the GPU or ffmpeg and must stay serial.

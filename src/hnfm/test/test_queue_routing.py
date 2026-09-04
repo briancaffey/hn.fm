@@ -23,6 +23,7 @@ EXPECTED = {
     "hnfm.web.tasks.hn_fetch_item": QUEUE_INGEST,
     "hnfm.web.tasks.process_hn_item_run": QUEUE_INGEST,
     "hnfm.web.tasks.score_run": QUEUE_TRIAGE,
+    "hnfm.web.tasks.enrich_run": QUEUE_INGEST,
     "hnfm.web.tasks.build_story_brief": QUEUE_TRIAGE,
     "hnfm.web.tasks.build_digest": QUEUE_DIGEST,
     "hnfm.web.tasks.full_pipeline": QUEUE_RENDER,

@@ -195,4 +195,81 @@ class TestRunTasks:
         assert processed_run.source_url == "https://example.com"
         assert processed_run.content_clean == _ARTICLE.strip()
         assert processed_run.summary == "Summary"
-        assert processed_run.tags == ["tech"]
+        # Cosmetic metadata is now written as deterministic placeholders and
+        # filled in by `enrich_run` after triage passes — see issue #3.
+        assert processed_run.tags == tasks.DEFAULT_TAGS
+        assert processed_run.short_description == "Summary"
+
+    def test_ingest_does_not_spend_llm_calls_on_cosmetic_metadata(self):
+        """The four enrich calls used to run before triage, so every ingested
+        story paid for them — and most never become content."""
+        repo.upsert_item(
+            HNItem(id=125, title="Test Article", url="https://example.com")
+        )
+
+        with (
+            patch.object(
+                tasks, "scrape_url_with_source", return_value=(_ARTICLE, "firecrawl")
+            ),
+            patch.object(tasks, "summarize_text_v1", return_value="Summary"),
+            patch.object(tasks, "generate_short_description") as desc,
+            patch.object(tasks, "generate_tags") as tags,
+            patch.object(tasks, "generate_emoji") as emoji,
+            patch.object(tasks, "generate_haiku") as haiku,
+        ):
+            process_hn_item_run(125, 1)
+
+        for mocked in (desc, tags, emoji, haiku):
+            mocked.assert_not_called()
+
+    def test_enrich_run_fills_in_the_placeholders(self):
+        repo.upsert_item(
+            HNItem(id=126, title="Test Article", url="https://example.com")
+        )
+        with (
+            patch.object(
+                tasks, "scrape_url_with_source", return_value=(_ARTICLE, "firecrawl")
+            ),
+            patch.object(tasks, "summarize_text_v1", return_value="Summary"),
+        ):
+            process_hn_item_run(126, 1)
+
+        assert repo.get_run(126, 1).tags == tasks.DEFAULT_TAGS
+
+        with (
+            patch.object(tasks, "generate_short_description", return_value="Short"),
+            patch.object(tasks, "generate_tags", return_value=["ai", "ports"]),
+            patch.object(tasks, "generate_emoji", return_value=["1", "2", "3", "4"]),
+            patch.object(tasks, "generate_haiku", return_value="a\nb\nc"),
+        ):
+            tasks.enrich_run(126, 1)
+
+        enriched = repo.get_run(126, 1)
+        assert enriched.tags == ["ai", "ports"]
+        assert enriched.short_description == "Short"
+        assert enriched.haiku == "a\nb\nc"
+
+    def test_enrich_run_keeps_placeholders_when_a_field_fails(self):
+        """A flaky response must not fail the run; the placeholder already in
+        place is a serviceable value."""
+        repo.upsert_item(
+            HNItem(id=127, title="Test Article", url="https://example.com")
+        )
+        with (
+            patch.object(
+                tasks, "scrape_url_with_source", return_value=(_ARTICLE, "firecrawl")
+            ),
+            patch.object(tasks, "summarize_text_v1", return_value="Summary"),
+        ):
+            process_hn_item_run(127, 1)
+
+        with (
+            patch.object(tasks, "generate_short_description", return_value="Short"),
+            patch.object(tasks, "generate_tags", side_effect=RuntimeError("flaky")),
+            patch.object(tasks, "generate_emoji", return_value=["1", "2", "3", "4"]),
+            patch.object(tasks, "generate_haiku", return_value="a\nb\nc"),
+        ):
+            result = tasks.enrich_run(127, 1)
+
+        assert result["status"] == "ok"
+        assert repo.get_run(127, 1).tags == tasks.DEFAULT_TAGS

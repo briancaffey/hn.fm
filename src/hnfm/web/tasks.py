@@ -93,6 +93,14 @@ NO_CONTENT_CEILING = 20
 # `chars < 400` step in producibility_ceiling.
 SUBSTANTIAL_TEXT_CHARS = 400
 
+# Placeholders for the cosmetic metadata fields until `enrich_run` fills them
+# in for a story that passed triage.
+DEFAULT_TAGS = ["tech", "news"]
+DEFAULT_EMOJI = ["📰", "✨", "🔥", "💡"]
+DEFAULT_HAIKU = (
+    "A story unfolds\nthrough pixels and quiet code\ninsight takes its form"
+)
+
 
 def _abandon_empty_run(item_id, run, source_url, content_raw, content_clean,
                        signals, ceiling, outputs_dir):
@@ -292,24 +300,19 @@ def process_hn_item_run(
             summary = summarize_text_v1(content_clean)
             st.set(summary=summary)
 
-        # Step 6: Generate additional content fields. These are cosmetic metadata
-        # — a flaky LLM response must NOT fail the whole video. Each falls back.
-        def _safe(fn, default, label):
-            try:
-                return fn()
-            except Exception as e:
-                logger.warning(f"{label} fell back to default (non-fatal): {e}")
-                return default
-
-        logger.info(f"Generating metadata for item {item_id}, run {run}")
-        with steps.step(item_id, run, None, "enrich", "enrich", {}) as st:
-            short_description = _safe(lambda: generate_short_description(summary),
-                                      (summary or "")[:160], "short_description")
-            tags = _safe(lambda: generate_tags(summary), ["tech", "news"], "tags")
-            emoji = _safe(lambda: generate_emoji(summary), ["📰", "✨", "🔥", "💡"], "emoji")
-            haiku = _safe(lambda: generate_haiku(content_clean),
-                          "A story unfolds\nthrough pixels and quiet code\ninsight takes its form", "haiku")
-            st.set(short_description=short_description, tags=tags, emoji=emoji, haiku=haiku)
+        # Step 6: Save with deterministic placeholders. The four cosmetic
+        # fields are LLM calls, and they used to run HERE — before triage, the
+        # gate that decides whether the story is worth anything. That put five
+        # LLM calls ahead of the decision, and most stories never become
+        # content: 779 items ingested produced 154 segments.
+        #
+        # `enrich_run` fills these in properly, after triage says the story is
+        # worth it. Until then the deterministic defaults keep the stories list
+        # rendering — a summary excerpt reads better than a blank cell, and it
+        # costs nothing.
+        short_description = (summary or "")[:160]
+        tags, emoji = DEFAULT_TAGS[:], DEFAULT_EMOJI[:]
+        haiku = DEFAULT_HAIKU
 
         # Step 7: Build ProcessedRun
         processed_run = ProcessedRun(
@@ -1983,6 +1986,9 @@ def score_run(item_id: int, run: int) -> Dict[str, any]:
     # stories. See triage.deserves_brief for why it is rank-based now.
     if triage.deserves_brief(score):
         build_story_brief.apply_async(args=[item_id, run])
+        # The cosmetic metadata is worth its four LLM calls for the same
+        # stories a brief is worth two for — the ones we might actually make.
+        enrich_run.apply_async(args=[item_id, run])
     else:
         logger.info(
             f"story brief skipped for {item_id}:{run} "
@@ -1990,6 +1996,56 @@ def score_run(item_id: int, run: int) -> Dict[str, any]:
         )
 
     return {"status": "ok", "item_id": item_id, "run": run, **score}
+
+
+@celery_app.task(
+    name="hnfm.web.tasks.enrich_run", time_limit=600, soft_time_limit=600
+)
+def enrich_run(item_id: int, run: int) -> Dict[str, any]:
+    """Fill in the cosmetic metadata for a story that passed triage.
+
+    short_description, tags, emoji and haiku are four LLM calls that exist to
+    make the stories list look good. They used to run inside
+    `process_hn_item_run`, BEFORE triage — so every ingested story paid for
+    them, and most never become content (779 items ingested, 154 segments).
+
+    Each field falls back independently: a flaky response must not fail the
+    run, and the deterministic placeholder already written at ingest is a
+    perfectly serviceable value to keep.
+    """
+    pr = get_run(item_id, run)
+    if not pr:
+        raise RuntimeError(f"Run {item_id}:{run} not found")
+
+    def _safe(fn, default, label):
+        try:
+            return fn()
+        except Exception as e:
+            logger.warning(f"{label} fell back to default (non-fatal): {e}")
+            return default
+
+    summary = pr.summary or ""
+    with steps.step(item_id, run, None, "enrich", "enrich", {}) as st:
+        short_description = _safe(
+            lambda: generate_short_description(summary), summary[:160],
+            "short_description",
+        )
+        tags = _safe(lambda: generate_tags(summary), DEFAULT_TAGS[:], "tags")
+        emoji = _safe(lambda: generate_emoji(summary), DEFAULT_EMOJI[:], "emoji")
+        haiku = _safe(
+            lambda: generate_haiku(pr.content_clean or ""), DEFAULT_HAIKU, "haiku"
+        )
+        st.set(short_description=short_description, tags=tags, emoji=emoji,
+               haiku=haiku)
+
+    pr.short_description = short_description
+    pr.tags = tags
+    pr.emoji = emoji
+    pr.haiku = haiku
+    save_processed_run(pr, outputs_root=os.getenv("OUTPUTS_DIR", "/app/outputs"))
+
+    logger.info(f"✨ Enriched {item_id}:{run}")
+    return {"status": "ok", "item_id": item_id, "run": run}
 
 
 @celery_app.task(
