@@ -25,6 +25,13 @@ dependencies = [
     "tqdm>=4.66.0",
     "pyyaml>=6.0.0",
     "feedparser>=6.0.0",
+    # Source-specific extraction. Firecrawl returns empty markdown for YouTube
+    # and HTTP 500 for PDFs, and both are common on HN — a PDF usually carries
+    # the most substantive content of any link on the front page. Both of these
+    # are parsers, not data services: the PDF one is pure-local, and the
+    # transcript one reads the same youtube.com URL the story already points at.
+    "pypdf>=5.0.0",
+    "youtube-transcript-api>=0.6.2",
     # Web API Dependencies
     "fastapi>=0.104.0",
     "uvicorn[standard]>=0.24.0",

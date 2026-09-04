@@ -137,6 +137,20 @@ class ContentScraper:
                 error=f"Skipped without retrying: {cached}",
             )
 
+        # Source-specific handlers first. For YouTube and PDFs firecrawl is not
+        # a fallback worth waiting for — it returns empty markdown for the one
+        # and HTTP 500 for the other, deterministically.
+        from . import source_handlers
+
+        special, special_source = source_handlers.extract(url)
+        if special:
+            logger.info(f"Extracted via {special_source}: {len(special)} chars")
+            result = ScrapedContent(
+                title="", content=special, url=url, success=True
+            )
+            result.source = special_source
+            return result
+
         try:
             logger.info(f"Extracting content from: {url}")
 
