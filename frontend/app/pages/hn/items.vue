@@ -2,7 +2,7 @@
 import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
 import { Icon } from '#components'
-import Pagination from '~/components/Pagination.vue'
+import PaginationBar from '~/components/PaginationBar.vue'
 import { usePaginatedFetch } from '~/composables/usePaginatedFetch'
 
 interface Story {
@@ -184,7 +184,10 @@ async function generate(itemId: number) {
   } finally {
     generating.value.delete(itemId)
     setTimeout(() => {
-      delete rowFeedback.value[itemId]
+      // Rebuilt without the key rather than deleted: a dynamic delete on a
+      // reactive object is both a lint error and a deopt.
+      const { [itemId]: _removed, ...rest } = rowFeedback.value
+      rowFeedback.value = rest
     }, 4000)
   }
 }
@@ -477,7 +480,7 @@ function goToItem(id: number) {
 
     <!-- Pagination -->
     <div class="shrink-0 border-t bg-card px-4 py-2">
-      <Pagination
+      <PaginationBar
         :page="page"
         :total="total"
         :limit="limit"

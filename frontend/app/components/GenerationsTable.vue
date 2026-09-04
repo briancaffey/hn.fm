@@ -132,7 +132,7 @@
                       label="English"
                       :src="captionsUrl(gen)"
                       default
-                    />
+                    >
                     Your browser does not support the video tag.
                   </video>
                 </div>

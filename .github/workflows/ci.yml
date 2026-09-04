@@ -1,0 +1,44 @@
+# Lint and tests, so neither can quietly rot again. Both were broken on main
+# when this was added: 31 ESLint errors (one of them a real bug — a stray quote
+# in `<span v-else">` meant both branches rendered at once) and 3 stale Python
+# tests.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  frontend:
+    name: Frontend lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: yarn
+          cache-dependency-path: frontend/yarn.lock
+      - run: yarn install --frozen-lockfile
+      - run: yarn lint
+
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+      - run: uv sync --frozen
+      # The suite runs against a throwaway SQLite DB with no network — see the
+      # autouse fixtures in src/hnfm/test/conftest.py. Nothing here should need
+      # Postgres, Redis, or any .lan inference host; a test that does is a bug
+      # in the test.
+      - run: uv run pytest src/hnfm/test -q

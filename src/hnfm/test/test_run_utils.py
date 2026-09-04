@@ -5,6 +5,7 @@ import os
 from datetime import datetime
 
 import pytest
+from unittest.mock import patch
 
 from ..db import repo
 from ..utils.run_utils import (
@@ -70,11 +71,19 @@ class TestRunUtils:
         cleaned2 = clean_content(text2)
         assert cleaned2 == "Line 1 Line 2 Line 3"
 
-    def test_scrape_url_firecrawl_network_skip(self):
-        """Test that scrape_url_firecrawl raises error when network is unavailable."""
-        # This test verifies the function handles network errors gracefully
-        with pytest.raises(RuntimeError, match="Failed to scrape"):
-            scrape_url_firecrawl("https://example.com")
+    def test_scrape_url_firecrawl_raises_when_the_backend_is_unreachable(self):
+        """A scrape failure must surface as RuntimeError.
+
+        This used to assert the failure without arranging it, so it only
+        passed when firecrawl happened to be unreachable from the test host —
+        and failed in any environment where the service was actually up.
+        """
+        with patch(
+            "hnfm.scraper.content_scraper.ContentScraper._scrape_with_local_firecrawl",
+            side_effect=RuntimeError("connection refused"),
+        ):
+            with pytest.raises(RuntimeError, match="Failed to scrape"):
+                scrape_url_firecrawl("https://example.com")
 
     def test_summarize_text_v1_network_skip(self):
         """Test that summarize_text_v1 handles network errors gracefully."""

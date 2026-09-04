@@ -151,8 +151,8 @@
             <Button
               variant="outline"
               size="sm"
-              @click="toggleAudioExpanded"
               class="flex items-center gap-2"
+              @click="toggleAudioExpanded"
             >
               <Icon :name="audioExpanded ? 'lucide:chevron-up' : 'lucide:chevron-down'" class="h-4 w-4" />
               {{ audioExpanded ? 'Collapse' : 'Expand' }}
@@ -175,8 +175,8 @@
               <Button
                 v-if="segment.script && !isGeneratingAudio"
                 size="sm"
-                @click="generateAudio"
                 class="bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
+                @click="generateAudio"
               >
                 <span v-if="isGeneratingAudio">Generating...</span>
                 <span v-else>🎵 Generate Audio</span>
@@ -184,8 +184,8 @@
               <Button
                 v-if="segment.audio_ready && !isRegeneratingAudio"
                 size="sm"
-                @click="regenerateAudio"
                 class="bg-orange-600 hover:bg-orange-700 text-white border-orange-600"
+                @click="regenerateAudio"
               >
                 <span v-if="isRegeneratingAudio">Regenerating...</span>
                 <span v-else>🔄 Regenerate All</span>
@@ -214,7 +214,7 @@
               <h3 class="text-lg font-semibold">Audio Sections</h3>
               <div class="space-y-3">
                 <div
-                  v-for="(section, index) in sections"
+                  v-for="section in sections"
                   :key="section.section"
                   class="bg-muted/30 p-4 rounded-lg border"
                 >
@@ -235,8 +235,8 @@
                         v-if="section.audio_path && !isRegeneratingSection[section.section]"
                         size="sm"
                         variant="outline"
-                        @click="regenerateSection(section.section)"
                         class="text-orange-600 border-orange-600 hover:bg-orange-50"
+                        @click="regenerateSection(section.section)"
                       >
                         <span v-if="isRegeneratingSection[section.section]">Regenerating...</span>
                         <span v-else>🔄</span>
@@ -254,8 +254,8 @@
                       <Button
                         size="sm"
                         variant="ghost"
-                        @click="startEditingSection(section.section)"
                         class="mt-2 text-blue-600 hover:text-blue-700"
+                        @click="startEditingSection(section.section)"
                       >
                         ✏️ Edit
                       </Button>
@@ -270,12 +270,12 @@
                       <div class="flex gap-2">
                         <Button
                           size="sm"
-                          @click="saveSectionText(section.section)"
                           :disabled="isSavingSection[section.section]"
                           class="bg-green-600 hover:bg-green-700 text-white"
+                          @click="saveSectionText(section.section)"
                         >
                           <span v-if="isSavingSection[section.section]">Saving...</span>
-                          <span v-else">💾 Save</span>
+                          <span v-else>💾 Save</span>
                         </Button>
                         <Button
                           size="sm"
@@ -319,8 +319,8 @@
             <Button
               variant="outline"
               size="sm"
-              @click="toggleImagesExpanded"
               class="flex items-center gap-2"
+              @click="toggleImagesExpanded"
             >
               <Icon :name="imagesExpanded ? 'lucide:chevron-up' : 'lucide:chevron-down'" class="h-4 w-4" />
               {{ imagesExpanded ? 'Collapse' : 'Expand' }}
@@ -340,8 +340,8 @@
               <Button
                 v-if="segment.script && !isGeneratingImages"
                 size="sm"
-                @click="generateImages"
                 class="bg-green-600 hover:bg-green-700 text-white border-green-600"
+                @click="generateImages"
               >
                 <span v-if="isGeneratingImages">Generating...</span>
                 <span v-else>🖼️ Generate Images</span>
@@ -349,8 +349,8 @@
               <Button
                 v-if="segment.images_ready && !isRegeneratingImages"
                 size="sm"
-                @click="regenerateImages"
                 class="bg-orange-600 hover:bg-orange-700 text-white border-orange-600"
+                @click="regenerateImages"
               >
                 <span v-if="isRegeneratingImages">Regenerating...</span>
                 <span v-else>🔄 Regenerate All</span>
@@ -365,7 +365,7 @@
               <h3 class="text-lg font-semibold">Generated Images</h3>
               <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <div
-                  v-for="(image, index) in images"
+                  v-for="image in images"
                   :key="image.index"
                   class="bg-muted/30 p-4 rounded-lg border"
                 >
@@ -383,8 +383,8 @@
                         v-if="image.image_path && !isRegeneratingImage[image.index]"
                         size="sm"
                         variant="outline"
-                        @click="regenerateImage(image.index)"
                         class="text-orange-600 border-orange-600 hover:bg-orange-50"
+                        @click="regenerateImage(image.index)"
                       >
                         <span v-if="isRegeneratingImage[image.index]">Regenerating...</span>
                         <span v-else>🔄</span>
@@ -399,7 +399,7 @@
                       :alt="`Image ${image.index}`"
                       class="w-full h-48 object-cover rounded border"
                       @error="handleImageError"
-                    />
+                    >
                   </div>
                   <div v-else class="mb-3 bg-muted/50 p-8 rounded text-center text-muted-foreground">
                     <p class="text-sm">No image generated yet.</p>
@@ -415,8 +415,8 @@
                       <Button
                         size="sm"
                         variant="ghost"
-                        @click="startEditingImageLine(image.index)"
                         class="mt-2 text-blue-600 hover:text-blue-700"
+                        @click="startEditingImageLine(image.index)"
                       >
                         ✏️ Edit
                       </Button>
@@ -431,12 +431,12 @@
                       <div class="flex gap-2">
                         <Button
                           size="sm"
-                          @click="saveImageLineText(image.index)"
                           :disabled="isSavingImageLine[image.index]"
                           class="bg-green-600 hover:bg-green-700 text-white"
+                          @click="saveImageLineText(image.index)"
                         >
                           <span v-if="isSavingImageLine[image.index]">Saving...</span>
-                          <span v-else">💾 Save</span>
+                          <span v-else>💾 Save</span>
                         </Button>
                         <Button
                           size="sm"
@@ -459,8 +459,8 @@
                       <Button
                         size="sm"
                         variant="ghost"
-                        @click="startEditingImagePrompt(image.index)"
                         class="mt-2 text-blue-600 hover:text-blue-700"
+                        @click="startEditingImagePrompt(image.index)"
                       >
                         ✏️ Edit
                       </Button>
@@ -475,12 +475,12 @@
                       <div class="flex gap-2">
                         <Button
                           size="sm"
-                          @click="saveImagePrompt(image.index)"
                           :disabled="isSavingImagePrompt[image.index]"
                           class="bg-green-600 hover:bg-green-700 text-white"
+                          @click="saveImagePrompt(image.index)"
                         >
                           <span v-if="isSavingImagePrompt[image.index]">Saving...</span>
-                          <span v-else">💾 Save</span>
+                          <span v-else>💾 Save</span>
                         </Button>
                         <Button
                           size="sm"
@@ -518,8 +518,8 @@
             <Button
               v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
               size="sm"
-              @click="generateVideo"
               class="bg-purple-600 hover:bg-purple-700 text-white border-purple-600"
+              @click="generateVideo"
             >
               <span v-if="isGeneratingVideo">Generating...</span>
               <span v-else>🎬 Generate Video</span>
@@ -540,7 +540,7 @@
                 label="English"
                 :src="getVideoUrl(segment.subtitles_path)"
                 default
-              />
+              >
               Your browser does not support the video tag.
             </video>
           </div>
@@ -559,8 +559,8 @@
             <Button
               variant="outline"
               size="sm"
-              @click="toggleXrayExpanded"
               class="flex items-center gap-2"
+              @click="toggleXrayExpanded"
             >
               <Icon :name="xrayExpanded ? 'lucide:chevron-up' : 'lucide:chevron-down'" class="h-4 w-4" />
               {{ xrayExpanded ? 'Collapse' : 'Expand' }}

@@ -30,16 +30,17 @@
         <div class="rounded-lg border bg-card p-4">
           <h2 class="mb-3 font-semibold">Where the time goes <span class="text-xs font-normal text-muted-foreground">(avg / render)</span></h2>
           <div class="mb-3 flex h-7 w-full overflow-hidden rounded">
-            <div v-for="s in STAGES" :key="s"
+            <div
+v-for="s in STAGES" :key="s"
               :style="{ width: pct(avgStage[s], avgTotal) + '%', background: COLORS[s] }"
-              :title="`${s}: ${fmt(avgStage[s])} (${pct(avgStage[s], avgTotal)}%)`"></div>
+              :title="`${s}: ${fmt(avgStage[s])} (${pct(avgStage[s], avgTotal)}%)`"/>
           </div>
           <div class="space-y-1.5">
             <div v-for="s in STAGES" :key="s" class="flex items-center gap-2 text-xs">
-              <span class="inline-block h-3 w-3 rounded-sm" :style="{ background: COLORS[s] }"></span>
+              <span class="inline-block h-3 w-3 rounded-sm" :style="{ background: COLORS[s] }"/>
               <span class="w-28 capitalize">{{ s.replace('_',' ') }}</span>
               <div class="h-2 flex-1 rounded bg-muted">
-                <div class="h-2 rounded" :style="{ width: pct(avgStage[s], maxAvgStage) + '%', background: COLORS[s] }"></div>
+                <div class="h-2 rounded" :style="{ width: pct(avgStage[s], maxAvgStage) + '%', background: COLORS[s] }"/>
               </div>
               <span class="w-20 text-right tabular-nums">{{ fmt(avgStage[s]) }}</span>
               <span class="w-10 text-right text-muted-foreground tabular-nums">{{ pct(avgStage[s], avgTotal) }}%</span>
@@ -54,7 +55,7 @@
             <div v-for="s in STAGES" :key="s" class="flex items-center gap-2 text-xs">
               <span class="w-28 capitalize">{{ s.replace('_',' ') }}</span>
               <div class="h-2 flex-1 rounded bg-muted">
-                <div class="h-2 rounded bg-orange-500" :style="{ width: pct(avgTok[s], maxAvgTok) + '%' }"></div>
+                <div class="h-2 rounded bg-orange-500" :style="{ width: pct(avgTok[s], maxAvgTok) + '%' }"/>
               </div>
               <span class="w-24 text-right tabular-nums">{{ avgTok[s] ? Math.round(avgTok[s]).toLocaleString() : '—' }}</span>
             </div>
@@ -72,7 +73,7 @@
         <div class="flex h-40 items-end gap-1">
           <div v-for="r in trend" :key="r.key" class="group relative flex-1" :title="title(r) + ' — ' + fmt(r.total_seconds)">
             <div class="flex w-full flex-col-reverse overflow-hidden rounded-t" :style="{ height: pct(r.total_seconds, maxTotal) + '%' }">
-              <div v-for="s in STAGES" :key="s" :style="{ height: pct(stageSec(r,s), r.total_seconds||1) + '%', background: COLORS[s] }"></div>
+              <div v-for="s in STAGES" :key="s" :style="{ height: pct(stageSec(r,s), r.total_seconds||1) + '%', background: COLORS[s] }"/>
             </div>
           </div>
         </div>
@@ -91,7 +92,7 @@
               <span class="hidden rounded bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-900 dark:bg-blue-900 dark:text-blue-100 sm:inline">{{ r.format || '16:9' }}</span>
               <!-- mini stacked bar -->
               <span class="hidden h-3 w-40 overflow-hidden rounded md:flex">
-                <span v-for="s in STAGES" :key="s" :style="{ width: pct(stageSec(r,s), r.total_seconds||1) + '%', background: COLORS[s] }"></span>
+                <span v-for="s in STAGES" :key="s" :style="{ width: pct(stageSec(r,s), r.total_seconds||1) + '%', background: COLORS[s] }"/>
               </span>
               <span class="w-16 text-right tabular-nums">{{ fmt(r.total_seconds) }}</span>
               <span class="w-20 text-right text-[11px] text-muted-foreground tabular-nums">{{ ((r.total_tokens_in||0)+(r.total_tokens_out||0)).toLocaleString() }} tok</span>
@@ -144,20 +145,48 @@ const COLORS: Record<string, string> = {
   images: '#f97316', media_plan: '#eab308', video: '#ef4444',
 }
 
-const records = ref<any[]>([])
+// The shape `metrics.finalize` writes (see src/hnfm/utils/metrics.py). Typed
+// out rather than left as `any` because this page is the only consumer, so a
+// backend field rename should break here rather than render blank.
+interface MetricsStage {
+  seconds?: number
+  llm_calls?: number
+  tokens_in?: number
+  tokens_out?: number
+}
+
+interface MetricsRecord {
+  item_id: number
+  run: number
+  seg: number
+  title: string | null
+  theme: string | null
+  format: string | null
+  status: string
+  partial_reason?: string
+  stages: Record<string, MetricsStage>
+  counts: Record<string, number>
+  total_seconds?: number
+  total_tokens_in?: number
+  total_tokens_out?: number
+  started_ts?: number
+  finished_ts?: number
+}
+
+const records = ref<MetricsRecord[]>([])
 const titles = ref<Record<number, string>>({})
 const open = ref<Record<string, boolean>>({})
 const loading = ref(true)
 
-function keyOf(r: any) { return `${r.item_id}-${r.run}-${r.seg}` }
+function keyOf(r: MetricsRecord) { return `${r.item_id}-${r.run}-${r.seg}` }
 function toggle(k: string) { open.value[k] = !open.value[k] }
-function stageSec(r: any, s: string) { return r.stages?.[s]?.seconds || 0 }
-function tok(r: any, s: string) {
+function stageSec(r: MetricsRecord, s: string) { return r.stages?.[s]?.seconds || 0 }
+function tok(r: MetricsRecord, s: string) {
   const st = r.stages?.[s]; if (!st) return ''
   const i = st.tokens_in || 0, o = st.tokens_out || 0
   return (i || o) ? `${i.toLocaleString()} / ${o.toLocaleString()}` : ''
 }
-function title(r: any) { return titles.value[r.item_id] || `Item ${r.item_id} · run ${r.run}` }
+function title(r: MetricsRecord) { return titles.value[r.item_id] || `Item ${r.item_id} · run ${r.run}` }
 function fmt(s: number) {
   if (!s) return '0s'
   if (s < 60) return `${s.toFixed(1)}s`
@@ -208,14 +237,27 @@ const cards = computed(() => {
 async function load() {
   loading.value = true
   try {
-    const resp: any = await $fetch(`${apiBase.value}/api/metrics?limit=200`)
+    const resp = await $fetch<{ records?: MetricsRecord[] }>(
+      `${apiBase.value}/api/metrics?limit=200`
+    )
     records.value = resp?.records || []
     // resolve titles (unique items, capped)
     const ids = [...new Set(records.value.map(r => r.item_id))].slice(0, 60)
     await Promise.all(ids.map(async (id) => {
-      try { const it: any = await $fetch(`${apiBase.value}/api/hn/items/${id}`); if (it?.title) titles.value[id] = it.title } catch (_) {}
+      try {
+        const it = await $fetch<{ title?: string }>(
+          `${apiBase.value}/api/hn/items/${id}`
+        )
+        if (it?.title) titles.value[id] = it.title
+      } catch {
+        // A missing title is cosmetic; the row falls back to "Item N · run M".
+      }
     }))
-  } catch (e) { records.value = [] } finally { loading.value = false }
+  } catch {
+    records.value = []
+  } finally {
+    loading.value = false
+  }
 }
 onMounted(load)
 </script>

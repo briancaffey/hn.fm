@@ -11,6 +11,7 @@ import base64
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", ".."))
 
 from hnfm.image.image_service_factory import ImageServiceFactory
+from hnfm.video.image_generator import ImageGenerationService
 
 
 class TestImageGenerationService:
@@ -21,7 +22,10 @@ class TestImageGenerationService:
         print("🧪 Testing Image Generation Service Initialization...")
 
         # Mock the config manager to avoid real config calls
-        with patch("hnfm.image.image_service_factory.config_manager") as mock_config:
+        with (
+            patch("hnfm.image.image_service_factory.config_manager") as mock_config,
+            patch("hnfm.video.image_generator.config_manager") as svc_config,
+        ):
             # Mock config values
             mock_config.get.side_effect = lambda key, default=None: {
                 "image_generation.backend": "NIM",
@@ -34,6 +38,9 @@ class TestImageGenerationService:
                 "image_generation.default_samples": 1,
                 "image_generation.output_directory": "images",
             }.get(key, default)
+            # The service reads config from its own module namespace, not the
+            # factory's — patch both or it picks up the live config.
+            svc_config.get.side_effect = mock_config.get.side_effect
 
             # Initialize service using factory
             service = ImageServiceFactory.create_image_service()
@@ -78,14 +85,11 @@ class TestImageGenerationService:
             # Mock successful API response
             mock_response = MagicMock()
             mock_response.status_code = 200
+            # The OpenAI-style images response the service actually parses:
+            # {"data": [{"b64_json": ...}]}. The old fixture mocked the shape
+            # the service *returns*, so it never exercised the parsing.
             mock_response.json.return_value = {
-                "artifacts": [
-                    {
-                        "base64": fake_base64_data,
-                        "seed": 12345,
-                        "finishReason": "SUCCESS",
-                    }
-                ]
+                "data": [{"b64_json": fake_base64_data}]
             }
             mock_response.raise_for_status.return_value = None
             mock_requests.return_value = mock_response
@@ -101,14 +105,16 @@ class TestImageGenerationService:
             assert "artifacts" in result
             assert len(result["artifacts"]) == 1
             assert result["artifacts"][0]["base64"] == fake_base64_data
-            assert result["artifacts"][0]["seed"] == 12345
 
             # Verify the API was called with correct parameters
             mock_requests.assert_called_once()
             call_args = mock_requests.call_args
-            assert call_args[0][0] == "http://localhost:7860/v1/infer"
+            # The endpoint moved to the OpenAI-style images route.
+            assert call_args[0][0] == "http://localhost:7860/v1/images/generations"
+            # flux2-klein takes an OpenAI-compatible payload: dimensions go
+            # as a single "size", not separate height/width.
             assert call_args[1]["json"]["prompt"] == test_prompt
-            assert call_args[1]["json"]["height"] == 1024
-            assert call_args[1]["json"]["width"] == 1024
+            assert call_args[1]["json"]["size"] == "1024x1024"
+            assert call_args[1]["json"]["response_format"] == "b64_json"
 
             print("✅ Image generation test passed")

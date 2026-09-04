@@ -89,7 +89,10 @@ export function usePaginatedFetch<T = Record<string, unknown>>(
     pending.value = true
     error.value = null
     try {
-      const data = await $fetch<Record<string, any>>(
+      // The envelope is generic across list endpoints: a data array under a
+      // per-endpoint key, plus pagination. `unknown` rather than `any` so the
+      // narrowing below stays honest.
+      const data = await $fetch<Record<string, unknown>>(
         `${config.public.apiBase}${endpoint}`,
         { params: buildParams() },
       )
@@ -107,16 +110,27 @@ export function usePaginatedFetch<T = Record<string, unknown>>(
 
   function updateQuery() {
     if (!syncQuery) return
-    const query: Record<string, string> = { ...route.query } as any
-    const setOrDelete = (key: string, value: string, defaultValue: string) => {
-      if (value && value !== defaultValue) query[key] = value
-      else delete query[key]
+    // Built fresh rather than mutated-and-deleted: a default-valued param
+    // should simply be absent from the URL, and constructing the object that
+    // way needs neither a dynamic delete nor an `any` cast over route.query
+    // (whose values are string | string[] | null).
+    const managed = ['page', 'limit', 'sort', 'dir', 'q']
+    const wanted: Array<[string, string, string]> = [
+      ['page', String(pagination.page.value), '1'],
+      ['limit', String(pagination.limit.value), String(defaultLimit)],
+      ['sort', sort.value, defaultSort],
+      ['dir', dir.value, defaultDir],
+      ['q', q.value, ''],
+    ]
+
+    const query: Record<string, string> = {}
+    // Anything this composable does not own is passed through untouched.
+    for (const [k, v] of Object.entries(route.query)) {
+      if (!managed.includes(k) && typeof v === 'string') query[k] = v
     }
-    setOrDelete('page', String(pagination.page.value), '1')
-    setOrDelete('limit', String(pagination.limit.value), String(defaultLimit))
-    setOrDelete('sort', sort.value, defaultSort)
-    setOrDelete('dir', dir.value, defaultDir)
-    setOrDelete('q', q.value, '')
+    for (const [key, value, defaultValue] of wanted) {
+      if (value && value !== defaultValue) query[key] = value
+    }
     router.replace({ query })
   }
 

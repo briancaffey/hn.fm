@@ -28,7 +28,7 @@
 
       <!-- Pagination -->
       <div v-if="pagination" class="mt-6">
-        <Pagination
+        <PaginationBar
           :page="pagination.page"
           :total="pagination.total"
           :limit="pagination.limit"
@@ -48,7 +48,7 @@
 
 <script setup>
 import { usePagination } from '~/composables/usePagination'
-import Pagination from '~/components/Pagination.vue'
+import PaginationBar from '~/components/PaginationBar.vue'
 import SegmentCard from '~/components/SegmentCard.vue'
 
 // Disable SSR for this page
@@ -80,7 +80,7 @@ const pagination = usePagination({
 })
 
 // Fetch data
-async function fetchSegments(page = 1) {
+async function fetchSegments(_page = 1) {
   try {
     isLoading.value = true
     error.value = null

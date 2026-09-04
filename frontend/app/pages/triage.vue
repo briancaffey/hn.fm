@@ -2,7 +2,7 @@
 import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
 import { Icon } from '#components'
-import Pagination from '~/components/Pagination.vue'
+import PaginationBar from '~/components/PaginationBar.vue'
 import TriageRow from '~/components/TriageRow.vue'
 import type { TriageItem } from '~/components/TriageRow.vue'
 import { usePaginatedFetch } from '~/composables/usePaginatedFetch'
@@ -311,7 +311,7 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
 
     <!-- Pagination -->
     <div class="shrink-0 border-t bg-card px-4 py-2">
-      <Pagination
+      <PaginationBar
         :page="page"
         :total="total"
         :limit="limit"

@@ -87,17 +87,30 @@ const route = useRoute()
 const config = useRuntimeConfig()
 const itemId = computed(() => Number(route.params.id))
 
-const takes = ref<any[]>([])
+// One row from /api/segments. Only the fields this page reads are declared —
+// enough for a backend rename to break here rather than render an empty card.
+interface Take {
+  item_id: number
+  run: number
+  seg: number
+  aspect_format?: string | null
+  style_theme?: string | null
+  style_theme_name?: string | null
+  asr_qa?: { verdict?: string, score?: number } | null
+  video_path?: string | null
+}
+
+const takes = ref<Take[]>([])
 const title = ref<string>('')
 const loading = ref(true)
 
 const apiBase = computed(() => config.public?.apiBase || 'http://localhost:8000')
 
-function videoUrl(t: any) {
+function videoUrl(t: Take) {
   return `${apiBase.value}/api/video/${t.item_id}/${t.run}/${t.seg}/segment.mp4`
 }
 
-function frameStyle(t: any) {
+function frameStyle(t: Take) {
   const ar = { '16:9': '16 / 9', '1:1': '1 / 1', '9:16': '9 / 16' }[t.aspect_format || '16:9']
   // cap vertical height so 9:16 cards stay reasonable
   const maxW = (t.aspect_format === '9:16') ? '220px' : '100%'
@@ -113,16 +126,22 @@ function qaClass(verdict: string) {
 async function load() {
   loading.value = true
   try {
-    const resp: any = await $fetch(`${apiBase.value}/api/segments?offset=0&limit=500`)
+    const resp = await $fetch<{ segments?: Take[] }>(
+      `${apiBase.value}/api/segments?offset=0&limit=500`
+    )
     const all = resp?.segments || []
     takes.value = all
-      .filter((s: any) => Number(s.item_id) === itemId.value)
-      .sort((a: any, b: any) => (a.run - b.run) || (a.seg - b.seg))
+      .filter(s => Number(s.item_id) === itemId.value)
+      .sort((a, b) => (a.run - b.run) || (a.seg - b.seg))
     try {
-      const item: any = await $fetch(`${apiBase.value}/api/hn/items/${itemId.value}`)
+      const item = await $fetch<{ title?: string }>(
+        `${apiBase.value}/api/hn/items/${itemId.value}`
+      )
       title.value = item?.title || ''
-    } catch (_) { /* ignore */ }
-  } catch (e) {
+    } catch {
+      // A missing title just leaves the heading blank.
+    }
+  } catch {
     takes.value = []
   } finally {
     loading.value = false
