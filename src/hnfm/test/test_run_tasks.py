@@ -9,6 +9,14 @@ from ..web import tasks
 from ..web.tasks import process_hn_item_run
 from ..web.models import HNItem
 
+# The scrape-time gate (issue #6) drops runs whose scrape yields under 400
+# characters, so fixtures standing in for a real article have to look like
+# one. `_ARTICLE` is the shortest body that is unambiguously an article.
+_ARTICLE = (
+    "Scraped article body. The port took four months of evenings and the "
+    "hardest part was timing. "
+) * 6
+
 
 def _mock_metadata():
     """Patch the cosmetic metadata generators (LLM call sites)."""
@@ -75,9 +83,49 @@ class TestRunTasks:
         assert outputs["signals"]["chars"] > 100
 
     def test_process_hn_item_run_scrape_failure_falls_back(self):
-        """Scrape failure is non-fatal: content degrades to the HN title/text."""
+        """Scrape failure is non-fatal: the run is still saved from the HN
+        title/text, and the deterministic gate stops it there.
+
+        A bare title is not an article. The fallback keeps the story visible;
+        the scrape-time gate (issue #6) is what stops it costing five LLM
+        calls to discover there is nothing to say about it.
+        """
         repo.upsert_item(
             HNItem(id=123, title="Test Article", url="https://example.com")
+        )
+
+        with (
+            patch.object(
+                tasks,
+                "scrape_url_with_source",
+                side_effect=RuntimeError("Failed to scrape"),
+            ),
+            patch.object(tasks, "summarize_text_v1") as mock_sum,
+        ):
+            result = process_hn_item_run(123, 1)
+
+        assert result["status"] == "gated"
+        mock_sum.assert_not_called()
+
+        # The run was still saved with fallback content built from the HN title
+        processed_run = repo.get_run(123, 1)
+        assert processed_run is not None
+        assert "Test Article" in processed_run.content_raw
+
+        # And it is scored, so it shows up in the UI with a reason.
+        score = repo.get_triage_score(123, 1)
+        assert score["verdict"] == "unsuitable"
+
+    def test_scrape_failure_with_substantial_hn_text_still_proceeds(self):
+        """The fallback is only worthless when the HN text is too. A failed
+        scrape on a post with a real body must still run the pipeline."""
+        repo.upsert_item(
+            HNItem(
+                id=124,
+                title="Test Article",
+                url="https://example.com",
+                text="A genuinely substantial discussion post. " * 20,
+            )
         )
 
         p_desc, p_tags, p_emoji, p_haiku = _mock_metadata()
@@ -93,15 +141,9 @@ class TestRunTasks:
             p_emoji,
             p_haiku,
         ):
-            result = process_hn_item_run(123, 1)
+            result = process_hn_item_run(124, 1)
 
-        assert result == {"status": "ok", "item_id": 123, "run": 1}
-
-        # The run was saved with fallback content built from the HN title
-        processed_run = repo.get_run(123, 1)
-        assert processed_run is not None
-        assert "Test Article" in processed_run.content_raw
-        assert processed_run.summary == "Summary"
+        assert result["status"] == "ok"
         mock_sum.assert_called_once()
 
     def test_process_hn_item_run_summarize_failure_raises(self):
@@ -114,7 +156,7 @@ class TestRunTasks:
             patch.object(
                 tasks,
                 "scrape_url_with_source",
-                return_value=("Scraped article body", "firecrawl"),
+                return_value=(_ARTICLE, "firecrawl"),
             ),
             patch.object(
                 tasks,
@@ -136,7 +178,7 @@ class TestRunTasks:
             patch.object(
                 tasks,
                 "scrape_url_with_source",
-                return_value=("  Scraped   article body  ", "firecrawl"),
+                return_value=(f"  {_ARTICLE}  ", "firecrawl"),
             ),
             patch.object(tasks, "summarize_text_v1", return_value="Summary"),
             p_desc,
@@ -151,6 +193,6 @@ class TestRunTasks:
         processed_run = repo.get_run(123, 1)
         assert processed_run is not None
         assert processed_run.source_url == "https://example.com"
-        assert processed_run.content_clean == "Scraped article body"
+        assert processed_run.content_clean == _ARTICLE.strip()
         assert processed_run.summary == "Summary"
         assert processed_run.tags == ["tech"]

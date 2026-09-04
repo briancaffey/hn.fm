@@ -83,6 +83,79 @@ def hn_fetch_item(item_id: int, continue_to_triage: bool = False) -> Dict[str, a
         raise
 
 
+# `producibility_ceiling` returns 20 for a scrape under 400 chars and 15 for an
+# outright fallback or stub. At or below this there is no article to work from,
+# whatever the headline promised.
+NO_CONTENT_CEILING = 20
+
+# An item's own `text` body at or above this is real content in its own right,
+# not a headline standing in for an article that failed to load. Matches the
+# `chars < 400` step in producibility_ceiling.
+SUBSTANTIAL_TEXT_CHARS = 400
+
+
+def _abandon_empty_run(item_id, run, source_url, content_raw, content_clean,
+                       signals, ceiling, outputs_dir):
+    """Record a run whose scrape produced nothing, without spending an LLM.
+
+    The run is still saved and still scored, so the story appears in the UI
+    with a reason rather than vanishing — it just costs nothing to reach that
+    conclusion.
+    """
+    from ..content import triage as _triage
+
+    reason = (
+        f"scrape produced {signals.get('chars', 0)} chars via "
+        f"{signals.get('source', 'unknown')}; nothing to build a story from"
+    )
+    logger.info(f"⏭️  {item_id}:{run} gated at scrape — {reason}")
+
+    processed_run = ProcessedRun(
+        key=f"hnfm:item:{item_id}:run:{run}",
+        item_id=item_id,
+        run=run,
+        created_at=datetime.utcnow(),
+        source_url=source_url,
+        content_raw=content_raw,
+        content_clean=content_clean,
+        summary="",
+        short_description="",
+        tags=[],
+        emoji=[],
+        haiku="",
+    )
+    save_processed_run(processed_run, outputs_root=outputs_dir)
+
+    score = {
+        "interest": 0,
+        "producibility": ceiling,
+        "verdict": _triage.derive_verdict(0, ceiling),
+        "model_verdict": None,
+        "reasons": [reason],
+        "flags": ["no_content"],
+        "topics": [],
+        "visual_potential": 0,
+        "narrative_potential": 0,
+        "model": "deterministic/scrape_signals",
+        "scrape_signals": signals,
+        "interest_match": 0.0,
+        "rank_score": 0.0,
+    }
+    with steps.step(item_id, run, None, "triage", "triage/score",
+                    {"gate": "scrape_signals", "ceiling": ceiling}) as st:
+        repo.save_triage_score(item_id, run, score)
+        st.set(**{k: v for k, v in score.items() if k != "reasons"},
+               reasons=score["reasons"])
+
+    return {
+        "status": "gated",
+        "item_id": item_id,
+        "run": run,
+        "reason": reason,
+        "llm_calls_saved": 5,
+    }
+
+
 @celery_app.task(
     name="hnfm.web.tasks.process_hn_item_run", time_limit=1800, soft_time_limit=1800
 )
@@ -166,7 +239,16 @@ def process_hn_item_run(
                         f"The linked source could not be retrieved, so discuss the topic "
                         f"based on the title and general knowledge."
                     )
-                scrape_source, scrape_fallback = "hn_fallback", True
+                # A link post whose scrape failed leaves only the headline, and
+                # `fallback=True` caps producibility at 15 to say so. But an
+                # item can carry a substantial text body of its own — a Show HN
+                # with a real write-up, say — and that body is genuine content,
+                # not a headline standing in for one. Treating it as a fallback
+                # would discard it for a reason that does not apply.
+                if len(_text.strip()) >= SUBSTANTIAL_TEXT_CHARS:
+                    scrape_source, scrape_fallback = "hn_text", False
+                else:
+                    scrape_source, scrape_fallback = "hn_fallback", True
                 st.set(fallback_reason=str(scrape_err))
 
             # Step 4: Clean content. Inside the scrape step because the quality
@@ -185,6 +267,21 @@ def process_hn_item_run(
             st.set(chars=len(content_raw), fallback=scrape_fallback,
                    source=scrape_source, signals=signals)
             logger.info(f"📄 scrape signals: {scrape_signals.summarize(signals)}")
+
+        # Step 4b: Deterministic gate. `producibility_ceiling` already knows,
+        # for free, that a scrape has nothing in it — but it was only consulted
+        # inside triage, five LLM calls downstream. A 43-character HTTP error
+        # page was paying for a summary, four enrichment calls and a triage
+        # call before anything concluded there was no story.
+        #
+        # This is a pre-filter, not a replacement for LLM triage: it only fires
+        # where there is demonstrably no text to judge.
+        ceiling = scrape_signals.producibility_ceiling(signals)
+        if ceiling is not None and ceiling <= NO_CONTENT_CEILING:
+            return _abandon_empty_run(
+                item_id, run, source_url, content_raw, content_clean,
+                signals, ceiling, outputs_dir,
+            )
 
         # Step 5: Summarize content
         logger.info(f"Summarizing content for item {item_id}, run {run}")
