@@ -594,16 +594,46 @@ async def list_generations_endpoint(item_id: int):
         raise HTTPException(status_code=500, detail="Failed to list generations")
 
 
+def _queue_depths() -> dict:
+    """Pending message count per queue.
+
+    Nothing in the UI showed what was *waiting*, only what was running — so a
+    30-minute backlog behind a video render looked like a normal sequence of
+    steps. The only way to see it was `redis-cli llen hnfm_tasks`.
+    """
+    from ..web.celery_app import (
+        QUEUE_DIGEST, QUEUE_INGEST, QUEUE_LEGACY, QUEUE_RENDER, QUEUE_TRIAGE,
+    )
+
+    names = [QUEUE_INGEST, QUEUE_TRIAGE, QUEUE_RENDER, QUEUE_DIGEST, QUEUE_LEGACY]
+    try:
+        import redis
+
+        client = redis.Redis(
+            host=os.getenv("REDIS_HOST", "localhost"),
+            port=int(os.getenv("REDIS_PORT", "6379")),
+            db=int(os.getenv("REDIS_DB", "0")),
+            password=os.getenv("REDIS_PASSWORD") or None,
+        )
+        depths = {n: int(client.llen(n) or 0) for n in names}
+    except Exception as e:
+        # A broken probe must not take the activity feed down with it.
+        logger.debug(f"queue depth probe failed (non-fatal): {e}")
+        return {"queues": {}, "pending_total": None}
+    return {"queues": depths, "pending_total": sum(depths.values())}
+
+
 @app.get("/api/activity", tags=["activity"])
 async def activity_endpoint():
-    """Running + recently finished pipeline steps (sidebar activity light)."""
+    """Running + recently finished pipeline steps, plus what is still queued
+    (sidebar activity light and the Live page)."""
     try:
         from ..db import steps
 
-        return steps.activity()
+        return {**steps.activity(), **_queue_depths()}
     except Exception as e:
         logger.error(f"activity failed: {e}")
-        return {"running": [], "recent": []}
+        return {"running": [], "recent": [], "queues": {}, "pending_total": None}
 
 
 # Pipeline audit trail (steps) endpoints

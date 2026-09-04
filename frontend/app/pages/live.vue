@@ -54,8 +54,49 @@ const connect = () => {
   }
 }
 
-onMounted(connect)
-onUnmounted(() => source?.close())
+// Queue depth is state, not an event, so it does not arrive on the SSE stream.
+// Without it the page showed only what was running: a 30-minute backlog behind
+// a video render looked like a normal sequence of steps.
+const queues = ref<Record<string, number>>({})
+const pendingTotal = ref<number | null>(null)
+let poll: ReturnType<typeof setInterval> | null = null
+
+const refreshQueues = async () => {
+  try {
+    const r = await $fetch<{ queues?: Record<string, number>, pending_total?: number | null }>(
+      `${apiBase}/api/activity`
+    )
+    queues.value = r.queues || {}
+    pendingTotal.value = r.pending_total ?? null
+  } catch {
+    // The stream is the primary signal; a failed depth poll must not disturb it.
+  }
+}
+
+const QUEUE_LABELS: Record<string, string> = {
+  hnfm_ingest: 'Ingest',
+  hnfm_triage: 'Triage',
+  hnfm_render: 'Render',
+  hnfm_digest: 'Digest',
+  hnfm_tasks: 'Legacy',
+}
+
+// Legacy is only interesting when something is actually stuck in it.
+const queueRows = computed(() =>
+  Object.entries(queues.value)
+    .filter(([name, n]) => name !== 'hnfm_tasks' || n > 0)
+    .map(([name, n]) => ({ name, label: QUEUE_LABELS[name] || name, depth: n }))
+)
+
+onMounted(() => {
+  connect()
+  refreshQueues()
+  poll = setInterval(refreshQueues, 5000)
+})
+onUnmounted(() => {
+  source?.close()
+  if (poll) clearInterval(poll)
+})
 
 const running = computed(() => events.value.filter(e => e.status === 'running'))
 const failed = computed(() => events.value.filter(e => e.status === 'error'))
@@ -100,8 +141,17 @@ const fmt = (e: StepEvent) => e.seconds != null ? `${e.seconds.toFixed(1)}s` : '
         <CardContent><span class="text-3xl font-bold">{{ running.length }}</span></CardContent>
       </Card>
       <Card>
-        <CardHeader class="pb-2"><CardTitle class="text-sm font-medium text-muted-foreground">Steps seen</CardTitle></CardHeader>
-        <CardContent><span class="text-3xl font-bold">{{ events.length }}</span></CardContent>
+        <CardHeader class="pb-2"><CardTitle class="text-sm font-medium text-muted-foreground">Queued</CardTitle></CardHeader>
+        <CardContent>
+          <span class="text-3xl font-bold">{{ pendingTotal ?? '—' }}</span>
+          <div v-if="queueRows.length" class="mt-2 flex flex-wrap gap-1">
+            <Badge
+              v-for="q in queueRows"
+              :key="q.name"
+              :variant="q.depth ? 'default' : 'secondary'"
+            >{{ q.label }} {{ q.depth }}</Badge>
+          </div>
+        </CardContent>
       </Card>
       <Card>
         <CardHeader class="pb-2"><CardTitle class="text-sm font-medium text-muted-foreground">Errors</CardTitle></CardHeader>
