@@ -29,6 +29,46 @@ MOTION_DIRECTIVES = [
 # LTX native clip is a real 3-4s clip; we stretch it only a little (if at all)
 # and let the rest of the section fall back to the image sequence.
 MAX_NATIVE_SECONDS = float(os.getenv("LTX_MAX_NATIVE_SECONDS", "3.5"))
+# Health of the LTX backend, cached briefly. `/api/services/status` already
+# knew LTX was offline while the pipeline queued clips against it anyway: each
+# attempt burned three retries and produced a recorded step error, four of
+# them in one run. Planning around a dead service is cheaper than failing
+# gracefully against it.
+_HEALTH_TTL_SECONDS = 60
+_health_cache = {"checked_at": 0.0, "ok": None}
+
+
+def is_available(force: bool = False) -> bool:
+    """Is the LTX backend up? Cached for a minute so this can be called per
+    section without adding a round trip each time.
+
+    Unknown reads as available: a probe that cannot run must not silently
+    disable motion clips — the existing `soft_fail` path already handles a
+    backend that turns out to be down.
+    """
+    import time as _time
+
+    now = _time.time()
+    if not force and _health_cache["ok"] is not None:
+        if now - _health_cache["checked_at"] < _HEALTH_TTL_SECONDS:
+            return _health_cache["ok"]
+
+    base = os.getenv("LTX_BASE_URL", "").rstrip("/")
+    if not base:
+        _health_cache.update(checked_at=now, ok=False)
+        return False
+    try:
+        import requests
+
+        r = requests.get(f"{base}/health", timeout=4)
+        ok = r.status_code < 400
+    except Exception as e:
+        logger.info(f"LTX health probe failed: {e}")
+        ok = False
+    _health_cache.update(checked_at=now, ok=ok)
+    return ok
+
+
 # Cap how much we slow the clip down — keep motion natural (1.0 = no stretch).
 MAX_STRETCH = float(os.getenv("LTX_MAX_STRETCH", "1.4"))
 LTX_FPS = int(os.getenv("LTX_FPS", "24"))

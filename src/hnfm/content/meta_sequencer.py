@@ -73,9 +73,26 @@ def _llm_plan(sections, summary, theme_name, source_images):
         return None
 
 
+def _video_backend_available() -> bool:
+    """Never raises — a broken probe must not disable motion clips."""
+    try:
+        from ..video.ltx_service import is_available
+
+        return is_available()
+    except Exception:
+        return True
+
+
 def _apply_guardrails(plan, n_sections, max_video=2, max_hyper=2):
     """Enforce variety: valid templates, caps, no two special clips adjacent,
     image_sequence as the default. Mutates a normalized copy."""
+    # Plan around a dead video backend rather than planning clips that will
+    # fail. `/api/services/status` already knew LTX was offline while the
+    # pipeline queued clips against it anyway, burning three retries each and
+    # recording four step errors in a single run.
+    if max_video and not _video_backend_available():
+        logger.info("🎬 LTX unavailable — planning image sequences instead of clips")
+        max_video = 0
     # normalize to one entry per section
     by_idx = {}
     for p in (plan or []):
