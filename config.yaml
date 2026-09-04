@@ -81,7 +81,18 @@ llm:
     triage.score:
       temperature: 0.2      # judgement should be stable across re-runs
       max_tokens: 800
-      fallback_model: "openrouter-nemotron-ultra"
+      # No fallback, and the reason is NOT that the gateway is down — it
+      # answers, on both node IPs. The virtual key in .env is rejected
+      # ("Invalid proxy server token"), so naming a cloud route here produces
+      # an auth error on every fallback rather than a rescue, which reads as a
+      # model problem and is not one.
+      #
+      # Re-enable "openrouter-nemotron-ultra" (a free route) once the LiteLLM
+      # key is rotated. Until then the transient-retry in llm_service.py is
+      # what covers the failure this was meant to cover: 18 of 24 recorded step
+      # errors were "Connection error", a blip on the primary rather than a
+      # reason to change models.
+      fallback_model: null
     image.scene:
       temperature: 0.95     # scene variety is the whole point
       max_tokens: 300
@@ -139,8 +150,10 @@ triage:
   # reads topics and stakes rather than who did the thing — but it is the
   # reason the fallback is kept here and deliberately absent from script.write.
   model: "nvidia/nemotron-3-nano-omni"
-  # No fallback while the gateway is down — the cloud routes were reached
-  # through it, so naming one here would only produce a confusing error.
+  # No fallback. The earlier note here said "while the gateway is down"; that
+  # is stale — the gateway answers on both node IPs. The actual blocker is that
+  # the virtual key in .env is rejected, so a cloud fallback would fail auth on
+  # every attempt. See the triage.score profile above.
   fallback_model: null
 
   # Minimum rank_score for a story to earn a Story Brief. The brief costs two

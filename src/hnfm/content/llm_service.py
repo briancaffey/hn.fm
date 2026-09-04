@@ -34,6 +34,28 @@ from .prompts import RenderedPrompt
 
 logger = logging.getLogger(__name__)
 
+# A connection error is the box being briefly unreachable, not a refusal.
+# Retried on the SAME model before falling through, because with no fallback
+# configured (script.write deliberately has none) falling through means losing
+# the run outright.
+TRANSIENT_RETRIES = 3
+TRANSIENT_BACKOFF_SECONDS = 1.5
+
+_TRANSIENT_MARKERS = (
+    "connection error", "connection refused", "connection reset",
+    "timeout", "timed out", "temporarily unavailable",
+    "502", "503", "504", "bad gateway", "service unavailable",
+)
+
+
+def _is_transient(exc: Exception) -> bool:
+    """Transport failure (retry) versus a real answer we dislike (do not).
+
+    A 400, a refusal or an empty completion will be identical the second time;
+    retrying those just triples the cost of a deterministic failure.
+    """
+    return any(m in str(exc).lower() for m in _TRANSIENT_MARKERS)
+
 T = TypeVar("T", bound=BaseModel)
 
 PromptLike = Union[str, RenderedPrompt]
@@ -211,13 +233,44 @@ class LLMService:
 
     # -- public API --------------------------------------------------------
 
+    def _call_with_retry(self, model: str, prompt: PromptLike, *args, **kwargs):
+        """`_call`, retrying transient transport failures on the same model.
+
+        18 of 24 recorded step errors were a single line: "all models failed —
+        spark-omni: Connection error." That is the box being briefly
+        unreachable, not the model refusing the work, and moving straight to
+        the next model (or to none, where no fallback is configured) threw away
+        a run that a second attempt would have completed.
+
+        Only transport errors are retried. A 400, a refusal or an empty
+        completion is a real answer and will be identical the second time.
+        """
+        import time as _time
+
+        last = None
+        for attempt in range(1, TRANSIENT_RETRIES + 1):
+            try:
+                return self._call(model, prompt, *args, **kwargs)
+            except Exception as e:
+                if not _is_transient(e) or attempt == TRANSIENT_RETRIES:
+                    raise
+                last = e
+                delay = TRANSIENT_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                logger.warning(
+                    f"transient LLM error on {model} "
+                    f"(attempt {attempt}/{TRANSIENT_RETRIES}), "
+                    f"retrying in {delay:.1f}s: {e}"
+                )
+                _time.sleep(delay)
+        raise last  # unreachable, but keeps the contract explicit
+
     def generate_content(self, prompt: PromptLike) -> str:
         """Prose. Tries the profile's model, then its fallback. Raises if none
         succeed — callers decide whether that is fatal."""
         errors = []
         for model in self._models_to_try():
             try:
-                content = self._call(model, prompt)
+                content = self._call_with_retry(model, prompt)
                 logger.debug(f"✅ {model}: {content[:60]}...")
                 return content
             except Exception as e:
@@ -261,7 +314,10 @@ class LLMService:
             attempt_prompt = prompt
             for attempt in range(1, max_attempts + 1):
                 try:
-                    raw = self._call(
+                    # Structured output already retries a schema violation;
+                    # this layer retries the transport underneath it, which is
+                    # a different failure with a different fix.
+                    raw = self._call_with_retry(
                         model, attempt_prompt, response_format, image_b64=image_b64
                     )
                     return schema.model_validate_json(_strip_fences(raw))
