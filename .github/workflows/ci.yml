@@ -29,6 +29,30 @@ jobs:
   backend:
     name: Backend tests
     runs-on: ubuntu-latest
+    # The suite uses a throwaway SQLite DB (see the autouse fixtures in
+    # src/hnfm/test/conftest.py) and needs no Postgres. It does need Redis:
+    # a handful of tests exercise the Celery result backend, and Celery's
+    # reconnect loop turns a missing broker into 20 retries of log noise
+    # before the real assertion failure.
+    services:
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+    env:
+      REDIS_HOST: localhost
+      REDIS_PORT: '6379'
+      # Every LLM call in the suite is mocked, but LLMService validates its
+      # configuration in the constructor and fails closed when none is set —
+      # deliberately, so a missing LLM cannot silently produce placeholder
+      # content. CI needs an address that exists, never one it can reach.
+      LLM_BASE_URL: http://127.0.0.1:9/v1
+      LLM_API_KEY: ci-not-a-real-key
+      OPENAI_API_KEY: ci-not-a-real-key
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -37,8 +61,4 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v5
       - run: uv sync --frozen
-      # The suite runs against a throwaway SQLite DB with no network — see the
-      # autouse fixtures in src/hnfm/test/conftest.py. Nothing here should need
-      # Postgres, Redis, or any .lan inference host; a test that does is a bug
-      # in the test.
       - run: uv run pytest src/hnfm/test -q
