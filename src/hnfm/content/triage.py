@@ -39,6 +39,29 @@ def primary_model() -> str:
     )
 
 
+def brief_min_rank() -> float:
+    """Minimum rank_score for a story to earn a Story Brief.
+
+    The old gate was `verdict != "unsuitable"`, which skipped 3 of 132 scored
+    stories — 98% paid for two LLM calls and ~30s, the largest single cost in
+    ingest, for a brief nothing downstream would read.
+    """
+    return float(_triage_config().get("brief_min_rank", 60))
+
+
+def deserves_brief(score: dict) -> bool:
+    """Is this story worth the two LLM calls a Story Brief costs?
+
+    Rank rather than verdict, because the two disagree badly: an "unsuitable"
+    story has scored 84.9 while "marginal" ones reach 121. `unsuitable` is
+    still an absolute veto — when the model is confident there is nothing
+    there, a high rank does not rescue it.
+    """
+    if score.get("verdict") == "unsuitable":
+        return False
+    return float(score.get("rank_score") or 0) >= brief_min_rank()
+
+
 def fallback_model() -> Optional[str]:
     return _triage_config().get("fallback_model", "openrouter-nemotron-ultra")
 

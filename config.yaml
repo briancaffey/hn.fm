@@ -142,6 +142,21 @@ triage:
   # No fallback while the gateway is down — the cloud routes were reached
   # through it, so naming one here would only produce a confusing error.
   fallback_model: null
+
+  # Minimum rank_score for a story to earn a Story Brief. The brief costs two
+  # LLM calls and ~30s — the largest single cost in ingest — and nothing
+  # downstream reads it for a story we will never produce.
+  #
+  # The old gate was `verdict != "unsuitable"`, which skipped 3 of 132 scored
+  # stories: 98% paid for a brief. Ranking is the sounder basis here because
+  # verdict and rank disagree badly — an "unsuitable" story has scored 84.9
+  # while "marginal" ones reach 121 (see the verdict-threshold work).
+  #
+  # 60 keeps every `great` and `good` story (their observed minimums are 63.7
+  # and 64.8) plus the high-ranking marginals the digest actually draws from,
+  # and drops the bottom third. Raise it to spend less; lower it if the digest
+  # starts logging skipped stories for want of a brief.
+  brief_min_rank: 60
   # Weighted interest profile: topic keyword -> weight (matched against the
   # LLM-extracted topics; substring, case-insensitive). Negative = penalize.
   interest_profile:

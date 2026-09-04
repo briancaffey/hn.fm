@@ -1876,13 +1876,21 @@ def score_run(item_id: int, run: int) -> Dict[str, any]:
     )
 
     # Build the Story Brief for stories we might actually make (plans/09).
-    # Non-fatal, and skipped for stories we would never generate — the brief
-    # costs two LLM calls and nothing downstream will read it for a dud.
-    if score["verdict"] != "unsuitable":
-        try:
-            build_story_brief(item_id, run)
-        except Exception as e:
-            logger.warning(f"story brief failed for {item_id}:{run} (non-fatal): {e}")
+    #
+    # Dispatched, not called inline. Inline it ran inside score_run's 600s
+    # budget on the same worker slot, so triage and brief were held as one
+    # unit and nothing could interleave — even though build_story_brief is a
+    # task with its own 900s limit.
+    #
+    # The gate was `verdict != "unsuitable"`, which skipped 3 of 132 scored
+    # stories. See triage.deserves_brief for why it is rank-based now.
+    if triage.deserves_brief(score):
+        build_story_brief.apply_async(args=[item_id, run])
+    else:
+        logger.info(
+            f"story brief skipped for {item_id}:{run} "
+            f"(verdict={score['verdict']}, rank={score['rank_score']})"
+        )
 
     return {"status": "ok", "item_id": item_id, "run": run, **score}
 
