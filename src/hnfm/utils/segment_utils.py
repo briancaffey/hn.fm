@@ -139,7 +139,9 @@ def generate_script_v1(content_clean: str, summary: str) -> str:
     return generate_script(content_clean, summary).to_script_text()
 
 
-def generate_script(content_clean: str, summary: str) -> "Script":
+def generate_script(
+    content_clean: str, summary: str, notes: Optional[dict] = None
+) -> "Script":
     """Generate the structured script for a segment (plans/08, plans/11).
 
     Returns a `content.llm_schemas.Script`: writer-chosen sections, each with a
@@ -187,6 +189,17 @@ def generate_script(content_clean: str, summary: str) -> "Script":
         section.index = i
 
     _normalize_beats(script)
+
+    # Report the rate the MODEL produced, not the corrected one. Enforcement
+    # runs before the quality flags are computed, so without this the
+    # `speaker_ping_pong` flag could never fire again and a model regression
+    # would be invisible behind its own fix.
+    if notes is not None:
+        notes["speaker_switch_rate_raw"] = speaker_switch_rate(script)
+    if enforce_speaker_runs(script) and notes is not None:
+        notes["speaker_runs_normalised"] = True
+    if notes is not None:
+        notes["speaker_switch_rate"] = speaker_switch_rate(script)
     return script
 
 
@@ -241,14 +254,103 @@ def script_quality_flags(script: "Script") -> List[dict]:
     if undepictable:
         flags.append({"flag": "undepictable_visual_intent", "sections": undepictable})
 
-    speakers = [s.speaker for s in script.sections]
-    if len(speakers) >= 6 and all(
-        speakers[i] != speakers[i + 1] for i in range(len(speakers) - 1)
-    ):
-        # Strict ping-pong is the exact monotony the new prompt set out to kill.
-        flags.append({"flag": "strict_alternation", "sections": []})
+    # Measured, not boolean. The old check required EVERY adjacent pair to
+    # differ, so a script with a single same-speaker pair escaped it entirely —
+    # and the real corpus sits at 99% switching, which that test never caught.
+    rate = speaker_switch_rate(script)
+    if rate is not None and rate > MAX_SPEAKER_SWITCH_RATE:
+        flags.append(
+            {"flag": "speaker_ping_pong", "sections": [], "switch_rate": rate}
+        )
 
     return flags
+
+
+# `prompts/script.write.yaml` asks for runs of two or three sections per
+# speaker, which puts the switch rate near 0.4-0.5. Measured over the 40 most
+# recent scripts before this check existed: 735 of 746 adjacent pairs switched
+# — 0.99. Anything above this is ping-pong, whatever the prompt said.
+MAX_SPEAKER_SWITCH_RATE = 0.7
+
+
+def speaker_switch_rate(script: "Script") -> Optional[float]:
+    """Fraction of adjacent section pairs that change speaker.
+
+    ~0.4 is the intended rhythm (runs of two or three), 1.0 is pure ping-pong.
+    None when there are too few sections to say anything.
+    """
+    speakers = [s.speaker for s in script.sections]
+    if len(speakers) < 6:
+        return None
+    pairs = len(speakers) - 1
+    switches = sum(1 for i in range(pairs) if speakers[i] != speakers[i + 1])
+    return round(switches / pairs, 3)
+
+
+# Openers that mark a line as a REPLY to the previous one — a genuine handoff
+# between hosts. Folding one of these into the previous speaker's run would put
+# a host's pushback in their own mouth, so these always keep their switch.
+_RESPONSE_OPENERS = (
+    "right,", "right.", "but ", "but,", "exactly", "yeah", "yes,", "no,",
+    "well,", "well ", "sure,", "true,", "okay", "ok,", "hold on", "wait",
+    "so wait", "and that's", "though ", "although", "actually", "i mean",
+    "to be fair", "hmm", "huh", "see, ", "and yet", "still,", "except",
+)
+
+
+def _is_response(text: str) -> bool:
+    """Does this line read as a reply rather than a continuation?"""
+    stripped = (text or "").strip().lower().lstrip('"\'')
+    if stripped.startswith(_RESPONSE_OPENERS):
+        return True
+    # A question is the other host cutting in with what the viewer is thinking.
+    return stripped.endswith("?")
+
+
+def enforce_speaker_runs(script: "Script", target_run: int = 2) -> bool:
+    """Give a ping-ponging script runs of two or three sections per speaker.
+
+    `prompts/script.write.yaml` asks for exactly this in prose — "A host who is
+    explaining something keeps the floor for two or three sections" — and the
+    model ignores it: 99% of adjacent pairs switched across the 40 most recent
+    scripts. Instruction alone has already been tried, so this corrects the
+    labels the way `_normalize_beats` corrects mislabelled beats.
+
+    Only speaker LABELS move; not a word of the text changes. Lines that read
+    as replies (see `_is_response`) always keep their switch, so genuine
+    back-and-forth survives — this only extends a run through lines that were
+    already continuations of the same thought.
+
+    Returns True when anything changed. No-ops on scripts that are already
+    within the threshold, so a well-shaped script is never touched.
+    """
+    import logging
+
+    rate = speaker_switch_rate(script)
+    if rate is None or rate <= MAX_SPEAKER_SWITCH_RATE:
+        return False
+
+    before = [s.speaker for s in script.sections]
+    current = script.sections[0].speaker
+    run = 1
+    for section in script.sections[1:]:
+        if _is_response(section.text) or run >= target_run:
+            current = "S2" if current == "S1" else "S1"
+            run = 1
+        else:
+            run += 1
+        section.speaker = current
+
+    after = [s.speaker for s in script.sections]
+    if after == before:
+        return False
+
+    logging.getLogger(__name__).info(
+        "speaker runs normalised: switch rate %.2f -> %.2f",
+        rate,
+        speaker_switch_rate(script),
+    )
+    return True
 
 
 def _usable_visual_intent(intent: str) -> str:

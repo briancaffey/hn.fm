@@ -518,3 +518,101 @@ class TestCleanScriptForTts:
         assert self._clean("“quoted” and ‘single’") == (
             "\"quoted\" and 'single'"
         )
+
+
+class TestSpeakerRuns:
+    """The prompt asks for runs of 2-3; the model ping-pongs (issue #12)."""
+
+    def _script(self, speakers, texts=None):
+        from ..content.llm_schemas import Script, ScriptSection
+
+        texts = texts or [f"Sentence number {i}." for i in range(len(speakers))]
+        return Script(
+            title="T",
+            sections=[
+                ScriptSection(
+                    index=i + 1,
+                    speaker=sp,
+                    beat="cold_open" if i == 0 else ("close" if i == len(speakers) - 1 else "detail"),
+                    text=txt,
+                    visual_intent="a person at a desk",
+                )
+                for i, (sp, txt) in enumerate(zip(speakers, texts))
+            ],
+        )
+
+    def test_switch_rate_measures_ping_pong(self):
+        from ..utils.segment_utils import speaker_switch_rate
+
+        pingpong = self._script(["S1", "S2"] * 4)
+        assert speaker_switch_rate(pingpong) == 1.0
+
+        runs = self._script(["S1", "S1", "S2", "S2", "S1", "S1", "S2", "S2"])
+        assert speaker_switch_rate(runs) < 0.6
+
+    def test_switch_rate_is_none_when_too_short_to_judge(self):
+        from ..utils.segment_utils import speaker_switch_rate
+
+        assert speaker_switch_rate(self._script(["S1", "S2", "S1"])) is None
+
+    def test_enforcement_breaks_up_pure_ping_pong(self):
+        from ..utils.segment_utils import enforce_speaker_runs, speaker_switch_rate
+
+        script = self._script(["S1", "S2"] * 5)
+        assert enforce_speaker_runs(script) is True
+        assert speaker_switch_rate(script) <= 0.7
+
+    def test_enforcement_leaves_a_well_shaped_script_alone(self):
+        from ..utils.segment_utils import enforce_speaker_runs
+
+        script = self._script(["S1", "S1", "S2", "S2", "S1", "S1", "S2", "S2"])
+        before = [s.speaker for s in script.sections]
+        assert enforce_speaker_runs(script) is False
+        assert [s.speaker for s in script.sections] == before
+
+    def test_a_reply_keeps_its_handoff(self):
+        """Folding a pushback into the previous speaker's run would put a
+        host's objection in their own mouth."""
+        from ..utils.segment_utils import enforce_speaker_runs
+
+        script = self._script(
+            ["S1", "S2"] * 4,
+            texts=[
+                "The port took four months.",
+                "But that assumes the assembly was readable.",
+                "It reconstructed the level data first.",
+                "Right, and the sprite tables came after.",
+                "Timing was the hard part.",
+                "Why would 50 Hz break the physics?",
+                "Because the shove range scaled with frame time.",
+                "So the doorman bug was a rounding error.",
+            ],
+        )
+        enforce_speaker_runs(script)
+        speakers = [s.speaker for s in script.sections]
+        # Every response line still differs from the line it answers.
+        for i in (1, 3, 5, 7):
+            assert speakers[i] != speakers[i - 1], f"section {i} lost its handoff"
+
+    def test_no_text_is_ever_rewritten(self):
+        from ..utils.segment_utils import enforce_speaker_runs
+
+        script = self._script(["S1", "S2"] * 5)
+        before = [s.text for s in script.sections]
+        enforce_speaker_runs(script)
+        assert [s.text for s in script.sections] == before
+
+    def test_quality_flag_fires_on_ping_pong(self):
+        from ..utils.segment_utils import script_quality_flags
+
+        flags = script_quality_flags(self._script(["S1", "S2"] * 4))
+        ping = [f for f in flags if f["flag"] == "speaker_ping_pong"]
+        assert ping and ping[0]["switch_rate"] == 1.0
+
+    def test_quality_flag_silent_on_good_rhythm(self):
+        from ..utils.segment_utils import script_quality_flags
+
+        flags = script_quality_flags(
+            self._script(["S1", "S1", "S2", "S2", "S1", "S1", "S2", "S2"])
+        )
+        assert not [f for f in flags if f["flag"] == "speaker_ping_pong"]

@@ -309,7 +309,8 @@ def generate_segment(
             item_id, run, seg, "script", "script",
             {"summary": summary, "content_chars": len(content_clean)},
         ) as st:
-            script_obj = generate_script(content_clean, summary)
+            script_notes = {}
+            script_obj = generate_script(content_clean, summary, notes=script_notes)
             script = script_obj.to_script_text()
             flags = script_quality_flags(script_obj)
             if flags:
@@ -319,6 +320,7 @@ def generate_segment(
                 sections=len(script_obj.sections),
                 beats=[s.beat for s in script_obj.sections],
                 quality_flags=flags,
+                **script_notes,
             )
 
         # Step 4: Build Segment. `script` is the flat view; `script_json` carries
