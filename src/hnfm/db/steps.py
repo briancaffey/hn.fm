@@ -319,6 +319,60 @@ def activity(recent_minutes: int = 10) -> dict:
     return {"running": running, "recent": recent}
 
 
+def record_task_failure(
+    task_name: str,
+    args: tuple,
+    kwargs: dict,
+    error: str,
+    traceback: str = "",
+) -> Optional[int]:
+    """Record a task that died before — or outside — any `step()` block.
+
+    Without this, a task raising early leaves no trace anywhere the UI can see:
+    `pipeline_steps` has no row, so `/api/activity` and the Live page show a
+    clean run. The only record is worker stdout. Two `RuntimeError: Item X has
+    no URL` crashes were invisible this way while four LTX soft-failures were
+    plainly visible, which made the run look cleaner than it was.
+
+    item_id/run/seg are best-effort: nearly every task in this codebase takes
+    them as its leading positional arguments, and a wrong guess is better than
+    a step nobody can find.
+    """
+
+    def _int_at(idx, key):
+        val = kwargs.get(key)
+        if val is None and len(args) > idx:
+            val = args[idx]
+        return val if isinstance(val, int) else None
+
+    # item_id and run are NOT NULL on the table, but not every task has them
+    # (build_digest is item-agnostic). 0 is the "not applicable" sentinel —
+    # cheaper and less disruptive than making two long-standing columns
+    # nullable just to record a crash.
+    short = task_name.rsplit(".", 1)[-1]
+    try:
+        with db_session() as s:
+            row = PipelineStepRow(
+                item_id=_int_at(0, "item_id") or 0,
+                run=_int_at(1, "run") or 0,
+                seg=_int_at(2, "seg"),
+                stage="task",
+                step_key=f"task/{short}",
+                status="error",
+                started_at=datetime.utcnow(),
+                finished_at=datetime.utcnow(),
+                inputs=_bounded({"args": list(args), "kwargs": dict(kwargs)}),
+                error=_bounded(error),
+                outputs=_bounded({"traceback": traceback}) if traceback else None,
+            )
+            s.add(row)
+            s.flush()
+            return row.id
+    except Exception as e:  # recording must never mask the original failure
+        logger.debug(f"task failure recording failed (non-fatal): {e}")
+        return None
+
+
 # The longest `time_limit` on any task (full_pipeline, 10800s). A step still
 # `running` past this cannot belong to a live task, whatever killed it.
 MAX_STEP_SECONDS = 10800

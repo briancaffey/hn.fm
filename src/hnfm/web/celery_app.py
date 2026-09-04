@@ -2,7 +2,7 @@
 
 import os
 import logging
-from celery import Celery
+from celery import Celery, Task
 from celery.signals import worker_ready
 
 logger = logging.getLogger(__name__)
@@ -21,12 +21,39 @@ else:
     broker_url = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
     result_backend = f"redis://{REDIS_HOST}:{REDIS_PORT}/{REDIS_DB}"
 
+class RecordedTask(Task):
+    """Base task that leaves a trace when it dies outside a `step()` block.
+
+    A task raising before its first `steps.step()` context opens produces no
+    pipeline_steps row at all, so `/api/activity` and the Live page report a
+    clean run while the only evidence sits in worker stdout. Recording it here
+    catches every task without touching a single task body.
+    """
+
+    def on_failure(self, exc, task_id, args, kwargs, einfo):
+        try:
+            from ..db import steps
+
+            # Recorded even when a step block already logged an error: a
+            # failing step does not always kill its task (see `soft_fail`), so
+            # "the task died" is a separate fact. `stage="task"` keeps the two
+            # distinguishable.
+            steps.record_task_failure(
+                self.name, args or (), kwargs or {}, str(exc),
+                traceback=str(einfo) if einfo else "",
+            )
+        except Exception as e:  # never mask the original failure
+            logger.warning(f"task failure recording failed: {e}")
+        return super().on_failure(exc, task_id, args, kwargs, einfo)
+
+
 # Create Celery app
 celery_app = Celery(
     "hnfm",
     broker=broker_url,
     backend=result_backend,
     include=["src.hnfm.web.tasks"],  # Include our HN tasks
+    task_cls=RecordedTask,
 )
 
 # Log the configuration for debugging

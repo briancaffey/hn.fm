@@ -655,3 +655,50 @@ class TestReapAbandoned:
                 .count()
             )
         assert errors == 0
+
+
+class TestRecordTaskFailure:
+    """A task dying outside a step() block left no trace at all (issue #8)."""
+
+    def test_records_a_crash_with_no_step_block(self):
+        step_id = steps.record_task_failure(
+            "hnfm.web.tasks.process_hn_item_run",
+            (49551096, 2),
+            {},
+            "Item 49551096 has no URL",
+            traceback="Traceback (most recent call last): ...",
+        )
+        assert step_id is not None
+
+        row = steps.get_step(step_id)
+        assert row["item_id"] == 49551096
+        assert row["run"] == 2
+        assert row["stage"] == "task"
+        assert row["step_key"] == "task/process_hn_item_run"
+        assert row["status"] == "error"
+        assert "has no URL" in row["error"]
+
+    def test_the_crash_reaches_the_activity_feed(self):
+        steps.record_task_failure(
+            "hnfm.web.tasks.process_hn_item_run", (ITEM, RUN), {}, "boom"
+        )
+        recent = steps.activity()["recent"]
+        assert [r["step_key"] for r in recent] == ["task/process_hn_item_run"]
+
+    def test_item_agnostic_task_still_records(self):
+        """build_digest takes no item_id; it must not be lost for want of one."""
+        step_id = steps.record_task_failure(
+            "hnfm.web.tasks.build_digest", (), {"limit": 6, "shape": "daily"}, "boom"
+        )
+        row = steps.get_step(step_id)
+        assert row["item_id"] == 0
+        assert row["run"] == 0
+        assert row["step_key"] == "task/build_digest"
+
+    def test_kwargs_are_read_when_args_are_positional_empty(self):
+        step_id = steps.record_task_failure(
+            "hnfm.web.tasks.generate_segment", (), {"item_id": 7, "run": 3, "seg": 2},
+            "boom",
+        )
+        row = steps.get_step(step_id)
+        assert (row["item_id"], row["run"], row["seg"]) == (7, 3, 2)
