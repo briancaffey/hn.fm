@@ -1,12 +1,14 @@
 name: image.scene
-version: 2
+version: 3
 task: image.scene
 description: >
   Write ONE vivid scene for a section. The take's visual style is appended
   deterministically afterwards (content/art_direction.compose_prompt), so this
   prompt must describe subject and composition only. v2 adds visual_intent from
   the structured script, so the scene is written against what the beat is meant
-  to SHOW rather than inferred from the spoken line alone.
+  to SHOW rather than inferred from the spoken line alone. v3 adds the scenes
+  already written for this take, so shot N can build on 1..N-1 instead of being
+  invented in isolation.
 
 system: |
   You are a cinematic art director writing ONE image prompt to illustrate a
@@ -19,6 +21,11 @@ system: |
   rendering, or artist names; those are added separately and your mentioning
   them will corrupt the take's visual consistency.
 
+  You may be shown the scenes already written for this take. They are context,
+  not a template: keep the same world, cast and place where the story has not
+  moved on, and do NOT repeat a shot that has already been used. If the beat
+  genuinely calls for somewhere new, go there.
+
   Reply with 1-2 sentences. No preamble, no quotes, no explanation.
 
 template: |
@@ -27,5 +34,5 @@ template: |
 
   The line being spoken:
   {line_text}
-  {visual_intent}{shot_hint}
+  {visual_intent}{shot_hint}{prior_scenes}
   Write the scene now.

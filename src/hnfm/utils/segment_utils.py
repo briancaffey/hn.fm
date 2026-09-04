@@ -595,12 +595,30 @@ def alignment_from_sections(
         return None
 
 
+# How many previous scenes to show the art director. Enough to carry the cast
+# and setting; more would crowd out the beat actually being written.
+PRIOR_SCENE_WINDOW = 3
+
+
+def _prior_scenes_block(prior_scenes: Optional[List[str]]) -> str:
+    if not prior_scenes:
+        return ""
+    recent = [s for s in prior_scenes if s][-PRIOR_SCENE_WINDOW:]
+    if not recent:
+        return ""
+    lines = "\n".join(
+        f"  {i}. {s.strip()[:200]}" for i, s in enumerate(recent, start=1)
+    )
+    return f"\nScenes already shown in this take:\n{lines}\n"
+
+
 def generate_image_prompt_v1(
     line_text: str,
     run_summary: str,
     theme=None,
     shot_hint: str = "",
     visual_intent: str = "",
+    prior_scenes: Optional[List[str]] = None,
 ) -> str:
     """Write a vivid SCENE for one section, then apply the take's visual THEME.
 
@@ -612,6 +630,13 @@ def generate_image_prompt_v1(
     `visual_intent` comes from the structured script: what the writer intended
     this beat to SHOW. Without it the art director can only infer intent from
     the spoken line, which is how abstract beats ended up as stock imagery.
+
+    `prior_scenes` are the scenes already written for this take. This function
+    ran once per section in a loop with no memory of previous shots, which made
+    cross-shot continuity impossible by construction — the theme kept the take
+    stylistically cohesive while the subjects wandered. Only the last few are
+    sent: enough to carry the cast and place, short enough not to crowd out the
+    beat being written.
     """
     from ..content.llm_service import LLMService, LLMError
     from ..content.art_direction import compose_prompt
@@ -625,6 +650,7 @@ def generate_image_prompt_v1(
             f"\nWhat this beat should show:\n{visual_intent}\n" if visual_intent else ""
         ),
         shot_hint=(f"\nShot direction: {shot_hint}\n" if shot_hint else ""),
+        prior_scenes=_prior_scenes_block(prior_scenes),
     )
 
     try:

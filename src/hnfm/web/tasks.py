@@ -924,6 +924,8 @@ def build_segment_images(
         ]
 
         # 5) Loop through sections and generate images
+        # Scenes written so far in this take, fed to the next prompt.
+        prior_scenes: list = []
         for i, text in enumerate(sections, start=1):
             logger.info(f"Processing section {i}/{len(sections)}: {text[:50]}...")
 
@@ -938,8 +940,13 @@ def build_segment_images(
                 prompt = generate_image_prompt_v1(
                     text, run_summary, theme=theme, shot_hint=shot_hint,
                     visual_intent=visual_intent,
+                    prior_scenes=prior_scenes,
                 )
                 st.set(prompt=prompt)
+            # Carried forward so the next shot knows what this take has already
+            # shown. Without it each prompt was invented in isolation and only
+            # the theme held the take together.
+            prior_scenes.append(prompt)
             logger.info(f"Generated prompt: {prompt[:100]}...")
 
             # Generate the root frame (text-to-image) at the take's format
