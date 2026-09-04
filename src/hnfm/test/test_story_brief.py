@@ -82,7 +82,11 @@ class TestProducibilityCeiling:
             out = triage.score_content("t", "s", "c", signals=thin)
         assert out["interest"] == 95, "interest must NOT be capped — the story is still good"
         assert out["producibility"] == 20
-        assert out["verdict"] == "marginal", "a capped story can't stay 'great'"
+        # The cap lands exactly on the unsuitable floor: there is nothing here
+        # to make, however interesting the headline. Previously this only fell
+        # back to "marginal", which was still enough to earn a Story Brief.
+        assert out["verdict"] == "unsuitable", "a capped story can't stay 'great'"
+        assert out["model_verdict"] == "great", "the model's own call is kept for comparison"
 
 
 class TestRankingAndBuckets:

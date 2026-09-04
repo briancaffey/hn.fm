@@ -20,7 +20,7 @@ class TestDeservesBrief:
         assert triage.deserves_brief(self._score(rank=90.0)) is True
 
     def test_low_rank_does_not(self):
-        assert triage.deserves_brief(self._score(rank=12.0)) is False
+        assert triage.deserves_brief(self._score("marginal", rank=12.0)) is False
 
     def test_unsuitable_is_an_absolute_veto(self):
         """The observed corpus has an 'unsuitable' story ranking 84.9. When the
@@ -34,10 +34,22 @@ class TestDeservesBrief:
 
     def test_threshold_comes_from_config(self):
         with mock.patch.object(triage, "brief_min_rank", return_value=200.0):
-            assert triage.deserves_brief(self._score(rank=150.0)) is False
+            assert triage.deserves_brief(self._score("marginal", rank=150.0)) is False
+
+    def test_a_good_story_gets_a_brief_regardless_of_rank(self):
+        """rank_score folds in HN score and topic match, so a producible story
+        on an unfashionable topic can rank low. Calling it "good" and then
+        refusing it a brief is incoherent, and leaves the digest skipping
+        stories it wanted (observed live: 49559569, good, rank 58.1)."""
+        assert triage.deserves_brief(self._score("good", rank=58.12)) is True
+        assert triage.deserves_brief(self._score("great", rank=10.0)) is True
+
+    def test_a_marginal_story_still_needs_the_rank(self):
+        assert triage.deserves_brief(self._score("marginal", rank=59.0)) is False
+        assert triage.deserves_brief(self._score("marginal", rank=61.0)) is True
 
     def test_missing_rank_is_treated_as_zero(self):
-        assert triage.deserves_brief({"verdict": "good"}) is False
+        assert triage.deserves_brief({"verdict": "marginal"}) is False
 
     def test_observed_verdict_minimums_clear_the_default(self):
         """`great` and `good` bottom out at 63.7 and 64.8 in the corpus; the

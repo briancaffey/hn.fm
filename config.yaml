@@ -157,6 +157,28 @@ triage:
   # and drops the bottom third. Raise it to spend less; lower it if the digest
   # starts logging skipped stories for want of a brief.
   brief_min_rank: 60
+
+  # Verdict is derived from the two axes here, not taken from the model. The
+  # model judges (interest, producibility); code does the bucketing, so the
+  # categories are tunable without a prompt change and stay stable across
+  # re-runs.
+  #
+  # Asking the model for the verdict directly produced a rubric that barely
+  # discriminated: 33% "great", 2.3% "unsuitable". A story that scraped 43
+  # characters of an HTTP error page came back "marginal", which was enough to
+  # earn it a Story Brief.
+  #
+  # Calibrated against 207 scored stories. The model gives interest away
+  # freely (median 75, p75 and p90 both 85), so `great` needs a high bar to
+  # mean anything: 80/75 selects 13%, roughly the top decile the old rubric
+  # was supposed to find. The unsuitable floor selects 28%.
+  verdict_thresholds:
+    unsuitable_producibility: 20   # at or below this there is nothing to make
+    unsuitable_interest: 15
+    great_interest: 80
+    great_producibility: 75
+    good_interest: 60
+    good_producibility: 50
   # Weighted interest profile: topic keyword -> weight (matched against the
   # LLM-extracted topics; substring, case-insensitive). Negative = penalize.
   interest_profile:

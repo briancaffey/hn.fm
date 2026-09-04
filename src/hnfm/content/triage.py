@@ -39,6 +39,51 @@ def primary_model() -> str:
     )
 
 
+_VERDICT_DEFAULTS = {
+    "unsuitable_producibility": 20,
+    "unsuitable_interest": 15,
+    "great_interest": 80,
+    "great_producibility": 75,
+    "good_interest": 60,
+    "good_producibility": 50,
+}
+
+
+def verdict_thresholds() -> dict:
+    cfg = _triage_config().get("verdict_thresholds") or {}
+    return {**_VERDICT_DEFAULTS, **{k: int(v) for k, v in cfg.items()}}
+
+
+def derive_verdict(interest: int, producibility: int) -> str:
+    """Bucket the two axes into a verdict.
+
+    The model used to return the verdict itself, and barely discriminated:
+    33% "great", 2.3% "unsuitable". A story that scraped 43 characters of an
+    HTTP error page came back "marginal" — enough to earn it a Story Brief.
+    The model is good at judging the two axes and bad at bucketing them, so
+    the split is now explicit: it judges, this categorises.
+
+    Deterministic bucketing also means the verdict is stable across re-runs
+    and tunable in config without touching the prompt.
+    """
+    t = verdict_thresholds()
+    # Legacy rows predate two-axis scoring and carry NULL axes. Treating a
+    # missing score as 0 is the safe reading: we cannot claim a story is
+    # producible on evidence we do not have.
+    interest = int(interest or 0)
+    producibility = int(producibility or 0)
+    if (
+        producibility <= t["unsuitable_producibility"]
+        or interest <= t["unsuitable_interest"]
+    ):
+        return "unsuitable"
+    if interest >= t["great_interest"] and producibility >= t["great_producibility"]:
+        return "great"
+    if interest >= t["good_interest"] and producibility >= t["good_producibility"]:
+        return "good"
+    return "marginal"
+
+
 def brief_min_rank() -> float:
     """Minimum rank_score for a story to earn a Story Brief.
 
@@ -57,8 +102,16 @@ def deserves_brief(score: dict) -> bool:
     still an absolute veto — when the model is confident there is nothing
     there, a high rank does not rescue it.
     """
-    if score.get("verdict") == "unsuitable":
+    verdict = score.get("verdict")
+    if verdict == "unsuitable":
         return False
+    # A story the axes call `great` or `good` gets a brief regardless of rank.
+    # rank_score folds in HN score and topic match, so a genuinely producible
+    # story on an unfashionable topic can rank below the cutoff — and refusing
+    # it a brief while calling it "good" is incoherent, and leaves the digest
+    # skipping stories it wanted.
+    if verdict in ("great", "good"):
+        return True
     return float(score.get("rank_score") or 0) >= brief_min_rank()
 
 
@@ -138,8 +191,19 @@ def score_content(title: str, summary: str, content_clean: str,
             f"(capped by retrieval signals)"
         )
         result["producibility"] = ceiling
-        if result["verdict"] in ("great", "good"):
-            result["verdict"] = "marginal"
+
+    # Derived from the axes, not taken from the model — see derive_verdict.
+    # Kept for comparison so a drifting model stays visible.
+    result["model_verdict"] = result["verdict"]
+    result["verdict"] = derive_verdict(
+        result["interest"], result["producibility"]
+    )
+    if result["verdict"] != result["model_verdict"]:
+        logger.info(
+            f"verdict {result['model_verdict']} -> {result['verdict']} "
+            f"(derived from interest={result['interest']}, "
+            f"producibility={result['producibility']})"
+        )
     return result
 
 
