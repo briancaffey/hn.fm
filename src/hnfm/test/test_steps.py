@@ -584,3 +584,74 @@ class TestStepsApi:
         assert data["queued"] == []
         assert data["skipped"] == ["images/2/frame_1"]
         apply_async.assert_not_called()
+
+
+class TestReapAbandoned:
+    """A worker killed mid-step leaves its row `running` forever (issue #9)."""
+
+    def _running_row(self, started_at, step_key="brief/build"):
+        with db_session() as s:
+            row = PipelineStepRow(
+                item_id=ITEM,
+                run=RUN,
+                seg=None,
+                stage="brief",
+                step_key=step_key,
+                status="running",
+                started_at=started_at,
+            )
+            s.add(row)
+            s.flush()
+            return row.id
+
+    def test_reaps_a_step_older_than_the_longest_task_limit(self):
+        from datetime import timedelta
+
+        stale_id = self._running_row(
+            datetime.utcnow() - timedelta(seconds=steps.MAX_STEP_SECONDS + 60)
+        )
+
+        assert steps.reap_abandoned() == 1
+
+        row = steps.get_step(stale_id)
+        assert row["status"] == "abandoned"
+        assert row["finished_at"] is not None
+        assert "worker died" in row["error"]
+
+    def test_leaves_a_genuinely_running_step_alone(self):
+        fresh_id = self._running_row(datetime.utcnow())
+
+        assert steps.reap_abandoned() == 0
+        assert steps.get_step(fresh_id)["status"] == "running"
+
+    def test_reaped_step_leaves_the_running_feed(self):
+        from datetime import timedelta
+
+        self._running_row(
+            datetime.utcnow() - timedelta(seconds=steps.MAX_STEP_SECONDS + 60)
+        )
+        assert len(steps.activity()["running"]) == 1
+
+        steps.reap_abandoned()
+
+        after = steps.activity()
+        assert after["running"] == []
+        # Visible as a terminal outcome, not silently vanished.
+        assert [r["status"] for r in after["recent"]] == ["abandoned"]
+
+    def test_abandoned_is_not_counted_as_a_failure(self):
+        """`abandoned` is infrastructure, not a step that failed."""
+        from datetime import timedelta
+
+        self._running_row(
+            datetime.utcnow() - timedelta(seconds=steps.MAX_STEP_SECONDS + 60)
+        )
+        steps.reap_abandoned()
+
+        with db_session() as s:
+            errors = (
+                s.query(PipelineStepRow)
+                .filter(PipelineStepRow.status == "error")
+                .count()
+            )
+        assert errors == 0

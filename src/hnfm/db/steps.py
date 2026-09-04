@@ -309,7 +309,7 @@ def activity(recent_minutes: int = 10) -> dict:
             for r in s.execute(
                 select(PipelineStepRow)
                 .where(
-                    PipelineStepRow.status.in_(["ok", "error"]),
+                    PipelineStepRow.status.in_(["ok", "error", "abandoned"]),
                     PipelineStepRow.finished_at >= cutoff,
                 )
                 .order_by(PipelineStepRow.id.desc())
@@ -317,6 +317,51 @@ def activity(recent_minutes: int = 10) -> dict:
             ).scalars()
         ]
     return {"running": running, "recent": recent}
+
+
+# The longest `time_limit` on any task (full_pipeline, 10800s). A step still
+# `running` past this cannot belong to a live task, whatever killed it.
+MAX_STEP_SECONDS = 10800
+
+
+def reap_abandoned(max_seconds: int = MAX_STEP_SECONDS) -> int:
+    """Close out steps whose worker died mid-flight.
+
+    Nothing reconciles `running` rows against workers that no longer exist, so
+    a worker killed mid-step leaves its row `running` forever — and
+    `activity()` replays it to every dashboard and SSE subscriber as though the
+    work were still in progress. One such row read `running` for two days.
+
+    `abandoned` is deliberately distinct from `error`: the step did not fail,
+    the machine under it went away, and mixing the two would pollute
+    failure-rate metrics with infrastructure events.
+    """
+    from datetime import timedelta
+
+    cutoff = datetime.utcnow() - timedelta(seconds=max_seconds)
+    with db_session() as s:
+        rows = list(
+            s.execute(
+                select(PipelineStepRow).where(
+                    PipelineStepRow.status == "running",
+                    PipelineStepRow.started_at < cutoff,
+                )
+            ).scalars()
+        )
+        for row in rows:
+            row.status = "abandoned"
+            row.finished_at = datetime.utcnow()
+            row.error = (
+                "worker died before this step finished "
+                f"(still running after {max_seconds}s)"
+            )
+    if rows:
+        logger.warning(
+            "reaped %d abandoned step(s): %s",
+            len(rows),
+            ", ".join(f"{r.id}:{r.step_key}" for r in rows[:10]),
+        )
+    return len(rows)
 
 
 def list_stale(item_id: int, run: int, seg: Optional[int] = None) -> List[dict]:

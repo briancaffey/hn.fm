@@ -3,6 +3,7 @@
 import os
 import logging
 from celery import Celery
+from celery.signals import worker_ready
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +94,23 @@ celery_app.conf.update(
 
 # Log the registered tasks for debugging
 logger.info(f"Registered tasks: {list(celery_app.tasks.keys())}")
+
+
+@worker_ready.connect
+def _reap_abandoned_steps(**_kwargs):
+    """Close out steps whose worker died mid-flight.
+
+    A worker killed mid-step leaves its pipeline_steps row `running` forever,
+    and `/api/activity` replays it to every dashboard and SSE subscriber as
+    though the work were still in progress. Startup is the natural moment to
+    reconcile: whatever was running when we last died is not running now.
+    """
+    try:
+        from ..db import steps
+
+        steps.reap_abandoned()
+    except Exception as e:  # never block worker startup on bookkeeping
+        logger.warning(f"abandoned-step reap failed at startup: {e}")
 
 # Optional: Configure Celery Beat for periodic tasks
 # Removed cleanup task - simplified task system
