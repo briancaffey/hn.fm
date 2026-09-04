@@ -121,19 +121,39 @@ def process_hn_item_run(
         if not item:
             raise RuntimeError(f"Item {item_id} not found in database")
 
-        # Step 2: Get URL
+        # Step 2: Get URL. A self-post (Ask HN / Show HN / Tell HN) carries no
+        # URL — its content is item.text, and that text IS the article, not a
+        # degraded substitute for one. Only an item with neither is unusable.
         url = item.url
+        self_post = not url and bool((item.text or "").strip())
 
-        if not url:
-            raise RuntimeError(f"Item {item_id} has no URL")
+        if not url and not self_post:
+            raise RuntimeError(f"Item {item_id} has no URL and no text")
+
+        # For a self-post the HN thread *is* the canonical source, and
+        # ProcessedRun.source_url is non-optional.
+        source_url = url or f"https://news.ycombinator.com/item?id={item_id}"
 
         # Step 3: Scrape content (non-fatal: degrade to HN title/text on failure
         # so paywalled/blocked URLs don't kill the whole pipeline)
-        logger.info(f"Scraping content from {url}")
-        with steps.step(item_id, run, None, "scrape", "scrape", {"url": url}) as st:
+        if self_post:
+            logger.info(f"Item {item_id} is a self-post; using its HN text")
+        else:
+            logger.info(f"Scraping content from {url}")
+        with steps.step(item_id, run, None, "scrape", "scrape",
+                        {"url": url, "self_post": self_post}) as st:
             scrape_source, scrape_fallback = "firecrawl", False
             try:
-                content_raw, scrape_source = scrape_url_with_source(url)
+                if self_post:
+                    # Not a fallback: `fallback=True` caps producibility at 15
+                    # (scrape_signals.producibility_ceiling), which would bury
+                    # every Ask HN thread regardless of how good it is.
+                    content_raw = (
+                        f"{item.title or ''}\n\n{item.text or ''}"
+                    ).strip()
+                    scrape_source = "hn_text"
+                else:
+                    content_raw, scrape_source = scrape_url_with_source(url)
             except Exception as scrape_err:
                 logger.warning(
                     f"⚠️ Scrape failed ({scrape_err}); falling back to HN title/text"
@@ -201,7 +221,7 @@ def process_hn_item_run(
             item_id=item_id,
             run=run,
             created_at=datetime.utcnow(),
-            source_url=url,
+            source_url=source_url,
             content_raw=content_raw,
             content_clean=content_clean,
             summary=summary,

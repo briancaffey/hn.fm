@@ -4,7 +4,7 @@ from unittest.mock import patch
 
 import pytest
 
-from ..db import repo
+from ..db import repo, steps
 from ..web import tasks
 from ..web.tasks import process_hn_item_run
 from ..web.models import HNItem
@@ -30,13 +30,49 @@ class TestRunTasks:
         with pytest.raises(RuntimeError, match="Item 123 not found"):
             process_hn_item_run(123, 1)
 
-    def test_process_hn_item_run_missing_url_raises(self):
-        """Test that item without URL raises exception."""
-        # Seed item data without URL
+    def test_process_hn_item_run_no_url_and_no_text_raises(self):
+        """An item with neither a URL nor text has nothing to process."""
         repo.upsert_item(HNItem(id=123, title="Test Article"))
 
-        with pytest.raises(RuntimeError, match="Item 123 has no URL"):
+        with pytest.raises(RuntimeError, match="Item 123 has no URL and no text"):
             process_hn_item_run(123, 1)
+
+    def test_process_hn_item_run_self_post_uses_hn_text(self):
+        """Ask HN / Show HN posts carry no URL — item.text IS the article.
+
+        It must not be marked `fallback`, because that caps producibility at 15
+        and would bury every self-post regardless of quality.
+        """
+        repo.upsert_item(
+            HNItem(
+                id=123,
+                title="Ask HN: How do you test Celery chains?",
+                text="We run a pipeline of chained tasks and " * 20,
+            )
+        )
+
+        p_desc, p_tags, p_emoji, p_haiku = _mock_metadata()
+        with (
+            patch.object(tasks, "scrape_url_with_source") as mock_scrape,
+            patch.object(tasks, "summarize_text_v1", return_value="Summary"),
+            p_desc,
+            p_tags,
+            p_emoji,
+            p_haiku,
+        ):
+            result = process_hn_item_run(123, 1)
+
+        assert result["status"] == "ok"
+        mock_scrape.assert_not_called()
+
+        scrape_steps = [
+            s for s in steps.list_steps(123, 1) if s["step_key"] == "scrape"
+        ]
+        assert len(scrape_steps) == 1
+        outputs = scrape_steps[0]["outputs"] or {}
+        assert outputs["source"] == "hn_text"
+        assert outputs["fallback"] is False
+        assert outputs["signals"]["chars"] > 100
 
     def test_process_hn_item_run_scrape_failure_falls_back(self):
         """Scrape failure is non-fatal: content degrades to the HN title/text."""
