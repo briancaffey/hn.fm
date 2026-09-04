@@ -478,3 +478,43 @@ class TestScriptGenerator:
                 # Should have called generate_speech for each batch
                 # 5 lines with batch_size=2 should create 3 batches
                 assert script_generator.tts_service.generate_speech.call_count == 3
+
+
+class TestCleanScriptForTts:
+    """Regression cover for the ' ,  ' artifact (issue #13)."""
+
+    def _clean(self, text):
+        from ..utils.segment_utils import _clean_script_for_tts
+
+        return _clean_script_for_tts(text)
+
+    def test_spaced_em_dash_does_not_leave_a_stray_space(self):
+        """The bug: translating a bare '—' to ', ' kept both original spaces,
+        so 'game — that' became 'game ,  that'."""
+        out = self._clean("60 Hz in the same game — that is what I discovered")
+        assert out == "60 Hz in the same game, that is what I discovered"
+        assert " ,  " not in out
+        assert " , " not in out
+
+    def test_unspaced_em_dash_still_gets_a_pause(self):
+        assert self._clean("no internet access—just a manual") == (
+            "no internet access, just a manual"
+        )
+
+    def test_en_dash_and_ellipsis_behave_the_same(self):
+        assert self._clean("a – b") == "a, b"
+        assert self._clean("done by hand … it used an LLM") == (
+            "done by hand, it used an LLM"
+        )
+
+    def test_underscore_substitution_does_not_double_space(self):
+        assert self._clean("snake_case name") == "snake case name"
+        assert "  " not in self._clean("a _ b")
+
+    def test_markdown_emphasis_is_still_stripped(self):
+        assert self._clean("a **bold** claim") == "a bold claim"
+
+    def test_smart_quotes_still_normalised(self):
+        assert self._clean("“quoted” and ‘single’") == (
+            "\"quoted\" and 'single'"
+        )

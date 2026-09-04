@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 from pathlib import Path
 from typing import Optional, List
@@ -102,10 +103,6 @@ def _clean_script_for_tts(script: str) -> str:
         ord("”"): '"',
         ord("‘"): "'",
         ord("’"): "'",
-        ord("—"): ", ",
-        ord("–"): ", ",
-        # ord('\n\n'): '\n',
-        ord("…"): ", ",
         ord("`"): "",
         ord("_"): " ",
         ord("*"): None,  # markdown emphasis -> spoken as "asterisk"
@@ -114,7 +111,19 @@ def _clean_script_for_tts(script: str) -> str:
 
     script = script.replace("\n\n", "\n")
 
+    # Dashes and ellipses become a comma pause, but they must be matched WITH
+    # their surrounding spaces. Mapping the bare character to ", " through the
+    # translate table turned "game — that" into "game ,  that": the original
+    # spaces survive on either side of the inserted comma. That artifact was
+    # showing up in 18% of generated scripts and TTS read the stray space as
+    # part of the pause.
+    script = re.sub(r"\s*[—–]\s*", ", ", script)
+    script = re.sub(r"\s*…\s*", ", ", script)
+
     script = script.translate(replacements)
+
+    # `_` -> " " above can leave doubled spaces of its own.
+    script = re.sub(r"[ \t]{2,}", " ", script)
 
     return script
 
