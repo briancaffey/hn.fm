@@ -47,3 +47,22 @@ On the item detail page click the `Single Task Pipeline` button.
 5. **Enhances audio** using Studio Voice for professional quality
 6. **Generates images** for visual content
 7. **Creates videos** combining audio and images
+
+## Output layout
+
+Generated artifacts live under `outputs/`, in exactly three places:
+
+| path | contents |
+|---|---|
+| `outputs/hn/item/<id>/runs/<n>/segments/<n>/` | audio, images, video and the segment record for one take |
+| `outputs/digests/` | rendered digests (`.html`, `.epub`) |
+| `outputs/reports/` | analysis reports |
+
+Nothing else belongs at the top level. An older layout wrote one
+slug-named directory per story (`outputs/holga_120_degree_wide_pinhole_camera_68ae49`);
+70 of those had accumulated to 1.7 GB with nothing reading them, and they were
+removed. If a top-level directory appears here that is not one of the three
+above, it is a leak.
+
+Object-store keys mirror this tree, so the same paths address a local file and
+a MinIO object.
