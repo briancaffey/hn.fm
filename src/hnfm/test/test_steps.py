@@ -702,3 +702,59 @@ class TestRecordTaskFailure:
         )
         row = steps.get_step(step_id)
         assert (row["item_id"], row["run"], row["seg"]) == (7, 3, 2)
+
+
+class TestCostRollup:
+    """Cost derived from the audit trail rather than a parallel table (#20)."""
+
+    def _step(self, item_id, run, seg, tokens_in, tokens_out, status="ok"):
+        from datetime import timedelta
+
+        started = datetime.utcnow()
+        with db_session() as s:
+            s.add(
+                PipelineStepRow(
+                    item_id=item_id, run=run, seg=seg, stage="summary",
+                    step_key="summary", status=status, started_at=started,
+                    finished_at=started + timedelta(seconds=5), seconds=5.0,
+                    tokens_in=tokens_in, tokens_out=tokens_out, llm_calls=1,
+                )
+            )
+
+    def test_tokens_and_seconds_roll_up_per_run(self):
+        self._step(500, 1, None, 100, 10)
+        self._step(500, 1, None, 200, 20)
+
+        rows = {(r["item_id"], r["run"]): r for r in steps.cost_rollup()}
+        row = rows[(500, 1)]
+        assert row["steps"] == 2
+        assert row["tokens_in"] == 300
+        assert row["tokens_out"] == 30
+        assert row["llm_calls"] == 2
+        assert row["seconds"] == 10.0
+
+    def test_runs_are_kept_separate(self):
+        self._step(501, 1, None, 100, 10)
+        self._step(501, 2, None, 900, 90)
+
+        rows = {(r["item_id"], r["run"]): r for r in steps.cost_rollup()}
+        assert rows[(501, 1)]["tokens_in"] == 100
+        assert rows[(501, 2)]["tokens_in"] == 900
+
+    def test_errors_are_counted(self):
+        self._step(502, 1, None, 10, 1, status="error")
+        self._step(502, 1, None, 10, 1)
+        row = {(r["item_id"], r["run"]): r for r in steps.cost_rollup()}[(502, 1)]
+        assert row["errors"] == 1
+
+    def test_item_agnostic_failures_are_excluded(self):
+        """item_id 0 is the not-applicable sentinel for tasks like build_digest;
+        it is not a run and must not appear as one."""
+        self._step(0, 0, None, 10, 1, status="error")
+        assert all(r["item_id"] != 0 for r in steps.cost_rollup())
+
+    def test_it_covers_runs_that_never_finalized(self):
+        """The whole point: pipeline_metrics only records finalized
+        full_pipeline runs — 23 rows against 157 segments."""
+        self._step(503, 1, None, 50, 5)
+        assert any(r["item_id"] == 503 for r in steps.cost_rollup())

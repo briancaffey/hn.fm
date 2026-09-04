@@ -102,11 +102,22 @@ class TestScoreRunTask:
             "flags": [], "topics": ["generative-ai"], "visual_potential": 8,
             "narrative_potential": 7, "model": "test-model",
         }
-        with patch.object(tasks.triage_module, "score_content", return_value=dict(fake)) \
-                if hasattr(tasks, "triage_module") else patch(
-                "hnfm.content.triage.score_content", return_value=dict(fake)):
+        # score_run dispatches the brief and the enrichment on success. Without
+        # mocking apply_async those go to the REAL broker, where live workers
+        # pick them up and fail against the real database — run 11:1 exists
+        # only in this test's sqlite. That was quietly writing error rows into
+        # production Postgres on every test run.
+        with (
+            patch("hnfm.content.triage.score_content", return_value=dict(fake)),
+            patch.object(tasks.build_story_brief, "apply_async") as brief,
+            patch.object(tasks.enrich_run, "apply_async") as enrich,
+        ):
             result = tasks.score_run(11, 1)
+
         assert result["verdict"] == "great"
+        # A story this good earns both.
+        brief.assert_called_once_with(args=[11, 1])
+        enrich.assert_called_once_with(args=[11, 1])
         stored = repo.get_triage_score(11, 1)
         assert stored["interest"] == 80
         assert stored["producibility"] == 85

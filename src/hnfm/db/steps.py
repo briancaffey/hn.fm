@@ -319,6 +319,62 @@ def activity(recent_minutes: int = 10) -> dict:
     return {"running": running, "recent": recent}
 
 
+def cost_rollup(limit: int = 200) -> List[dict]:
+    """Per-run cost, derived from the audit trail rather than a parallel table.
+
+    `pipeline_metrics` records the same idea but only for finalized
+    `full_pipeline` runs — 23 rows against 157 segments and 1,773 steps. Every
+    step already carries model, token counts, llm_calls and duration whatever
+    entry point produced it (the per-step API, a rerun, a partial build), so
+    the trail is the more complete source and needs no second write path.
+    """
+    from sqlalchemy import func
+
+    with db_session() as s:
+        rows = s.execute(
+            select(
+                PipelineStepRow.item_id,
+                PipelineStepRow.run,
+                PipelineStepRow.seg,
+                func.count().label("steps"),
+                func.sum(PipelineStepRow.tokens_in).label("tokens_in"),
+                func.sum(PipelineStepRow.tokens_out).label("tokens_out"),
+                func.sum(PipelineStepRow.llm_calls).label("llm_calls"),
+                # The stored column, not date arithmetic: `extract('epoch', a - b)`
+                # is Postgres-only and returns nonsense on the sqlite the tests
+                # run against — so the query would have been silently wrong in
+                # exactly the environment that checks it.
+                func.sum(PipelineStepRow.seconds).label("seconds"),
+                func.count()
+                .filter(PipelineStepRow.status == "error")
+                .label("errors"),
+                func.max(PipelineStepRow.started_at).label("last_step_at"),
+            )
+            .where(PipelineStepRow.item_id > 0)  # 0 = item-agnostic task failure
+            .group_by(
+                PipelineStepRow.item_id, PipelineStepRow.run, PipelineStepRow.seg
+            )
+            .order_by(func.max(PipelineStepRow.started_at).desc())
+            .limit(limit)
+        ).all()
+
+    return [
+        {
+            "item_id": r.item_id,
+            "run": r.run,
+            "seg": r.seg,
+            "steps": r.steps,
+            "tokens_in": int(r.tokens_in or 0),
+            "tokens_out": int(r.tokens_out or 0),
+            "llm_calls": int(r.llm_calls or 0),
+            "seconds": round(float(r.seconds or 0), 1),
+            "errors": r.errors,
+            "last_step_at": r.last_step_at.isoformat() if r.last_step_at else None,
+        }
+        for r in rows
+    ]
+
+
 def record_task_failure(
     task_name: str,
     args: tuple,

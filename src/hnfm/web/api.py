@@ -623,6 +623,24 @@ def _queue_depths() -> dict:
     return {"queues": depths, "pending_total": sum(depths.values())}
 
 
+@app.get("/api/cost", tags=["activity"])
+async def cost_endpoint(limit: int = 200):
+    """What each run cost, derived from the audit trail.
+
+    Distinct from /api/metrics, which reads `pipeline_metrics` and only covers
+    finalized full_pipeline runs — 23 rows against 157 segments. Every step
+    records its own tokens and duration regardless of entry point, so this
+    covers reruns and partial builds too.
+    """
+    try:
+        from ..db import steps
+
+        return {"runs": steps.cost_rollup(limit=limit)}
+    except Exception as e:
+        logger.error(f"cost rollup failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
 @app.get("/api/activity", tags=["activity"])
 async def activity_endpoint():
     """Running + recently finished pipeline steps, plus what is still queued
