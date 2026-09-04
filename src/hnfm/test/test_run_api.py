@@ -81,7 +81,9 @@ class TestRunAPI:
 
             assert mock_apply.call_count == 2
             # continue_chain defaults to False
-            assert mock_apply.call_args_list[0].kwargs["queue"] == "hnfm_tasks"
+            # The queue is decided centrally by celery_app.task_routes, not
+            # by the caller — see test_queue_routing.py.
+            assert "queue" not in mock_apply.call_args_list[0].kwargs
             assert mock_apply.call_args_list[0].kwargs["args"] == [123, 1, False]
 
     def test_get_single_run(self, client):

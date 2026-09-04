@@ -72,21 +72,6 @@ except ImportError as e:
 
 # Celery configuration
 celery_app.conf.update(
-    # Task routing - Route HN tasks to hnfm_tasks queue
-    task_routes={
-        "src.hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
-        "hnfm.web.tasks.*": {"queue": "hnfm_tasks"},
-        "src.hnfm.web.tasks.process_hn_item_run": {"queue": "hnfm_tasks"},
-        "hnfm.web.tasks.process_hn_item_run": {"queue": "hnfm_tasks"},
-        "src.hnfm.web.tasks.generate_segment": {"queue": "hnfm_tasks"},
-        "hnfm.web.tasks.generate_segment": {"queue": "hnfm_tasks"},
-        "src.hnfm.web.tasks.build_segment_audio": {"queue": "hnfm_tasks"},
-        "hnfm.web.tasks.build_segment_audio": {"queue": "hnfm_tasks"},
-        "src.hnfm.web.tasks.build_segment_images": {"queue": "hnfm_tasks"},
-        "hnfm.web.tasks.build_segment_images": {"queue": "hnfm_tasks"},
-        "src.hnfm.web.tasks.rebuild_single_image": {"queue": "hnfm_tasks"},
-        "hnfm.web.tasks.rebuild_single_image": {"queue": "hnfm_tasks"},
-    },
     # Task serialization
     task_serializer="json",
     accept_content=["json"],
@@ -118,6 +103,38 @@ celery_app.conf.update(
     task_ignore_result=False,
     task_store_errors_even_if_ignored=True,
 )
+
+# Queue routing. One queue and one worker slot meant a 4-second scrape sat
+# behind a 3-hour full_pipeline: during a diagnostic run, five generation tasks
+# waited ~30 minutes for 46 ingest tasks to drain. Splitting by cost class lets
+# each kind of work proceed at its own pace.
+#
+# Routing lives here rather than at the ~22 apply_async call sites so there is
+# one place to reason about it. A task's queue is a property of the task, not
+# of whoever happens to enqueue it.
+QUEUE_INGEST = "hnfm_ingest"    # network-bound: scrape + a few LLM calls
+QUEUE_TRIAGE = "hnfm_triage"    # LLM-bound scoring and briefs
+QUEUE_RENDER = "hnfm_render"    # GPU/ffmpeg: images, video, audio
+QUEUE_DIGEST = "hnfm_digest"    # long, self-contained, runs on a schedule
+QUEUE_LEGACY = "hnfm_tasks"     # drained by the render worker, see below
+
+celery_app.conf.task_routes = {
+    "hnfm.web.tasks.hn_fetch_item": {"queue": QUEUE_INGEST},
+    "hnfm.web.tasks.process_hn_item_run": {"queue": QUEUE_INGEST},
+    "hnfm.web.tasks.score_run": {"queue": QUEUE_TRIAGE},
+    "hnfm.web.tasks.build_story_brief": {"queue": QUEUE_TRIAGE},
+    "hnfm.web.tasks.build_digest": {"queue": QUEUE_DIGEST},
+    # Everything below contends for the GPU or ffmpeg and must stay serial.
+    "hnfm.web.tasks.full_pipeline": {"queue": QUEUE_RENDER},
+    "hnfm.web.tasks.generate_segment": {"queue": QUEUE_RENDER},
+    "hnfm.web.tasks.build_segment_audio": {"queue": QUEUE_RENDER},
+    "hnfm.web.tasks.build_segment_images": {"queue": QUEUE_RENDER},
+    "hnfm.web.tasks.build_segment_episode": {"queue": QUEUE_RENDER},
+    "hnfm.web.tasks.generate_segment_video": {"queue": QUEUE_RENDER},
+    "hnfm.web.tasks.rebuild_single_image": {"queue": QUEUE_RENDER},
+    # rerun_step re-executes an arbitrary step, so it goes to the slowest lane.
+    "hnfm.web.tasks.rerun_step": {"queue": QUEUE_RENDER},
+}
 
 # Log the registered tasks for debugging
 logger.info(f"Registered tasks: {list(celery_app.tasks.keys())}")
@@ -160,7 +177,7 @@ if os.getenv("DIGEST_SCHEDULE_ENABLED", "false").lower() == "true":
         # send=True is the whole point of the schedule; score_first keeps the
         # digest from shrinking to whatever happened to be triaged by hand.
         "kwargs": {"send": True, "score_first": True},
-        "options": {"queue": "hnfm_tasks"},
+        "options": {"queue": QUEUE_DIGEST},
     }
     logger.info(
         "Nightly digest scheduled at "

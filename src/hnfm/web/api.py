@@ -199,8 +199,7 @@ def queue_item_if_not_exists(item_id: int) -> dict:
 
     triage_on_ingest = os.getenv("TRIAGE_ON_INGEST", "true").lower() == "true"
     task = hn_fetch_item.apply_async(
-        args=[item_id], kwargs={"continue_to_triage": triage_on_ingest},
-        queue="hnfm_tasks",
+        args=[item_id], kwargs={"continue_to_triage": triage_on_ingest}
     )
     logger.info(f"Item {item_id} queued for fetching (triage={triage_on_ingest})")
     return {"status": "queued", "id": item_id, "task_id": task.id}
@@ -405,12 +404,11 @@ async def triage_single_item(item_id: int):
 
     runs = list_runs_for_item(item_id, offset=0, limit=1)
     if runs:
-        task = score_run.apply_async(args=[item_id, runs[0]], queue="hnfm_tasks")
+        task = score_run.apply_async(args=[item_id, runs[0]])
         return {"status": "queued", "item_id": item_id, "run": runs[0],
                 "task_id": task.id}
     task = process_hn_item_run.apply_async(
-        args=[item_id, None, False], kwargs={"continue_to_triage": True},
-        queue="hnfm_tasks",
+        args=[item_id, None, False], kwargs={"continue_to_triage": True}
     )
     return {"status": "queued", "item_id": item_id, "run": None, "task_id": task.id}
 
@@ -444,7 +442,7 @@ async def triage_score_existing(limit: int = 50):
 
     queued = []
     for item_id, run in rows:
-        score_run.apply_async(args=[int(item_id), int(run)], queue="hnfm_tasks")
+        score_run.apply_async(args=[int(item_id), int(run)])
         queued.append(int(item_id))
     return {"queued_count": len(queued), "queued_ids": queued}
 
@@ -464,7 +462,7 @@ async def build_episode_endpoint(item_id: int, run: int, seg: int):
         raise HTTPException(status_code=400, detail="Segment audio not ready")
 
     task = build_segment_episode.apply_async(
-        args=[item_id, run, seg], queue="hnfm_tasks"
+        args=[item_id, run, seg]
     )
     return {"status": "queued", "item_id": item_id, "run": run, "seg": seg,
             "task_id": task.id}
@@ -656,7 +654,7 @@ async def rerun_step_endpoint(step_id: int, request: dict = Body(None)):
         )
 
     task = rerun_step.apply_async(
-        args=[step_id], kwargs={"overrides": request or {}}, queue="hnfm_tasks"
+        args=[step_id], kwargs={"overrides": request or {}}
     )
     return {
         "status": "queued",
@@ -682,7 +680,7 @@ async def rebuild_stale_steps(item_id: int, run: int, seg: int):
     queued = []
     if any(k.startswith("video/") for k in stale_keys):
         task = generate_segment_video.apply_async(
-            args=[item_id, run, seg], queue="hnfm_tasks"
+            args=[item_id, run, seg]
         )
         queued.append({"step_key": "video/assemble", "task_id": task.id})
 
@@ -732,8 +730,7 @@ async def start_single_task_pipeline(request: dict = Body(...)):
         task = full_pipeline.apply_async(
             args=[item_id],
             kwargs={"aspect_format": aspect_format, "style_theme": style_theme,
-                    "mode": mode},
-            queue="hnfm_tasks",
+                    "mode": mode}
         )
 
         return {
@@ -770,7 +767,7 @@ async def create_and_queue_run(
 
         # Queue the task with continue_chain parameter
         process_hn_item_run.apply_async(
-            args=[item_id, run, request.continue_chain], queue="hnfm_tasks"
+            args=[item_id, run, request.continue_chain]
         )
 
         return CreateRunResponse(item_id=item_id, run=run, status="queued")
@@ -888,7 +885,7 @@ async def create_and_queue_segment(
 
         # Queue the task with continue_chain parameter
         generate_segment.apply_async(
-            args=[item_id, run, seg, request.continue_chain], queue="hnfm_tasks"
+            args=[item_id, run, seg, request.continue_chain]
         )
 
         return CreateSegmentResponse(item_id=item_id, run=run, seg=seg, status="queued")
@@ -1037,7 +1034,7 @@ async def build_segment_audio_all(item_id: int, run: int, seg: int):
     try:
         # Queue the task to build all sections
         build_segment_audio.apply_async(
-            args=[item_id, run, seg], kwargs={"mode": "all"}, queue="hnfm_tasks"
+            args=[item_id, run, seg], kwargs={"mode": "all"}
         )
 
         return BuildAudioResponse(
@@ -1068,7 +1065,7 @@ async def build_segment_audio_one(
 
         # Queue the task to build one section
         build_segment_audio.apply_async(
-            args=[item_id, run, seg], kwargs=kwargs, queue="hnfm_tasks"
+            args=[item_id, run, seg], kwargs=kwargs
         )
 
         return BuildAudioResponse(
@@ -1501,8 +1498,7 @@ async def create_digest(request: dict = Body(default={})):
             "shape": request.get("shape") or "daily",
             "skip": int(request.get("skip") or 0),
             "exclude_recent_days": int(request.get("exclude_recent_days", 7)),
-        },
-        queue="hnfm_tasks",
+        }
     )
     return {"status": "queued", "task_id": task.id}
 

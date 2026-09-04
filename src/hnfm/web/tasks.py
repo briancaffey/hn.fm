@@ -73,8 +73,7 @@ def hn_fetch_item(item_id: int, continue_to_triage: bool = False) -> Dict[str, a
         if continue_to_triage:
             process_hn_item_run.apply_async(
                 args=[item_id, None, False],
-                kwargs={"continue_to_triage": True},
-                queue="hnfm_tasks",
+                kwargs={"continue_to_triage": True}
             )
 
         return {"status": "fetched", "id": item_id}
@@ -242,11 +241,11 @@ def process_hn_item_run(
                 f"Continuing chain: triggering generate_segment for item {item_id}, run {run}"
             )
             generate_segment.apply_async(
-                args=[item_id, run, None, True], queue="hnfm_tasks"
+                args=[item_id, run, None, True]
             )
         elif continue_to_triage:
             logger.info(f"Continuing to triage: scoring item {item_id}, run {run}")
-            score_run.apply_async(args=[item_id, run], queue="hnfm_tasks")
+            score_run.apply_async(args=[item_id, run])
 
         return {"status": "ok", "item_id": item_id, "run": run}
 
@@ -349,7 +348,7 @@ def generate_segment(
                 f"Continuing chain: triggering build_segment_audio for item {item_id}, run {run}, seg {seg}"
             )
             build_segment_audio.apply_async(
-                args=[item_id, run, seg, "all", None, None, True], queue="hnfm_tasks"
+                args=[item_id, run, seg, "all", None, None, True]
             )
 
         return {"status": "ok", "item_id": item_id, "run": run, "seg": seg}
@@ -548,7 +547,7 @@ def build_segment_audio(
                     f"Continuing chain: triggering build_segment_images for item {item_id}, run {run}, seg {seg}"
                 )
                 build_segment_images.apply_async(
-                    args=[item_id, run, seg, True], queue="hnfm_tasks"
+                    args=[item_id, run, seg, True]
                 )
 
             return result_dict
@@ -703,7 +702,7 @@ def build_segment_audio(
                     f"Continuing chain: triggering build_segment_images for item {item_id}, run {run}, seg {seg}"
                 )
                 build_segment_images.apply_async(
-                    args=[item_id, run, seg, True], queue="hnfm_tasks"
+                    args=[item_id, run, seg, True]
                 )
 
             return result_dict
@@ -948,7 +947,7 @@ def build_segment_images(
                 f"Continuing chain: triggering generate_segment_video for item {item_id}, run {run}, seg {seg}"
             )
             generate_segment_video.apply_async(
-                args=[item_id, run, seg, True], queue="hnfm_tasks"
+                args=[item_id, run, seg, True]
             )
 
         # 7) Return result

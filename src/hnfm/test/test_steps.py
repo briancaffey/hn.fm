@@ -522,7 +522,7 @@ class TestStepsApi:
             "task_id": "task-123",
         }
         apply_async.assert_called_once_with(
-            args=[sid], kwargs={"overrides": {"prompt": "new"}}, queue="hnfm_tasks"
+            args=[sid], kwargs={"overrides": {"prompt": "new"}}
         )
 
     def test_post_rerun_unsupported_step_returns_400(self):
@@ -566,7 +566,7 @@ class TestStepsApi:
         ]
         assert data["skipped"] == ["images/2/frame_1"]
         assert data["stale_keys"] == ["images/2/frame_1", "video/assemble"]
-        apply_async.assert_called_once_with(args=[ITEM, RUN, SEG], queue="hnfm_tasks")
+        apply_async.assert_called_once_with(args=[ITEM, RUN, SEG])
 
     def test_rebuild_stale_with_no_video_stale_queues_nothing(self):
         from ..web.api import app

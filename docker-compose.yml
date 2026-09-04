@@ -275,7 +275,15 @@ services:
       retries: 3
       start_period: 40s
 
-  # Celery worker
+  # Celery workers, one per cost class (see celery_app.task_routes).
+  #
+  # A single queue meant a 4-second scrape sat behind a 3-hour full_pipeline.
+  # These lanes let cheap network-bound work proceed while a render holds the
+  # GPU. Only the render lane must stay serial.
+
+  # Render: GPU and ffmpeg. Serial on purpose — concurrent renders contend for
+  # the same devices and get slower, not faster. Also drains the legacy
+  # hnfm_tasks queue so messages enqueued before the split are not stranded.
   celery-worker:
     <<: *common-app-config
     container_name: hnfm-celery-worker
@@ -286,7 +294,61 @@ services:
       CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
       CELERY_TASK_SOFT_TIME_LIMIT: "300"
       CELERY_TASK_TIME_LIMIT: "600"
-    command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "worker", "--loglevel=info", "--queues=hnfm_tasks"]
+    command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "worker", "--loglevel=info", "--hostname=render@%h", "--queues=hnfm_render,hnfm_tasks"]
+    healthcheck:
+      test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Ingest: scrape plus a few LLM calls, entirely I/O-bound. Concurrency is the
+  # whole point of this lane — measured at ~40s/item strictly serially.
+  celery-worker-ingest:
+    <<: *common-app-config
+    container_name: hnfm-celery-worker-ingest
+    environment:
+      <<: *common-env
+      CELERY_ALWAYS_EAGER: "false"
+      CELERY_WORKER_CONCURRENCY: "4"
+      CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
+    command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "worker", "--loglevel=info", "--hostname=ingest@%h", "--concurrency=4", "--queues=hnfm_ingest"]
+    healthcheck:
+      test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Triage: LLM scoring and Story Briefs. Kept modest — these all hit the same
+  # LM Studio instance, which serves one model.
+  celery-worker-triage:
+    <<: *common-app-config
+    container_name: hnfm-celery-worker-triage
+    environment:
+      <<: *common-env
+      CELERY_ALWAYS_EAGER: "false"
+      CELERY_WORKER_CONCURRENCY: "2"
+      CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
+    command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "worker", "--loglevel=info", "--hostname=triage@%h", "--concurrency=2", "--queues=hnfm_triage"]
+    healthcheck:
+      test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  # Digest: long, self-contained, and scheduled. Its own lane so the nightly
+  # build never waits on a video and never delays one.
+  celery-worker-digest:
+    <<: *common-app-config
+    container_name: hnfm-celery-worker-digest
+    environment:
+      <<: *common-env
+      CELERY_ALWAYS_EAGER: "false"
+      CELERY_WORKER_CONCURRENCY: "1"
+      CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
+    command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "worker", "--loglevel=info", "--hostname=digest@%h", "--queues=hnfm_digest"]
     healthcheck:
       test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping"]
       interval: 30s
