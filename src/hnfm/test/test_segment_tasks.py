@@ -85,8 +85,10 @@ class TestGenerateSegmentTask:
             result = generate_segment(123, 1, 1)
 
         assert result == {"status": "ok", "item_id": 123, "run": 1, "seg": 1}
+        # `notes` is an out-param: generate_script reports the raw speaker
+        # switch rate through it so a model regression stays visible.
         mock_llm.assert_called_once_with(
-            "Clean content for script generation", "Article summary"
+            "Clean content for script generation", "Article summary", notes={}
         )
 
         segment = repo.get_segment(123, 1, 1)

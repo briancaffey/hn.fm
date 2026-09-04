@@ -321,8 +321,14 @@ class TestScriptHygiene:
                 for i in range(1, 8)
             ],
         )
-        flags = {f["flag"] for f in segment_utils.script_quality_flags(script)}
-        assert "strict_alternation" in flags
+        found = {
+            f["flag"]: f for f in segment_utils.script_quality_flags(script)
+        }
+        # Renamed from `strict_alternation`: the flag is now a measured switch
+        # rate rather than an all-or-nothing check, because the all-or-nothing
+        # version missed the 97%-ping-pong scripts the corpus is full of.
+        assert "speaker_ping_pong" in found
+        assert found["speaker_ping_pong"]["switch_rate"] == 1.0
 
     def test_clean_script_passes_quality_flags(self):
         script = Script(
