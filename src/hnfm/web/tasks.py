@@ -1419,6 +1419,57 @@ def build_segment_media_plan(item_id: int, run: int, seg: int) -> Dict[str, any]
     return {"status": "ok", **made}
 
 
+def _artifact_status(item_id, run, seg, mode):
+    """`ok` only when the artifact this run exists to produce is actually on
+    disk and non-trivial; otherwise `partial` with a reason.
+
+    A run once finished in 84 seconds with `status: "ok"`, `format: "16:9"`,
+    and no images stage, no video stage and no mp4 — anything reading `status`
+    to decide "is this ready to publish" would have been wrong.
+    """
+    seg_obj = get_segment(item_id, run, seg)
+    expected = "audio/episode.mp3" if mode == "audio" else "video/segment.mp4"
+    path = None
+    if seg_obj:
+        path = (
+            getattr(seg_obj, "audio_episode_path", None)
+            if mode == "audio"
+            else getattr(seg_obj, "video_path", None)
+        )
+    if not path:
+        root = os.getenv("OUTPUTS_DIR", "/app/outputs")
+        path = os.path.join(
+            root, "hn", "item", str(item_id), "runs", str(run),
+            "segments", str(seg), expected,
+        )
+    if not os.path.exists(path):
+        return "partial", f"expected {expected} was never produced"
+    # A zero- or near-zero-byte file is a failed encode, not an artifact.
+    if os.path.getsize(path) < 1024:
+        return "partial", f"{expected} is {os.path.getsize(path)} bytes"
+    return "ok", None
+
+
+def _annotate_resolved_metrics(item_id, run, seg):
+    """Record the theme and format the run actually used.
+
+    The theme is chosen inside image generation (`pick_theme`), so it does not
+    exist at `metrics.init` time — which is why every stored record read
+    `theme: null`. Read it back off the segment once it is settled.
+    """
+    from ..utils import metrics
+
+    _seg = get_segment(item_id, run, seg)
+    if not _seg:
+        return
+    metrics.annotate(
+        item_id, run, seg,
+        theme=getattr(_seg, "style_theme_name", None)
+        or getattr(_seg, "style_theme", None),
+        format=getattr(_seg, "aspect_format", None) or "16:9",
+    )
+
+
 @celery_app.task(
     name="hnfm.web.tasks.full_pipeline", time_limit=10800, soft_time_limit=10800
 )
@@ -1479,8 +1530,15 @@ def full_pipeline(
 
         seg = next_seg_id(item_id, run)
 
-        # Begin metrics for this run
-        metrics.init(item_id, run, seg, theme=style_theme, fmt=aspect_format)
+        # Begin metrics for this run. `style_theme`/`aspect_format` here are
+        # the caller's overrides and are usually None — the resolved values are
+        # annotated after the segment exists, below.
+        _item = get_item(item_id)
+        metrics.init(
+            item_id, run, seg,
+            title=(_item.title if _item else None),
+            theme=style_theme, fmt=aspect_format,
+        )
         metrics.record_seconds(item_id, run, seg, "scrape", _scrape_s)
         metrics.record_seconds(item_id, run, seg, "source_images", _srcimg_s)
         metrics.count(item_id, run, seg, "source_images", _src_count)
@@ -1526,7 +1584,12 @@ def full_pipeline(
             logger.warning(f"episode build skipped (non-fatal): {_ee}")
 
         if mode == "audio":
-            metrics.finalize(item_id, run, seg, status="ok")
+            _annotate_resolved_metrics(item_id, run, seg)
+            _status, _why = _artifact_status(item_id, run, seg, "audio")
+            if _why:
+                logger.warning(f"run {item_id}:{run}:{seg} is partial — {_why}")
+                metrics.annotate(item_id, run, seg, partial_reason=_why)
+            metrics.finalize(item_id, run, seg, status=_status)
             logger.info(
                 f"🎉 Audio pipeline completed for item {item_id}, run {run}, seg {seg}"
             )
@@ -1566,7 +1629,12 @@ def full_pipeline(
             video_result = generate_segment_video(item_id, run, seg, continue_chain=False)
         logger.info(f"✅ Video generation completed: {video_result}")
 
-        metrics.finalize(item_id, run, seg, status="ok")
+        _annotate_resolved_metrics(item_id, run, seg)
+        _status, _why = _artifact_status(item_id, run, seg, "video")
+        if _why:
+            logger.warning(f"run {item_id}:{run}:{seg} is partial — {_why}")
+            metrics.annotate(item_id, run, seg, partial_reason=_why)
+        metrics.finalize(item_id, run, seg, status=_status)
 
         logger.info(
             f"🎉 Full pipeline completed successfully for item {item_id}, run {run}, seg {seg}"

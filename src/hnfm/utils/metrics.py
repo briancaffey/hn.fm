@@ -39,6 +39,23 @@ def init(item, run, seg, title=None, theme=None, fmt=None):
         logger.debug(f"metrics init failed (non-fatal): {e}")
 
 
+def annotate(item, run, seg, **fields):
+    """Record identifying fields once they are actually known.
+
+    `init` runs before the segment exists, so the only theme and format it can
+    record are the caller's *overrides* — both None on an ordinary run, which
+    is why every stored record read `theme: null, format: null`. The resolved
+    values only exist after the segment is generated, and the title lives on
+    the item. Nulls are ignored so a later call cannot erase a known value.
+    """
+    try:
+        data = _load(item, run, seg)
+        data.update({k: v for k, v in fields.items() if v is not None})
+        repo.save_metrics(item, run, seg, data)
+    except Exception as e:
+        logger.debug(f"metrics annotate failed (non-fatal): {e}")
+
+
 @contextmanager
 def stage(item, run, seg, name):
     """Time a pipeline stage and mark it current (for token attribution)."""
