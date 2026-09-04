@@ -83,45 +83,27 @@ Guidelines:
 Tags (JSON array):"""
 
     try:
+        from .llm_schemas import Tags
+
         llm_service = LLMService()
         full_prompt = f"{system_prompt}\n\n{prompt_template.format(summary=summary)}"
-        result = llm_service.generate_content(full_prompt)
+        # Schema-enforced rather than parsed out of prose. The old path asked
+        # for "a JSON array", then tried json.loads, then a regex for brackets,
+        # then a comma split — and still failed on real output with "Could not
+        # parse tags as JSON array", falling back to the default silently.
+        result = llm_service.generate_structured(full_prompt, Tags)
 
-        if not result:
-            raise RuntimeError("LLM returned empty tags")
-
-        # Clean up the result
-        result = result.strip()
-
-        # Try to parse as JSON
-        try:
-            tags = json.loads(result)
-        except json.JSONDecodeError:
-            # If not valid JSON, try to extract array from text
-            match = re.search(r"\[(.*?)\]", result)
-            if match:
-                array_content = match.group(1)
-                # Split by comma and clean up
-                tags = [tag.strip().strip("\"'") for tag in array_content.split(",")]
-            else:
-                raise ValueError("Could not parse tags as JSON array")
-
-        # Validate and clean tags
         validated_tags = []
-        for tag in tags:
-            if isinstance(tag, str):
-                # Remove any non-alphanumeric characters and convert to lowercase
-                clean_tag = re.sub(r"[^a-zA-Z0-9]", "", tag).lower()
-                if clean_tag and len(clean_tag) > 0:
-                    validated_tags.append(clean_tag)
+        for tag in result.tags:
+            clean_tag = re.sub(r"[^a-zA-Z0-9]", "", str(tag)).lower()
+            if clean_tag:
+                validated_tags.append(clean_tag)
 
-        # Ensure we have 2-6 tags
+        # The schema constrains the count, but stripping punctuation can still
+        # empty a tag, so the floor is re-checked here.
         if len(validated_tags) < 2:
-            raise ValueError(f"Too few tags generated: {len(validated_tags)}")
-        if len(validated_tags) > 6:
-            validated_tags = validated_tags[:6]
-
-        return validated_tags
+            raise ValueError(f"Too few usable tags: {len(validated_tags)}")
+        return validated_tags[:6]
 
     except Exception as e:
         logger.error(f"Failed to generate tags: {e}")

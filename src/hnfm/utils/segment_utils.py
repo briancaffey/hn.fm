@@ -82,6 +82,47 @@ def write_json(path: str, data: dict) -> None:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 
+# Phrases that mark a line as the MODEL TALKING ABOUT ITS TASK rather than
+# narrating the story. One of these was actually sent to TTS: a recorded step
+# error reads `Failed to generate speech for text: Since the actual article
+# content was provided in the second attempt, I'll ...`. It was caught only
+# because TTS choked on the length — a shorter preamble would have been spoken
+# aloud in the finished video.
+#
+# Two kinds, because a false positive fails a perfectly good run:
+#
+#   _PREAMBLE_OPENERS  only count at the START of a line. "Let me be clear
+#                      about the timing bug" is ordinary dialogue; "Let me
+#                      write the script" is not, and only position separates
+#                      them — so these are anchored rather than searched.
+#   _PREAMBLE_ANYWHERE unambiguous wherever they appear. No narrator says "as
+#                      an AI language model" mid-sentence.
+_PREAMBLE_OPENERS = (
+    "here's the", "here is the", "sure,", "certainly,", "below is",
+    "i'll write", "i will write", "let me write", "let me start by writing",
+    "okay, here", "ok, here",
+)
+
+_PREAMBLE_ANYWHERE = (
+    "as an ai", "as a language model", "the user asked", "the user wants",
+    "per your request", "in the second attempt", "based on the prompt",
+    "i cannot provide", "i can't provide",
+)
+
+
+def preamble_sections(script: "Script") -> List[int]:
+    """Indexes of sections that read as the model addressing the task."""
+    out = []
+    for section in script.sections:
+        text = (section.text or "").strip().lstrip('"\'').lower()
+        head = text[:80]
+        if text.startswith(_PREAMBLE_OPENERS) or any(
+            m in head for m in _PREAMBLE_ANYWHERE
+        ):
+            out.append(section.index)
+    return out
+
+
 def _clean_script_for_tts(script: str) -> str:
     """
     Clean script text for better TTS results.
@@ -187,6 +228,16 @@ def generate_script(
     # key the audio sections, images and media plan downstream.
     for i, section in enumerate(script.sections, start=1):
         section.index = i
+
+    # A script carrying the model's own commentary must not reach TTS. This is
+    # fatal rather than repaired: the line is not narration, and dropping it
+    # silently would leave a hole in a piece whose timing is already built.
+    leaked = preamble_sections(script)
+    if leaked:
+        raise RuntimeError(
+            f"Failed to generate script: model preamble in section(s) {leaked} — "
+            f"{script.sections[leaked[0] - 1].text[:120]!r}"
+        )
 
     _normalize_beats(script)
 

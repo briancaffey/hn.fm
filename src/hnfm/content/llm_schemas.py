@@ -60,6 +60,24 @@ def _tighten(node: Any) -> None:
 # ---------------------------------------------------------------------------
 
 
+class Tags(BaseModel):
+    """Article tags. Schema-enforced because the free-text version failed on
+    real output with "Could not parse tags as JSON array" and fell back to the
+    default silently."""
+
+    tags: List[str] = Field(
+        min_length=2,
+        max_length=6,
+        description="2-6 lowercase alphanumeric tags, single words or acronyms.",
+    )
+
+
+class Emoji(BaseModel):
+    """Exactly four emoji describing the article."""
+
+    emoji: List[str] = Field(min_length=4, max_length=4)
+
+
 class TriageScore(BaseModel):
     """Two axes, not one (plans/09).
 
