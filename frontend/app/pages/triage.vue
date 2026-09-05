@@ -157,7 +157,7 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
     <div class="shrink-0 border-b bg-card px-4 py-3 space-y-2.5">
       <div class="flex flex-wrap items-center gap-3">
         <div>
-          <h1 class="text-lg font-bold text-orange-600 leading-tight">Triage</h1>
+          <h1 class="text-lg font-bold text-primary leading-tight">Triage</h1>
           <p class="text-xs text-muted-foreground">ranked queue · LLM score + your calls</p>
         </div>
 
@@ -183,7 +183,7 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
             type="button"
             class="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
             :class="filters.verdict === chip.value
-              ? 'border-orange-600 bg-orange-600 text-white'
+              ? 'border-primary bg-primary text-primary-foreground'
               : 'border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground'"
             @click="applyVerdict(chip.value)"
           >
@@ -196,7 +196,7 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
           type="button"
           class="flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
           :class="needsSourceOn
-            ? 'border-purple-600 bg-purple-600 text-white'
+            ? 'border-stale-border bg-stale text-background'
             : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'"
           title="High interest, low producibility — worth making, but the scrape was too thin"
           @click="toggleNeedsSource"
@@ -211,7 +211,7 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
             type="button"
             class="flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
             :class="filters.include_generated
-              ? 'border-green-600 bg-green-600/10 text-green-700 dark:text-green-400'
+              ? 'border-ok-border bg-ok-bg text-ok'
               : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'"
             @click="toggleInclude('include_generated')"
           >
@@ -222,7 +222,7 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
             type="button"
             class="flex items-center gap-1 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
             :class="filters.include_rejected
-              ? 'border-red-600 bg-red-600/10 text-red-700 dark:text-red-400'
+              ? 'border-danger-border bg-danger-bg text-danger'
               : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'"
             @click="toggleInclude('include_rejected')"
           >
@@ -237,7 +237,7 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
           </span>
           <Button
             size="sm"
-            class="h-8 bg-orange-600 text-white hover:bg-orange-700"
+            class="h-8 bg-primary text-primary-foreground hover:bg-primary/90"
             :disabled="actionBusy !== null"
             @click="pullStories('top')"
           >
@@ -246,7 +246,8 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
           </Button>
           <Button
             size="sm"
-            class="h-8 bg-blue-600 text-white hover:bg-blue-700"
+            variant="outline"
+            class="h-8 border-running-border bg-running-bg text-running hover:bg-running-bg/70"
             :disabled="actionBusy !== null"
             @click="pullStories('new')"
           >

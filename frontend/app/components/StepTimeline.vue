@@ -155,11 +155,11 @@ function fieldLabel(field: string): string {
 
 function dotClass(step: Step): string {
   switch (step.status) {
-    case 'ok': return 'bg-green-500'
-    case 'error': return 'bg-red-500'
-    case 'stale': return 'bg-amber-500'
-    case 'running': return 'bg-blue-500 animate-pulse'
-    default: return 'bg-gray-400 dark:bg-gray-600'
+    case 'ok': return 'bg-ok'
+    case 'error': return 'bg-danger'
+    case 'stale': return 'bg-warn'
+    case 'running': return 'bg-running animate-pulse'
+    default: return 'bg-idle'
   }
 }
 
@@ -319,16 +319,16 @@ async function rebuildStale() {
       <!-- Header Bar -->
       <div class="flex flex-wrap items-center justify-between gap-2 bg-muted/50 p-4 rounded-lg border">
         <div class="flex flex-wrap items-center gap-2">
-          <Badge class="bg-blue-500 text-white border-blue-500 text-xs">
+          <Badge class="bg-running-bg text-running border border-running-border text-xs">
             {{ activeSteps.length }} Steps
           </Badge>
-          <Badge class="bg-gray-500 text-white border-gray-500 text-xs">
+          <Badge class="bg-idle-bg text-idle border border-idle-border text-xs">
             {{ formatSeconds(totalSeconds) || '0s' }} Total
           </Badge>
-          <Badge class="bg-purple-500 text-white border-purple-500 text-xs">
+          <Badge class="bg-stale-bg text-stale border border-stale-border text-xs">
             {{ formatTokens(totalTokens) }} Tokens
           </Badge>
-          <Badge v-if="staleCount > 0" class="bg-amber-500 text-white border-amber-500 text-xs">
+          <Badge v-if="staleCount > 0" class="bg-warn-bg text-warn border border-warn-border text-xs">
             {{ staleCount }} Stale
           </Badge>
           <Icon
@@ -341,7 +341,8 @@ async function rebuildStale() {
           v-if="staleCount > 0"
           size="sm"
           :disabled="isRebuildingStale"
-          class="bg-amber-600 hover:bg-amber-700 text-white border-amber-600"
+          variant="outline"
+          class="border-warn-border bg-warn-bg text-warn hover:bg-warn-bg/70"
           @click="rebuildStale"
         >
           <span v-if="isRebuildingStale">Rebuilding...</span>
@@ -369,7 +370,7 @@ async function rebuildStale() {
             <button
               v-if="group.supersededCount > 0"
               type="button"
-              class="text-xs text-muted-foreground hover:text-orange-600 transition-colors underline underline-offset-2"
+              class="text-xs text-muted-foreground hover:text-primary transition-colors underline underline-offset-2"
               @click="toggleHistory(group.stage)"
             >
               {{ showHistory[group.stage] ? 'hide history' : `show history (${group.supersededCount})` }}
@@ -399,16 +400,16 @@ async function rebuildStale() {
                   class="h-3.5 w-3.5 text-muted-foreground shrink-0"
                 />
                 <span class="text-sm font-mono font-medium text-foreground">{{ step.step_key }}</span>
-                <Badge v-if="step.status === 'error'" class="bg-red-500 text-white border-red-500 text-xs">
+                <Badge v-if="step.status === 'error'" class="bg-danger-bg text-danger border border-danger-border text-xs">
                   Error
                 </Badge>
-                <Badge v-else-if="step.status === 'stale'" class="bg-amber-500 text-white border-amber-500 text-xs">
+                <Badge v-else-if="step.status === 'stale'" class="bg-warn-bg text-warn border border-warn-border text-xs">
                   Stale
                 </Badge>
-                <Badge v-else-if="step.status === 'running'" class="bg-blue-500 text-white border-blue-500 text-xs">
+                <Badge v-else-if="step.status === 'running'" class="bg-running-bg text-running border border-running-border text-xs">
                   Running
                 </Badge>
-                <Badge v-else-if="step.status === 'superseded'" class="bg-gray-500 text-white border-gray-500 text-xs">
+                <Badge v-else-if="step.status === 'superseded'" class="bg-idle-bg text-idle border border-idle-border text-xs">
                   Superseded
                 </Badge>
                 <span v-if="step.seconds !== null" class="text-xs text-muted-foreground">
@@ -416,7 +417,7 @@ async function rebuildStale() {
                 </span>
                 <Badge
                   v-if="(step.llm_calls || 0) > 0"
-                  class="bg-purple-500 text-white border-purple-500 text-xs font-mono"
+                  class="bg-stale-bg text-stale border border-stale-border text-xs font-mono"
                 >
                   {{ tokensBadge(step) }}
                 </Badge>
@@ -463,7 +464,7 @@ async function rebuildStale() {
                   <Button
                     size="sm"
                     :disabled="rerunning[step.id]"
-                    class="bg-orange-600 hover:bg-orange-700 text-white border-orange-600"
+                    class="bg-primary text-primary-foreground hover:bg-primary/90"
                     @click="rerunStep(step)"
                   >
                     <span v-if="rerunning[step.id]">Re-running...</span>

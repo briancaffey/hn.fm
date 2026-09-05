@@ -88,12 +88,12 @@ function timeAgo(iso: string | null): string {
     >
       <!-- status dot -->
       <span v-if="running.length" class="relative flex h-2 w-2 shrink-0">
-        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-green-500 opacity-75" />
-        <span class="relative inline-flex h-2 w-2 rounded-full bg-green-500" />
+        <span class="absolute inline-flex h-full w-full animate-ping rounded-full bg-ok opacity-75" />
+        <span class="relative inline-flex h-2 w-2 rounded-full bg-ok" />
       </span>
       <span v-else class="inline-flex h-2 w-2 shrink-0 rounded-full bg-muted-foreground/40" />
 
-      <span v-if="running.length" class="font-medium text-green-600 dark:text-green-400">
+      <span v-if="running.length" class="font-medium text-ok">
         {{ running.length }} running
       </span>
       <span v-else class="flex min-w-0 items-baseline gap-1.5">

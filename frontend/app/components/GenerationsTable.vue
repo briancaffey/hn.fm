@@ -245,12 +245,12 @@ function frameStyle(gen) {
 // Status chip styles
 function chipClass(ready) {
   return ready
-    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
+    ? 'bg-ok-bg text-ok border border-ok-border'
     : 'bg-muted text-muted-foreground'
 }
 
 function dotClass(ready) {
-  return ready ? 'bg-green-500' : 'bg-gray-400'
+  return ready ? 'bg-ok' : 'bg-idle'
 }
 
 // QA badge
@@ -265,8 +265,8 @@ function qaLabel(verdict) {
 
 function qaClass(verdict) {
   return qaPassed(verdict)
-    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-    : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+    ? 'bg-ok-bg text-ok border border-ok-border'
+    : 'bg-warn-bg text-warn'
 }
 
 // Relative time from ISO timestamp

@@ -239,7 +239,7 @@ function goToItem(id: number) {
     <!-- Toolbar -->
     <div class="shrink-0 border-b bg-card px-4 py-3 space-y-2.5">
       <div class="flex flex-wrap items-center gap-3">
-        <h1 class="text-lg font-bold text-orange-600">Stories</h1>
+        <h1 class="text-lg font-bold text-primary">Stories</h1>
 
         <div class="relative w-64">
           <Icon
@@ -263,7 +263,7 @@ function goToItem(id: number) {
             type="button"
             class="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
             :class="activeChip === chip.key
-              ? 'border-orange-600 bg-orange-600 text-white'
+              ? 'border-primary bg-primary text-primary-foreground'
               : 'border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground'"
             @click="applyChip(chip.key)"
           >
@@ -277,7 +277,7 @@ function goToItem(id: number) {
           </span>
           <Button
             size="sm"
-            class="h-8 bg-orange-600 text-white hover:bg-orange-700"
+            class="h-8 bg-primary text-primary-foreground hover:bg-primary/90"
             :disabled="queueBusy !== null"
             @click="queueStories('top')"
           >
@@ -286,7 +286,8 @@ function goToItem(id: number) {
           </Button>
           <Button
             size="sm"
-            class="h-8 bg-blue-600 text-white hover:bg-blue-700"
+            variant="outline"
+            class="h-8 border-running-border bg-running-bg text-running hover:bg-running-bg/70"
             :disabled="queueBusy !== null"
             @click="queueStories('new')"
           >
@@ -341,7 +342,7 @@ function goToItem(id: number) {
               :class="[col.thClass, col.sortKey ? 'cursor-pointer select-none hover:text-foreground' : '']"
               @click="col.sortKey && toggleSort(col.sortKey)"
             >
-              <span :class="sort === col.sortKey ? 'text-orange-600 dark:text-orange-400' : ''">
+              <span :class="sort === col.sortKey ? 'text-primary' : ''">
                 {{ col.label }}
                 <span v-if="sortIndicator(col.sortKey)" class="text-[10px]">{{ sortIndicator(col.sortKey) }}</span>
               </span>
@@ -362,7 +363,7 @@ function goToItem(id: number) {
           <tr
             v-for="story in rows"
             :key="story.id"
-            class="cursor-pointer transition-colors hover:bg-orange-50 dark:hover:bg-orange-950/10"
+            class="cursor-pointer transition-colors hover:bg-muted/60"
             @click="goToItem(story.id)"
           >
             <!-- Score -->
@@ -375,7 +376,7 @@ function goToItem(id: number) {
               <div class="flex items-baseline gap-2">
                 <NuxtLink
                   :to="`/hn/item/${story.id}`"
-                  class="truncate font-semibold text-foreground hover:text-orange-600"
+                  class="truncate font-semibold text-foreground hover:text-primary"
                   @click.stop
                 >
                   {{ story.title || `Item ${story.id}` }}
@@ -385,7 +386,7 @@ function goToItem(id: number) {
                   :href="story.url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="shrink-0 truncate text-xs text-muted-foreground hover:text-orange-600"
+                  class="shrink-0 truncate text-xs text-muted-foreground hover:text-primary"
                   @click.stop
                 >
                   {{ domain(story.url) }}
@@ -422,7 +423,7 @@ function goToItem(id: number) {
             <td class="px-3 py-2 text-right tabular-nums">
               <span
                 v-if="story.videos_count > 0"
-                class="inline-flex items-center rounded-full bg-green-100 px-2 py-0.5 text-xs font-medium text-green-800 dark:bg-green-900/30 dark:text-green-300"
+                class="inline-flex items-center rounded-full bg-ok-bg px-2 py-0.5 text-xs font-medium text-ok"
               >
                 {{ story.videos_count }}
               </span>
@@ -451,7 +452,7 @@ function goToItem(id: number) {
                   />
                   Generate
                 </Button>
-                <span v-if="rowFeedback[story.id] === 'queued'" class="text-xs text-green-600 dark:text-green-400">
+                <span v-if="rowFeedback[story.id] === 'queued'" class="text-xs text-ok">
                   Queued
                 </span>
                 <span v-else-if="rowFeedback[story.id] === 'error'" class="text-xs text-destructive">
@@ -460,7 +461,7 @@ function goToItem(id: number) {
                 <NuxtLink
                   v-if="story.videos_count > 0"
                   :to="`/hn/item/${story.id}`"
-                  class="rounded px-1.5 py-0.5 text-sm text-green-600 hover:bg-green-100 dark:text-green-400 dark:hover:bg-green-900/30"
+                  class="rounded px-1.5 py-0.5 text-sm text-ok hover:bg-ok-bg "
                   title="Watch videos"
                 >
                   ▶
