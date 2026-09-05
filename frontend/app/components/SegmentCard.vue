@@ -1,195 +1,159 @@
-<template>
-  <Card class="transition-all duration-200 hover:shadow-md hover:border-orange-500/50 border-l-4 border-l-orange-500/20 cursor-pointer" @click="navigateToSegment">
-    <CardContent class="p-6">
-      <div class="flex gap-6">
-        <!-- Main Content -->
-        <div class="flex-1 min-w-0 space-y-3">
-          <!-- Title and Status Row -->
-          <div class="flex items-start justify-between gap-2">
-            <div class="flex-1 min-w-0">
-              <h3 class="text-lg font-semibold leading-tight text-foreground line-clamp-2">
-                {{ segmentTitle }}
-              </h3>
-              <p class="text-sm text-muted-foreground mt-1">
-                Item {{ segment.item_id }} • Run {{ segment.run }} • Segment {{ segment.seg }}
-              </p>
-            </div>
-            <div class="flex items-center gap-2 flex-shrink-0">
-              <!-- Status Badges -->
-              <Badge v-if="segment.audio_ready" variant="default" class="bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300">
-                <Icon name="lucide:volume-2" class="h-3 w-3 mr-1" />
-                Audio Ready
-              </Badge>
-              <Badge v-if="segment.images_ready" variant="default" class="bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300">
-                <Icon name="lucide:image" class="h-3 w-3 mr-1" />
-                Images Ready
-              </Badge>
-              <Badge v-if="segment.video_ready" variant="default" class="bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300">
-                <Icon name="lucide:video" class="h-3 w-3 mr-1" />
-                Video Ready
-              </Badge>
-            </div>
-          </div>
-
-          <!-- Script Preview -->
-          <div class="bg-muted/50 rounded-lg p-3">
-            <p class="text-sm text-muted-foreground line-clamp-3">
-              {{ segment.script || 'No script available' }}
-            </p>
-          </div>
-
-          <!-- Tags and Emojis -->
-          <div class="flex items-center gap-2 flex-wrap">
-            <div v-if="runData?.tags?.length" class="flex items-center gap-1">
-              <Icon name="lucide:tag" class="h-3 w-3 text-muted-foreground" />
-              <div class="flex gap-1">
-                <Badge
-                  v-for="tag in runData.tags.slice(0, 3)"
-                  :key="tag"
-                  variant="outline"
-                  class="text-xs"
-                >
-                  {{ tag }}
-                </Badge>
-                <Badge v-if="runData.tags.length > 3" variant="outline" class="text-xs">
-                  +{{ runData.tags.length - 3 }}
-                </Badge>
-              </div>
-            </div>
-            <div v-if="runData?.emoji?.length" class="flex items-center gap-1">
-              <Icon name="lucide:smile" class="h-3 w-3 text-muted-foreground" />
-              <span class="text-lg">{{ runData.emoji.join(' ') }}</span>
-            </div>
-          </div>
-
-          <!-- Created Date -->
-          <div class="text-xs text-muted-foreground">
-            <Icon name="lucide:clock" class="h-3 w-3 inline mr-1" />
-            Created {{ formatDate(segment.created_at) }}
-          </div>
-        </div>
-
-        <!-- Video Player - Right side, full height -->
-        <div v-if="segment.video_ready && segment.video_path" class="flex-shrink-0 self-stretch" @click.stop>
-          <div class="w-80 h-full min-h-48 bg-muted rounded-lg overflow-hidden">
-            <video
-              :src="videoUrl"
-              controls
-              class="w-full h-full object-cover"
-              preload="metadata"
-            >
-              Your browser does not support the video tag.
-            </video>
-          </div>
-        </div>
-      </div>
-
-      <!-- Action Buttons -->
-      <div class="flex items-center justify-between mt-4 pt-4 border-t">
-        <div class="flex items-center gap-2">
-          <Button
-            size="sm"
-            variant="outline"
-            @click.stop="navigateToSegment"
-          >
-            <Icon name="lucide:eye" class="h-4 w-4 mr-2" />
-            View Details
-          </Button>
-          <Button
-            v-if="segment.audio_ready"
-            size="sm"
-            variant="outline"
-            @click.stop="playAudio"
-          >
-            <Icon name="lucide:play" class="h-4 w-4 mr-2" />
-            Play Audio
-          </Button>
-        </div>
-        <div class="text-xs text-muted-foreground">
-          {{ segment.sections_total }} sections
-        </div>
-      </div>
-    </CardContent>
-  </Card>
-</template>
-
-<script setup>
-import { Card, CardContent } from '~/components/ui/card'
-import { Button } from '~/components/ui/button'
-import { Badge } from '~/components/ui/badge'
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
 import { Icon } from '#components'
+import { Badge } from '~/components/ui/badge'
+import { Button } from '~/components/ui/button'
+import StatusBadge from '~/components/kit/StatusBadge.vue'
+import InfoHint from '~/components/kit/InfoHint.vue'
 
-const props = defineProps({
-  segment: {
-    type: Object,
-    required: true
-  }
-})
+/**
+ * One finished (or in-progress) piece of content.
+ *
+ * The readiness badges used to be three hardcoded pastel chips that only
+ * appeared when a stage was done, so a half-built segment looked the same as
+ * one that had not started. They are now a fixed three-stage strip: you can
+ * always see which stage a segment reached and which it has not.
+ */
+interface Segment {
+  item_id: number
+  run: number
+  seg: number
+  created_at?: string
+  script?: string
+  audio_ready?: boolean
+  images_ready?: boolean
+  video_ready?: boolean
+  video_path?: string | null
+  images_total?: number
+  sections_total?: number
+  style_theme_name?: string | null
+  aspect_format?: string | null
+}
+
+const props = defineProps<{ segment: Segment }>()
 
 const config = useRuntimeConfig()
+const apiBase = config.public.apiBase
+const runData = ref<{ title?: string, tags?: string[], emoji?: string[], summary?: string } | null>(null)
 
-// Get run data for tags and emojis
-const runData = ref(null)
+const title = computed(() =>
+  runData.value?.title || `Item ${props.segment.item_id} · run ${props.segment.run}`)
 
-// Computed properties
-const segmentTitle = computed(() => {
-  if (runData.value?.short_description) {
-    return runData.value.short_description
-  }
-  return `Segment ${props.segment.seg}`
-})
+const videoUrl = computed(() =>
+  `${apiBase}/api/video/${props.segment.item_id}/${props.segment.run}/${props.segment.seg}/segment.mp4`)
 
-const videoUrl = computed(() => {
-  if (!props.segment.video_path) return null
-  return `${config.public.apiBase}/api/video/${props.segment.item_id}/${props.segment.run}/${props.segment.seg}/segment.mp4`
-})
+/** The pipeline in order, so a gap is visible rather than merely absent. */
+const stages = computed(() => [
+  { key: 'audio', label: 'Audio', icon: 'lucide:volume-2', done: !!props.segment.audio_ready,
+    hint: 'Speech generated for every script section, stitched into one track.' },
+  { key: 'images', label: 'Images', icon: 'lucide:image', done: !!props.segment.images_ready,
+    hint: 'One rendered scene per section. Each prompt sees the previous shots, so a take keeps its cast and setting.' },
+  { key: 'video', label: 'Video', icon: 'lucide:video', done: !!props.segment.video_ready,
+    hint: 'Images, motion, captions and audio assembled into the finished file.' },
+])
 
-const audioUrl = computed(() => {
-  if (!props.segment.audio_combined_path) return null
-  return `${config.public.apiBase}/api/audio/${props.segment.item_id}/${props.segment.run}/${props.segment.seg}/segment.wav`
-})
+const reached = computed(() => stages.value.filter(s => s.done).length)
 
-// Fetch run data
-async function fetchRunData() {
+async function fetchRun() {
   try {
-    const response = await $fetch(`${config.public.apiBase}/api/hn/items/${props.segment.item_id}/runs/${props.segment.run}`)
-    runData.value = response
-  } catch (error) {
-    console.error('Failed to fetch run data:', error)
+    runData.value = await $fetch(`${apiBase}/api/hn/items/${props.segment.item_id}/runs/${props.segment.run}`)
+  } catch {
+    // The card is still useful without the run's title and tags.
   }
 }
+onMounted(fetchRun)
 
-// Format date
-function formatDate(dateString) {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffInHours = Math.floor((now.getTime() - date.getTime()) / (1000 * 60 * 60))
-
-  if (diffInHours < 1) {
-    return 'Just now'
-  } else if (diffInHours < 24) {
-    return `${diffInHours} hour${diffInHours > 1 ? 's' : ''} ago`
-  } else {
-    const diffInDays = Math.floor(diffInHours / 24)
-    return `${diffInDays} day${diffInDays > 1 ? 's' : ''} ago`
-  }
+function relative(iso?: string) {
+  if (!iso) return ''
+  const h = Math.floor((Date.now() - new Date(iso).getTime()) / 3600000)
+  if (h < 1) return 'just now'
+  if (h < 24) return `${h}h ago`
+  return `${Math.floor(h / 24)}d ago`
 }
 
-// Navigation
-function navigateToSegment() {
-  navigateTo(`/hn/item/${props.segment.item_id}/run/${props.segment.run}/segment/${props.segment.seg}`)
-}
-
-// Play audio
-function playAudio() {
-  if (audioUrl.value) {
-    const audio = new Audio(audioUrl.value)
-    audio.play()
-  }
-}
-
-// Fetch run data on mount
-onMounted(() => {
-  fetchRunData()
-})
+const href = computed(() =>
+  `/hn/item/${props.segment.item_id}/run/${props.segment.run}/segment/${props.segment.seg}`)
 </script>
+
+<template>
+  <article class="overflow-hidden rounded-lg border bg-card transition-colors hover:border-primary/40">
+    <div class="flex flex-col gap-4 p-4 lg:flex-row">
+      <div class="min-w-0 flex-1 space-y-3">
+        <div>
+          <NuxtLink :to="href" class="block">
+            <h3 class="line-clamp-2 text-sm font-semibold leading-snug hover:text-primary">
+              {{ title }}
+            </h3>
+          </NuxtLink>
+          <p class="mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-muted-foreground">
+            <span class="font-mono">{{ segment.item_id }}</span>
+            <span class="opacity-40">·</span>
+            <span>run {{ segment.run }}</span>
+            <span class="opacity-40">·</span>
+            <span>segment {{ segment.seg }}</span>
+            <template v-if="segment.style_theme_name">
+              <span class="opacity-40">·</span>
+              <span>{{ segment.style_theme_name }}</span>
+            </template>
+            <template v-if="segment.aspect_format">
+              <span class="opacity-40">·</span>
+              <span>{{ segment.aspect_format }}</span>
+            </template>
+            <template v-if="segment.created_at">
+              <span class="opacity-40">·</span>
+              <span>{{ relative(segment.created_at) }}</span>
+            </template>
+          </p>
+        </div>
+
+        <!-- Progress strip: always three stages, so a gap reads as a gap. -->
+        <div class="flex flex-wrap items-center gap-1.5">
+          <StatusBadge
+            v-for="s in stages" :key="s.key"
+            :status="s.done ? 'ok' : 'queued'"
+            :label="s.label"
+          />
+          <span class="ml-1 text-xs text-muted-foreground">
+            {{ reached }}/3 stages
+            <InfoHint text="A segment goes script → audio → images → video. A missing stage means the run stopped or is still working, not that the stage was skipped." />
+          </span>
+        </div>
+
+        <p v-if="segment.script" class="line-clamp-2 rounded-md bg-muted/60 p-2.5 text-xs leading-relaxed text-muted-foreground">
+          {{ segment.script.replace(/\[S\d\]\s*/g, '') }}
+        </p>
+
+        <div v-if="runData?.tags?.length" class="flex flex-wrap items-center gap-1">
+          <Badge v-for="tag in runData.tags.slice(0, 4)" :key="tag" variant="outline" class="text-[11px]">
+            {{ tag }}
+          </Badge>
+          <span v-if="runData.emoji?.length" class="ml-1 text-sm">{{ runData.emoji.join('') }}</span>
+        </div>
+
+        <div class="flex items-center gap-2 pt-1">
+          <Button as-child size="sm" variant="outline">
+            <NuxtLink :to="href">
+              <Icon name="lucide:list-tree" class="mr-1.5 h-3.5 w-3.5" />
+              Open
+            </NuxtLink>
+          </Button>
+          <Button v-if="segment.video_ready" as-child size="sm" variant="ghost">
+            <a :href="videoUrl" target="_blank" rel="noopener">
+              <Icon name="lucide:external-link" class="mr-1.5 h-3.5 w-3.5" />
+              Video file
+            </a>
+          </Button>
+        </div>
+      </div>
+
+      <div v-if="segment.video_ready" class="w-full shrink-0 lg:w-72" @click.stop>
+        <video
+          :src="videoUrl"
+          controls
+          preload="metadata"
+          class="aspect-video w-full rounded-md border bg-muted object-cover"
+        />
+      </div>
+    </div>
+  </article>
+</template>

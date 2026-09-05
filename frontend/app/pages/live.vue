@@ -1,7 +1,15 @@
 <script setup lang="ts">
-import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
-import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
+import { Icon } from '#components'
+import PageShell from '~/components/kit/PageShell.vue'
+import PageHeader from '~/components/kit/PageHeader.vue'
+import StatTile from '~/components/kit/StatTile.vue'
+import StatusBadge from '~/components/kit/StatusBadge.vue'
+import StageBadge from '~/components/kit/StageBadge.vue'
+import EmptyState from '~/components/kit/EmptyState.vue'
+import { stageStyle } from '~/composables/usePipelineVocab'
+
+useHead({ title: 'hn.fm · Live' })
 
 interface StepEvent {
   id: number
@@ -101,104 +109,106 @@ onUnmounted(() => {
 const running = computed(() => events.value.filter(e => e.status === 'running'))
 const failed = computed(() => events.value.filter(e => e.status === 'error'))
 
-const stageColor = (stage: string) => ({
-  scrape: 'bg-sky-500', summary: 'bg-sky-500', enrich: 'bg-sky-500',
-  triage: 'bg-violet-500', brief: 'bg-violet-500',
-  script: 'bg-amber-500', audio: 'bg-emerald-500',
-  images: 'bg-pink-500', media_plan: 'bg-pink-500', video: 'bg-orange-500',
-}[stage] || 'bg-gray-400')
-
-const statusVariant = (s: string): 'default' | 'destructive' | 'secondary' | 'outline' =>
-  s === 'error' ? 'destructive' : s === 'running' ? 'default' : 'secondary'
+// Stage colours come from the shared vocabulary. This page and the
+// observability page each used to define their own map, with different
+// values, so one stage was two colours depending on where you looked.
 
 const fmt = (e: StepEvent) => e.seconds != null ? `${e.seconds.toFixed(1)}s` : ''
 </script>
 
 <template>
-  <div class="container mx-auto p-6 space-y-6">
-    <div class="flex items-start justify-between gap-4">
-      <div>
-        <h1 class="text-3xl font-bold">Live Activity</h1>
-        <p class="text-muted-foreground mt-1">
-          Every pipeline step as it starts and finishes — scraping, prompts,
-          images, video. Streamed from the audit trail, so what you see here is
-          what gets recorded.
-        </p>
-      </div>
-      <div class="flex items-center gap-2">
-        <Badge :variant="connected ? 'default' : 'destructive'">
-          {{ connected ? 'Live' : (error || 'Disconnected') }}
-        </Badge>
+  <PageShell>
+    <PageHeader
+      title="Live activity"
+      subtitle="Every pipeline step as it starts and finishes, streamed from the audit trail."
+      hint="This is the same record the pipeline keeps for itself — what you see here is exactly what gets stored, not a separate log. Steps update in place as they move from running to done, so a row changing colour means that step just finished."
+    >
+      <template #actions>
+        <StatusBadge
+          :status="connected ? 'running' : 'error'"
+          :label="connected ? 'Live' : (error || 'Disconnected')"
+          dot
+        />
         <Button variant="outline" size="sm" @click="paused = !paused">
+          <Icon :name="paused ? 'lucide:play' : 'lucide:pause'" class="mr-1.5 h-3.5 w-3.5" />
           {{ paused ? 'Resume' : 'Pause' }}
         </Button>
+      </template>
+    </PageHeader>
+
+    <section class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+      <StatTile
+        label="In flight" :value="running.length"
+        :tone="running.length ? 'running' : 'default'"
+        hint="Steps executing right now across all four worker lanes."
+      />
+      <StatTile
+        label="Queued" :value="pendingTotal ?? '—'"
+        hint="Messages waiting for a worker. Split by cost so a four-second scrape never queues behind a three-hour render."
+      >
+        <div v-if="queueRows.length" class="mt-2 flex flex-wrap gap-1">
+          <span
+            v-for="q in queueRows" :key="q.name"
+            class="rounded border px-1.5 py-0.5 text-[11px]"
+            :class="q.depth ? 'border-running-border bg-running-bg text-running' : 'border-idle-border bg-idle-bg text-idle'"
+          >{{ q.label }} {{ q.depth }}</span>
+        </div>
+      </StatTile>
+      <StatTile
+        label="Errors" :value="failed.length"
+        :tone="failed.length ? 'danger' : 'default'"
+        detail="in this session"
+        hint="Failures seen since you opened this page. A soft failure — one motion clip, say — does not stop the run around it."
+      />
+    </section>
+
+    <section class="mt-4 rounded-lg border bg-card">
+      <div class="flex items-center justify-between border-b px-4 py-2.5">
+        <h2 class="text-sm font-semibold">Stream</h2>
+        <span class="text-xs text-muted-foreground">{{ events.length }} step{{ events.length === 1 ? '' : 's' }} seen</span>
       </div>
-    </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-3 gap-4">
-      <Card>
-        <CardHeader class="pb-2"><CardTitle class="text-sm font-medium text-muted-foreground">In flight</CardTitle></CardHeader>
-        <CardContent><span class="text-3xl font-bold">{{ running.length }}</span></CardContent>
-      </Card>
-      <Card>
-        <CardHeader class="pb-2"><CardTitle class="text-sm font-medium text-muted-foreground">Queued</CardTitle></CardHeader>
-        <CardContent>
-          <span class="text-3xl font-bold">{{ pendingTotal ?? '—' }}</span>
-          <div v-if="queueRows.length" class="mt-2 flex flex-wrap gap-1">
-            <Badge
-              v-for="q in queueRows"
-              :key="q.name"
-              :variant="q.depth ? 'default' : 'secondary'"
-            >{{ q.label }} {{ q.depth }}</Badge>
-          </div>
-        </CardContent>
-      </Card>
-      <Card>
-        <CardHeader class="pb-2"><CardTitle class="text-sm font-medium text-muted-foreground">Errors</CardTitle></CardHeader>
-        <CardContent>
-          <span class="text-3xl font-bold" :class="failed.length ? 'text-destructive' : ''">{{ failed.length }}</span>
-        </CardContent>
-      </Card>
-    </div>
+      <EmptyState
+        v-if="!events.length"
+        class="m-4 border-0"
+        icon="lucide:radio"
+        title="Waiting for activity"
+        body="Nothing is running. Queue stories from Stories, start a generation from Triage, or build a digest — steps appear here the moment they begin."
+      />
 
-    <Card>
-      <CardHeader><CardTitle class="text-base">Stream</CardTitle></CardHeader>
-      <CardContent>
-        <p v-if="!events.length" class="text-sm text-muted-foreground">
-          Waiting for activity. Start a pipeline or build a digest and steps will
-          appear here as they run.
-        </p>
-        <div v-else class="divide-y font-mono text-xs">
-          <div
-            v-for="e in events"
-            :key="e.id"
-            class="flex items-center gap-3 py-2"
-            :class="e.status === 'running' ? 'opacity-100' : 'opacity-80'"
-          >
-            <span class="w-1.5 h-6 rounded-sm flex-none" :class="stageColor(e.stage)" />
-            <Badge :variant="statusVariant(e.status)" class="w-20 justify-center flex-none">
-              {{ e.status }}
-            </Badge>
-            <NuxtLink
-              :to="`/hn/item/${e.item_id}`"
-              class="w-28 flex-none underline underline-offset-2 truncate"
-            >{{ e.item_id }}</NuxtLink>
-            <span class="flex-1 truncate">{{ e.stage }} / {{ e.step_key }}</span>
-            <span class="w-32 flex-none truncate text-muted-foreground">{{ e.model || '' }}</span>
-            <span class="w-14 flex-none text-right text-muted-foreground">{{ fmt(e) }}</span>
-          </div>
+      <div v-else class="divide-y text-xs">
+        <div
+          v-for="e in events" :key="e.id"
+          class="flex items-center gap-3 px-4 py-2 transition-opacity"
+          :class="e.status === 'running' ? '' : 'opacity-75'"
+        >
+          <span class="h-6 w-1.5 flex-none rounded-sm" :style="stageStyle(e.stage)" aria-hidden="true" />
+          <StatusBadge :status="e.status" :dot="e.status === 'running'" class="w-[74px] justify-center" />
+          <NuxtLink
+            :to="`/hn/item/${e.item_id}`"
+            class="w-24 flex-none truncate font-mono text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >{{ e.item_id }}</NuxtLink>
+          <StageBadge :stage="e.stage" :show-label="false" />
+          <span class="min-w-0 flex-1 truncate font-mono">{{ e.step_key }}</span>
+          <span class="hidden w-36 flex-none truncate text-muted-foreground md:block">{{ e.model || '' }}</span>
+          <span class="w-14 flex-none text-right tabular-nums text-muted-foreground">{{ fmt(e) }}</span>
         </div>
-      </CardContent>
-    </Card>
+      </div>
+    </section>
 
-    <Card v-if="failed.length">
-      <CardHeader><CardTitle class="text-base text-destructive">Failures</CardTitle></CardHeader>
-      <CardContent class="space-y-2">
+    <section v-if="failed.length" class="mt-4 rounded-lg border border-danger-border bg-card">
+      <div class="border-b border-danger-border px-4 py-2.5">
+        <h2 class="text-sm font-semibold text-danger">Failures this session</h2>
+      </div>
+      <div class="space-y-2 p-4">
         <div v-for="e in failed" :key="`err-${e.id}`" class="text-xs">
-          <span class="font-mono">{{ e.stage }}/{{ e.step_key }}</span>
-          <span class="text-muted-foreground"> — {{ e.error }}</span>
+          <NuxtLink :to="`/hn/item/${e.item_id}`" class="font-mono hover:underline">
+            {{ e.item_id }}
+          </NuxtLink>
+          <span class="ml-1.5 font-mono text-muted-foreground">{{ e.step_key }}</span>
+          <p class="mt-0.5 text-muted-foreground">{{ e.error }}</p>
         </div>
-      </CardContent>
-    </Card>
-  </div>
+      </div>
+    </section>
+  </PageShell>
 </template>

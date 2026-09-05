@@ -7,18 +7,27 @@ html {
 
 @layer base {
   :root {
+    /* ---- Surfaces -------------------------------------------------------
+     * An elevation ladder, not one flat colour. `background` is the page,
+     * `card` sits on it, `elevated` sits on a card (nested panels, popovers
+     * over cards). Dark mode previously used a single grey for all three,
+     * which is why nested panels vanished into each other.
+     */
     --background: 0 0% 98%;
     --foreground: 222.2 84% 4.9%;
     --card: 0 0% 100%;
     --card-foreground: 222.2 84% 4.9%;
+    --elevated: 0 0% 100%;
+    --elevated-foreground: 222.2 84% 4.9%;
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
+
     --primary: 25 95% 53%;
     --primary-foreground: 0 0% 98%;
     --secondary: 210 40% 94%;
     --secondary-foreground: 222.2 84% 4.9%;
     --muted: 210 40% 94%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted-foreground: 215.4 16.3% 40%;
     --accent: 25 95% 53%;
     --accent-foreground: 0 0% 98%;
     --destructive: 0 84.2% 60.2%;
@@ -27,29 +36,170 @@ html {
     --input: 214.3 31.8% 88%;
     --ring: 25 95% 53%;
     --radius: 0.5rem;
+
+    /* ---- Pipeline status ------------------------------------------------
+     * Every status colour in the app resolves here. Each has a `-fg`
+     * (text/icon), a `-bg` (chip fill) and a `-border`, so a badge is correct
+     * in both modes by construction rather than by remembering a `dark:`
+     * variant. Previously 84% of hardcoded status colours had no dark
+     * counterpart at all.
+     */
+    --st-ok-fg: 142 72% 26%;
+    --st-ok-bg: 141 76% 93%;
+    --st-ok-border: 142 60% 78%;
+
+    --st-running-fg: 217 91% 45%;
+    --st-running-bg: 214 95% 94%;
+    --st-running-border: 213 90% 80%;
+
+    --st-error-fg: 0 72% 42%;
+    --st-error-bg: 0 86% 95%;
+    --st-error-border: 0 80% 84%;
+
+    --st-warn-fg: 32 85% 34%;
+    --st-warn-bg: 45 93% 91%;
+    --st-warn-border: 40 85% 74%;
+
+    --st-idle-fg: 215 16% 40%;
+    --st-idle-bg: 210 40% 94%;
+    --st-idle-border: 214 20% 82%;
+
+    /* `stale` and `abandoned` are deliberately distinct from `error`: the
+     * step did not fail, it was superseded or its worker died. */
+    --st-stale-fg: 271 50% 42%;
+    --st-stale-bg: 270 70% 95%;
+    --st-stale-border: 270 55% 85%;
+
+    /* ---- Pipeline stages ------------------------------------------------
+     * Was duplicated, with different values, in live.vue and
+     * observability.vue. One definition, so a stage is the same colour
+     * everywhere it appears.
+     */
+    --stage-scrape: 199 89% 48%;
+    --stage-summary: 199 89% 48%;
+    --stage-enrich: 199 89% 48%;
+    --stage-triage: 258 90% 66%;
+    --stage-brief: 258 90% 66%;
+    --stage-script: 38 92% 50%;
+    --stage-audio: 160 84% 39%;
+    --stage-images: 330 81% 60%;
+    --stage-media_plan: 330 81% 60%;
+    --stage-video: 25 95% 53%;
+    --stage-task: 215 16% 47%;
+
+    /* ---- Layout ---------------------------------------------------------
+     * One gutter, so every page's edge spacing matches. There were 7
+     * different container patterns before.
+     */
+    --page-gutter: 1.5rem;
+    --page-max: 88rem;
   }
 
   .dark-mode {
-    --background: 0 0% 15%;
-    --foreground: 0 0% 90%;
-    --card: 0 0% 18%;
-    --card-foreground: 0 0% 90%;
-    --popover: 0 0% 18%;
-    --popover-foreground: 0 0% 90%;
-    --primary: 25 95% 60%;
-    --primary-foreground: 0 0% 15%;
-    --secondary: 0 0% 25%;
-    --secondary-foreground: 0 0% 90%;
-    --muted: 0 0% 25%;
-    --muted-foreground: 0 0% 65%;
-    --accent: 25 95% 60%;
-    --accent-foreground: 0 0% 15%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 90%;
-    --border: 0 0% 25%;
-    --input: 0 0% 25%;
-    --ring: 25 95% 60%;
+    --background: 224 14% 10%;
+    --foreground: 210 20% 92%;
+    --card: 222 14% 13%;
+    --card-foreground: 210 20% 92%;
+    --elevated: 220 13% 17%;
+    --elevated-foreground: 210 20% 92%;
+    --popover: 222 14% 13%;
+    --popover-foreground: 210 20% 92%;
+
+    --primary: 25 95% 58%;
+    --primary-foreground: 224 14% 10%;
+    --secondary: 220 13% 20%;
+    --secondary-foreground: 210 20% 92%;
+    --muted: 220 13% 20%;
+    --muted-foreground: 215 15% 65%;
+    --accent: 25 95% 58%;
+    --accent-foreground: 224 14% 10%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 210 20% 92%;
+    --border: 220 13% 22%;
+    --input: 220 13% 22%;
+    --ring: 25 95% 58%;
+
+    /* Same hues, re-weighted: saturated readable foreground, low-luminance
+     * translucent-looking fill, mid-luminance border. */
+    --st-ok-fg: 142 65% 62%;
+    --st-ok-bg: 142 40% 16%;
+    --st-ok-border: 142 35% 28%;
+
+    --st-running-fg: 213 90% 70%;
+    --st-running-bg: 217 45% 20%;
+    --st-running-border: 215 40% 32%;
+
+    --st-error-fg: 0 85% 72%;
+    --st-error-bg: 0 45% 20%;
+    --st-error-border: 0 40% 32%;
+
+    --st-warn-fg: 45 90% 65%;
+    --st-warn-bg: 38 45% 17%;
+    --st-warn-border: 38 40% 30%;
+
+    --st-idle-fg: 215 15% 68%;
+    --st-idle-bg: 220 13% 20%;
+    --st-idle-border: 220 13% 30%;
+
+    --st-stale-fg: 270 70% 76%;
+    --st-stale-bg: 270 35% 21%;
+    --st-stale-border: 270 30% 33%;
+
+    --stage-scrape: 199 85% 60%;
+    --stage-summary: 199 85% 60%;
+    --stage-enrich: 199 85% 60%;
+    --stage-triage: 258 85% 74%;
+    --stage-brief: 258 85% 74%;
+    --stage-script: 38 90% 60%;
+    --stage-audio: 160 70% 52%;
+    --stage-images: 330 75% 68%;
+    --stage-media_plan: 330 75% 68%;
+    --stage-video: 25 92% 62%;
+    --stage-task: 215 15% 60%;
   }
+}
+
+@theme inline {
+  --color-background: hsl(var(--background));
+  --color-foreground: hsl(var(--foreground));
+  --color-card: hsl(var(--card));
+  --color-card-foreground: hsl(var(--card-foreground));
+  --color-elevated: hsl(var(--elevated));
+  --color-elevated-foreground: hsl(var(--elevated-foreground));
+  --color-popover: hsl(var(--popover));
+  --color-popover-foreground: hsl(var(--popover-foreground));
+  --color-primary: hsl(var(--primary));
+  --color-primary-foreground: hsl(var(--primary-foreground));
+  --color-secondary: hsl(var(--secondary));
+  --color-secondary-foreground: hsl(var(--secondary-foreground));
+  --color-muted: hsl(var(--muted));
+  --color-muted-foreground: hsl(var(--muted-foreground));
+  --color-accent: hsl(var(--accent));
+  --color-accent-foreground: hsl(var(--accent-foreground));
+  --color-destructive: hsl(var(--destructive));
+  --color-destructive-foreground: hsl(var(--destructive-foreground));
+  --color-border: hsl(var(--border));
+  --color-input: hsl(var(--input));
+  --color-ring: hsl(var(--ring));
+
+  --color-ok: hsl(var(--st-ok-fg));
+  --color-ok-bg: hsl(var(--st-ok-bg));
+  --color-ok-border: hsl(var(--st-ok-border));
+  --color-running: hsl(var(--st-running-fg));
+  --color-running-bg: hsl(var(--st-running-bg));
+  --color-running-border: hsl(var(--st-running-border));
+  --color-danger: hsl(var(--st-error-fg));
+  --color-danger-bg: hsl(var(--st-error-bg));
+  --color-danger-border: hsl(var(--st-error-border));
+  --color-warn: hsl(var(--st-warn-fg));
+  --color-warn-bg: hsl(var(--st-warn-bg));
+  --color-warn-border: hsl(var(--st-warn-border));
+  --color-idle: hsl(var(--st-idle-fg));
+  --color-idle-bg: hsl(var(--st-idle-bg));
+  --color-idle-border: hsl(var(--st-idle-border));
+  --color-stale: hsl(var(--st-stale-fg));
+  --color-stale-bg: hsl(var(--st-stale-bg));
+  --color-stale-border: hsl(var(--st-stale-border));
 }
 
 @layer base {
@@ -59,5 +209,11 @@ html {
   body {
     background-color: hsl(var(--background));
     color: hsl(var(--foreground));
+  }
+  /* One visible focus treatment everywhere, instead of the browser default
+   * on some controls and nothing on others. */
+  :focus-visible {
+    outline: 2px solid hsl(var(--ring));
+    outline-offset: 2px;
   }
 }
