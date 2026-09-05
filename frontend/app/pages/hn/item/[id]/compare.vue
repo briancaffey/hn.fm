@@ -1,5 +1,12 @@
 <template>
-  <div class="mx-auto max-w-7xl p-4 text-sm">
+  <PageShell>
+    <Breadcrumbs
+      :items="[
+        { label: 'Stories', to: '/hn/items' },
+        { label: `Item ${itemId}`, to: `/hn/item/${itemId}` },
+        { label: 'Compare takes' },
+      ]"
+    />
     <div class="mb-4 flex items-center justify-between gap-3">
       <div>
         <h1 class="text-lg font-semibold">Compare takes</h1>
@@ -52,10 +59,10 @@
           <span class="rounded bg-muted px-1.5 py-0.5 text-[11px] font-medium">
             run {{ t.run }}·{{ t.seg }}
           </span>
-          <span class="rounded bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-900 dark:bg-blue-900 dark:text-blue-100">
+          <span class="rounded bg-running-bg px-1.5 py-0.5 text-[11px] text-running">
             {{ t.aspect_format || '16:9' }}
           </span>
-          <span v-if="t.style_theme_name" class="rounded bg-purple-100 px-1.5 py-0.5 text-[11px] text-purple-900 dark:bg-purple-900 dark:text-purple-100">
+          <span v-if="t.style_theme_name" class="rounded bg-stale-bg px-1.5 py-0.5 text-[11px] text-stale">
             🎨 {{ t.style_theme_name }}
           </span>
           <span
@@ -74,15 +81,17 @@
           </span>
           <NuxtLink
             :to="`/hn/item/${itemId}/run/${t.run}/segment/${t.seg}`"
-            class="text-[11px] text-blue-600 hover:underline"
+            class="text-[11px] text-running hover:underline"
           >open ↗</NuxtLink>
         </div>
       </div>
     </div>
-  </div>
+  </PageShell>
 </template>
 
 <script setup lang="ts">
+import PageShell from '~/components/kit/PageShell.vue'
+import Breadcrumbs from '~/components/kit/Breadcrumbs.vue'
 const route = useRoute()
 const config = useRuntimeConfig()
 const itemId = computed(() => Number(route.params.id))
@@ -118,9 +127,9 @@ function frameStyle(t: Take) {
 }
 
 function qaClass(verdict: string) {
-  if (verdict === 'good') return 'bg-green-100 text-green-900 dark:bg-green-900 dark:text-green-100'
-  if (verdict === 'ok') return 'bg-yellow-100 text-yellow-900 dark:bg-yellow-900 dark:text-yellow-100'
-  return 'bg-red-100 text-red-900 dark:bg-red-900 dark:text-red-100'
+  if (verdict === 'good') return 'bg-ok-bg text-ok'
+  if (verdict === 'ok') return 'bg-warn-bg text-warn'
+  return 'bg-danger-bg text-danger'
 }
 
 async function load() {

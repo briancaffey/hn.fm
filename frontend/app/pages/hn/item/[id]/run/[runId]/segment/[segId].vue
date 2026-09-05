@@ -1,79 +1,13 @@
 <template>
-  <div class="min-h-screen bg-background">
-    <!-- Navigation -->
-    <nav class="border-b bg-card">
-      <div class="container mx-auto px-4 py-3">
-        <div class="flex items-center justify-between">
-          <div class="flex items-center space-x-4">
-            <h1 class="text-xl font-bold text-foreground">
-              <span class="text-orange-600">hn</span>.fm
-            </h1>
-            <div class="hidden md:flex space-x-6">
-              <NuxtLink
-                to="/"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Home
-              </NuxtLink>
-              <NuxtLink
-                to="/hn/items"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Items
-              </NuxtLink>
-              <NuxtLink
-                to="/segments"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Segments
-              </NuxtLink>
-              <NuxtLink
-                to="/services"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Services
-              </NuxtLink>
-              <NuxtLink
-                to="/admin"
-                class="text-sm font-medium text-muted-foreground hover:text-orange-600 transition-colors"
-                active-class="text-orange-600"
-              >
-                Admin
-              </NuxtLink>
-            </div>
-          </div>
-          <div class="flex items-center space-x-2">
-            <Button
-              variant="outline"
-              size="sm"
-              class="px-3"
-              @click="colorMode.preference = colorMode.preference === 'dark' ? 'light' : 'dark'"
-            >
-              <Icon
-                :name="colorMode.value === 'dark' ? 'lucide:sun' : 'lucide:moon'"
-                class="h-4 w-4"
-              />
-            </Button>
-          </div>
-        </div>
-      </div>
-    </nav>
-
-    <!-- Main Content -->
-    <main class="container mx-auto px-4 py-8">
-      <!-- Back Button -->
-      <div class="mb-6">
-        <NuxtLink
-          :to="`/hn/item/${itemId}/run/${runId}`"
-          class="text-primary hover:text-primary/80 font-medium"
-        >
-          ← Back to Run {{ runId }}
-        </NuxtLink>
-      </div>
+  <PageShell>
+    <Breadcrumbs
+      :items="[
+        { label: 'Stories', to: '/hn/items' },
+        { label: `Item ${itemId}`, to: `/hn/item/${itemId}` },
+        { label: `Run ${runId}`, to: `/hn/item/${itemId}/run/${runId}` },
+        { label: `Segment ${segId}` },
+      ]"
+    />
 
       <!-- Loading State -->
       <div v-if="isLoading" class="text-center py-8">
@@ -87,7 +21,7 @@
       </div>
 
       <!-- Success Message -->
-      <div v-if="deleteMessage" class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded mb-4">
+      <div v-if="deleteMessage" class="bg-ok-bg border border-ok-border text-ok px-4 py-3 rounded mb-4">
         {{ deleteMessage }}
       </div>
 
@@ -95,20 +29,20 @@
       <div v-else-if="!!item && !!segment" class="space-y-6">
         <!-- Item Info -->
         <div class="bg-card border rounded-lg p-6">
-          <h1 class="text-3xl font-bold mb-4">{{ item.title || 'No Title' }}</h1>
+          <h1 class="text-xl font-semibold mb-4">{{ item.title || 'No Title' }}</h1>
 
           <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
             <div class="flex flex-wrap gap-2">
-              <Badge class="bg-orange-500 text-white border-orange-500 text-sm">
+              <Badge class="bg-primary text-primary-foreground border-primary text-sm">
                 Item ID: {{ item.id }}
               </Badge>
-              <Badge class="bg-blue-500 text-white border-blue-500 text-sm">
+              <Badge class="bg-running-bg text-running border-running-border text-sm">
                 Run: {{ segment.run }}
               </Badge>
-              <Badge class="bg-purple-500 text-white border-purple-500 text-sm">
+              <Badge class="bg-stale-bg text-stale border-stale-border text-sm">
                 Segment: {{ segment.seg }}
               </Badge>
-              <Badge class="bg-green-500 text-white border-green-500 text-sm">
+              <Badge class="bg-ok-bg text-ok border-ok-border text-sm">
                 {{ formatDateTime(segment.created_at) }}
               </Badge>
             </div>
@@ -116,7 +50,7 @@
               variant="destructive"
               size="sm"
               :disabled="isDeleting"
-              class="ml-auto bg-red-600 hover:bg-red-700 text-white border-red-600"
+              class="ml-auto bg-danger hover:bg-danger text-white border-danger-border"
               @click="deleteSegment"
             >
               <span v-if="isDeleting">Deleting...</span>
@@ -161,13 +95,13 @@
 
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
-              <Badge v-if="segment.audio_ready" class="bg-green-500 text-white border-green-500 text-xs">
+              <Badge v-if="segment.audio_ready" class="bg-ok-bg text-ok border-ok-border text-xs">
                 Audio Ready
               </Badge>
-              <Badge v-else class="bg-yellow-500 text-white border-yellow-500 text-xs">
+              <Badge v-else class="bg-warn-bg text-warn border-warn-border text-xs">
                 No Audio
               </Badge>
-              <Badge v-if="sections.length > 0" class="bg-blue-500 text-white border-blue-500 text-xs">
+              <Badge v-if="sections.length > 0" class="bg-running-bg text-running border-running-border text-xs">
                 {{ sections.length }} Sections
               </Badge>
             </div>
@@ -175,7 +109,7 @@
               <Button
                 v-if="segment.script && !isGeneratingAudio"
                 size="sm"
-                class="bg-blue-600 hover:bg-blue-700 text-white border-blue-600"
+                class="bg-running hover:bg-running text-white border-running-border"
                 @click="generateAudio"
               >
                 <span v-if="isGeneratingAudio">Generating...</span>
@@ -184,7 +118,7 @@
               <Button
                 v-if="segment.audio_ready && !isRegeneratingAudio"
                 size="sm"
-                class="bg-orange-600 hover:bg-orange-700 text-white border-orange-600"
+                class="bg-primary hover:bg-primary text-primary-foreground border-primary"
                 @click="regenerateAudio"
               >
                 <span v-if="isRegeneratingAudio">Regenerating...</span>
@@ -220,13 +154,13 @@
                 >
                   <div class="flex items-start justify-between mb-2">
                     <div class="flex items-center gap-2">
-                      <Badge class="bg-purple-500 text-white border-purple-500 text-xs">
+                      <Badge class="bg-stale-bg text-stale border-stale-border text-xs">
                         Section {{ section.section }}
                       </Badge>
-                      <Badge v-if="section.cleaned" class="bg-green-500 text-white border-green-500 text-xs">
+                      <Badge v-if="section.cleaned" class="bg-ok-bg text-ok border-ok-border text-xs">
                         Cleaned
                       </Badge>
-                      <Badge v-if="section.duration_ms" class="bg-gray-500 text-white border-gray-500 text-xs">
+                      <Badge v-if="section.duration_ms" class="bg-idle-bg text-idle border-border text-xs">
                         {{ formatDuration(section.duration_ms) }}
                       </Badge>
                     </div>
@@ -235,7 +169,7 @@
                         v-if="section.audio_path && !isRegeneratingSection[section.section]"
                         size="sm"
                         variant="outline"
-                        class="text-orange-600 border-orange-600 hover:bg-orange-50"
+                        class="text-primary border-primary hover:bg-primary"
                         @click="regenerateSection(section.section)"
                       >
                         <span v-if="isRegeneratingSection[section.section]">Regenerating...</span>
@@ -254,7 +188,7 @@
                       <Button
                         size="sm"
                         variant="ghost"
-                        class="mt-2 text-blue-600 hover:text-blue-700"
+                        class="mt-2 text-running hover:text-running"
                         @click="startEditingSection(section.section)"
                       >
                         ✏️ Edit
@@ -271,7 +205,7 @@
                         <Button
                           size="sm"
                           :disabled="isSavingSection[section.section]"
-                          class="bg-green-600 hover:bg-green-700 text-white"
+                          class="bg-ok hover:bg-ok text-white"
                           @click="saveSectionText(section.section)"
                         >
                           <span v-if="isSavingSection[section.section]">Saving...</span>
@@ -329,10 +263,10 @@
 
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
-              <Badge v-if="segment.images_ready" class="bg-green-500 text-white border-green-500 text-xs">
+              <Badge v-if="segment.images_ready" class="bg-ok-bg text-ok border-ok-border text-xs">
                 {{ imageCount }} Images
               </Badge>
-              <Badge v-else class="bg-yellow-500 text-white border-yellow-500 text-xs">
+              <Badge v-else class="bg-warn-bg text-warn border-warn-border text-xs">
                 No Images
               </Badge>
             </div>
@@ -340,7 +274,7 @@
               <Button
                 v-if="segment.script && !isGeneratingImages"
                 size="sm"
-                class="bg-green-600 hover:bg-green-700 text-white border-green-600"
+                class="bg-ok hover:bg-ok text-white border-ok-border"
                 @click="generateImages"
               >
                 <span v-if="isGeneratingImages">Generating...</span>
@@ -349,7 +283,7 @@
               <Button
                 v-if="segment.images_ready && !isRegeneratingImages"
                 size="sm"
-                class="bg-orange-600 hover:bg-orange-700 text-white border-orange-600"
+                class="bg-primary hover:bg-primary text-primary-foreground border-primary"
                 @click="regenerateImages"
               >
                 <span v-if="isRegeneratingImages">Regenerating...</span>
@@ -371,10 +305,10 @@
                 >
                   <div class="flex items-start justify-between mb-3">
                     <div class="flex items-center gap-2">
-                      <Badge class="bg-purple-500 text-white border-purple-500 text-xs">
+                      <Badge class="bg-stale-bg text-stale border-stale-border text-xs">
                         Image {{ image.index }}
                       </Badge>
-                      <Badge v-if="image.duration_ms" class="bg-gray-500 text-white border-gray-500 text-xs">
+                      <Badge v-if="image.duration_ms" class="bg-idle-bg text-idle border-border text-xs">
                         {{ formatDuration(image.duration_ms) }}
                       </Badge>
                     </div>
@@ -383,7 +317,7 @@
                         v-if="image.image_path && !isRegeneratingImage[image.index]"
                         size="sm"
                         variant="outline"
-                        class="text-orange-600 border-orange-600 hover:bg-orange-50"
+                        class="text-primary border-primary hover:bg-primary"
                         @click="regenerateImage(image.index)"
                       >
                         <span v-if="isRegeneratingImage[image.index]">Regenerating...</span>
@@ -415,7 +349,7 @@
                       <Button
                         size="sm"
                         variant="ghost"
-                        class="mt-2 text-blue-600 hover:text-blue-700"
+                        class="mt-2 text-running hover:text-running"
                         @click="startEditingImageLine(image.index)"
                       >
                         ✏️ Edit
@@ -432,7 +366,7 @@
                         <Button
                           size="sm"
                           :disabled="isSavingImageLine[image.index]"
-                          class="bg-green-600 hover:bg-green-700 text-white"
+                          class="bg-ok hover:bg-ok text-white"
                           @click="saveImageLineText(image.index)"
                         >
                           <span v-if="isSavingImageLine[image.index]">Saving...</span>
@@ -459,7 +393,7 @@
                       <Button
                         size="sm"
                         variant="ghost"
-                        class="mt-2 text-blue-600 hover:text-blue-700"
+                        class="mt-2 text-running hover:text-running"
                         @click="startEditingImagePrompt(image.index)"
                       >
                         ✏️ Edit
@@ -476,7 +410,7 @@
                         <Button
                           size="sm"
                           :disabled="isSavingImagePrompt[image.index]"
-                          class="bg-green-600 hover:bg-green-700 text-white"
+                          class="bg-ok hover:bg-ok text-white"
                           @click="saveImagePrompt(image.index)"
                         >
                           <span v-if="isSavingImagePrompt[image.index]">Saving...</span>
@@ -508,17 +442,17 @@
           <h2 class="text-2xl font-bold mb-4">Video</h2>
           <div class="flex items-center justify-between mb-4">
             <div class="flex items-center gap-2">
-              <Badge v-if="segment.video_ready" class="bg-green-500 text-white border-green-500 text-xs">
+              <Badge v-if="segment.video_ready" class="bg-ok-bg text-ok border-ok-border text-xs">
                 Video Ready
               </Badge>
-              <Badge v-else class="bg-yellow-500 text-white border-yellow-500 text-xs">
+              <Badge v-else class="bg-warn-bg text-warn border-warn-border text-xs">
                 No Video
               </Badge>
             </div>
             <Button
               v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
               size="sm"
-              class="bg-purple-600 hover:bg-purple-700 text-white border-purple-600"
+              class="bg-stale hover:bg-stale text-white border-stale-border"
               @click="generateVideo"
             >
               <span v-if="isGeneratingVideo">Generating...</span>
@@ -581,158 +515,13 @@
       <div v-else class="text-center py-8 text-muted-foreground">
         Segment not found
       </div>
-    </main>
-
-    <!-- Footer -->
-    <footer class="border-t bg-card mt-auto">
-      <div class="container mx-auto px-4 py-8">
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-8">
-          <!-- Brand Section -->
-          <div class="space-y-4">
-            <h3 class="text-lg font-semibold text-foreground">
-              <span class="text-orange-600">hn</span>.fm
-            </h3>
-            <p class="text-sm text-muted-foreground">
-              Converting Hacker News discussions into engaging audio content.
-            </p>
-          </div>
-
-          <!-- Links Section -->
-          <div class="space-y-4">
-            <h4 class="text-sm font-semibold text-foreground">Links</h4>
-            <ul class="space-y-2">
-              <li>
-                <a
-                  href="https://github.com/briancaffey/hn.fm"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:github" class="h-4 w-4" />
-                  GitHub Repository
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://youtube.com/hn_fm"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:youtube" class="h-4 w-4" />
-                  YouTube Channel
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://news.ycombinator.com"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:external-link" class="h-4 w-4" />
-                  Hacker News
-                </a>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Navigation Section -->
-          <div class="space-y-4">
-            <h4 class="text-sm font-semibold text-foreground">Navigation</h4>
-            <ul class="space-y-2">
-              <li>
-                <NuxtLink
-                  to="/"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors"
-                >
-                  Home
-                </NuxtLink>
-              </li>
-              <li>
-                <NuxtLink
-                  to="/hn/items"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors"
-                >
-                  Items
-                </NuxtLink>
-              </li>
-              <li>
-                <NuxtLink
-                  to="/segments"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors"
-                >
-                  Segments
-                </NuxtLink>
-              </li>
-              <li>
-                <NuxtLink
-                  to="/services"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors"
-                >
-                  Services
-                </NuxtLink>
-              </li>
-            </ul>
-          </div>
-
-          <!-- Contact Section -->
-          <div class="space-y-4">
-            <h4 class="text-sm font-semibold text-foreground">Contact</h4>
-            <ul class="space-y-2">
-              <li>
-                <a
-                  href="mailto:hello@hn.fm"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:mail" class="h-4 w-4" />
-                  hello@hn.fm
-                </a>
-              </li>
-              <li>
-                <a
-                  href="https://twitter.com/hn_fm"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="text-sm text-muted-foreground hover:text-orange-600 transition-colors flex items-center gap-2"
-                >
-                  <Icon name="lucide:twitter" class="h-4 w-4" />
-                  @hn_fm
-                </a>
-              </li>
-            </ul>
-          </div>
-        </div>
-
-        <!-- Bottom Section -->
-        <div class="border-t mt-8 pt-6">
-          <div class="flex flex-col md:flex-row justify-between items-center gap-4">
-            <p class="text-xs text-muted-foreground">
-              © {{ new Date().getFullYear() }} hn.fm. All rights reserved.
-            </p>
-            <div class="flex items-center gap-4">
-              <a
-                href="/privacy"
-                class="text-xs text-muted-foreground hover:text-orange-600 transition-colors"
-              >
-                Privacy Policy
-              </a>
-              <a
-                href="/terms"
-                class="text-xs text-muted-foreground hover:text-orange-600 transition-colors"
-              >
-                Terms of Service
-              </a>
-            </div>
-          </div>
-        </div>
-      </div>
-    </footer>
-  </div>
+  </PageShell>
 </template>
 
 <script setup>
 import { Badge } from '~/components/ui/badge'
+import PageShell from '~/components/kit/PageShell.vue'
+import Breadcrumbs from '~/components/kit/Breadcrumbs.vue'
 import { Button } from '~/components/ui/button'
 import { Icon } from '#components'
 
@@ -743,7 +532,6 @@ definePageMeta({
 
 const route = useRoute()
 const config = useRuntimeConfig()
-const colorMode = useColorMode()
 
 // Extract parameters with better error handling
 const itemId = computed(() => {

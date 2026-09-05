@@ -3,6 +3,8 @@ import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
 import { Icon } from '#components'
 import PaginationBar from '~/components/PaginationBar.vue'
+import PageShell from '~/components/kit/PageShell.vue'
+import InfoHint from '~/components/kit/InfoHint.vue'
 import { usePaginatedFetch } from '~/composables/usePaginatedFetch'
 
 interface Story {
@@ -235,11 +237,17 @@ function goToItem(id: number) {
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <!-- Toolbar -->
-    <div class="shrink-0 border-b bg-card px-4 py-3 space-y-2.5">
+  <PageShell variant="board">
+    <template #header>
+      <div class="shrink-0 border-b bg-card px-[var(--page-gutter)] py-3 space-y-2.5">
       <div class="flex flex-wrap items-center gap-3">
-        <h1 class="text-lg font-bold text-primary">Stories</h1>
+        <div class="flex items-baseline gap-1.5">
+          <h1 class="text-base font-semibold">Stories</h1>
+          <InfoHint
+            side="right"
+            text="Everything ingested from Hacker News, newest first. Most never become content — triage decides which are worth generating. Queueing fetches the item, scrapes its link and scores it; a scrape too thin to build from is stopped before it costs an LLM call."
+          />
+        </div>
 
         <div class="relative w-64">
           <Icon
@@ -328,7 +336,8 @@ function goToItem(id: number) {
       >
         Failed to load stories. Is the API running?
       </div>
-    </div>
+      </div>
+    </template>
 
     <!-- Table -->
     <div class="min-h-0 flex-1 overflow-auto">
@@ -495,5 +504,5 @@ function goToItem(id: number) {
         :last-page="lastPage"
       />
     </div>
-  </div>
+  </PageShell>
 </template>

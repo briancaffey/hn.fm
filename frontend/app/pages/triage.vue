@@ -3,6 +3,8 @@ import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
 import { Icon } from '#components'
 import PaginationBar from '~/components/PaginationBar.vue'
+import PageShell from '~/components/kit/PageShell.vue'
+import InfoHint from '~/components/kit/InfoHint.vue'
 import TriageRow from '~/components/TriageRow.vue'
 import type { TriageItem } from '~/components/TriageRow.vue'
 import { usePaginatedFetch } from '~/composables/usePaginatedFetch'
@@ -152,13 +154,19 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
 </script>
 
 <template>
-  <div class="h-full flex flex-col">
-    <!-- Toolbar -->
-    <div class="shrink-0 border-b bg-card px-4 py-3 space-y-2.5">
+  <PageShell variant="board">
+    <template #header>
+      <div class="shrink-0 border-b bg-card px-[var(--page-gutter)] py-3 space-y-2.5">
       <div class="flex flex-wrap items-center gap-3">
         <div>
-          <h1 class="text-lg font-bold text-primary leading-tight">Triage</h1>
-          <p class="text-xs text-muted-foreground">ranked queue · LLM score + your calls</p>
+          <div class="flex items-baseline gap-1.5">
+            <h1 class="text-base font-semibold leading-tight">Triage</h1>
+            <InfoHint
+              side="right"
+              text="The decision queue. Every scored story, ranked. Interest is how much a reader would care; producibility is how much there is to actually build from, and it gets capped automatically when the scrape came back thin — so a great headline with no article behind it cannot rank well. Your thumbs override the model's call and feed back into future scoring."
+            />
+          </div>
+          <p class="text-xs text-muted-foreground">Ranked by interest × producibility. Sorted best-first.</p>
         </div>
 
         <div class="relative w-64">
@@ -274,7 +282,8 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
       >
         Failed to load the triage queue. Is the API running?
       </div>
-    </div>
+      </div>
+    </template>
 
     <!-- Ranked list -->
     <div class="min-h-0 flex-1 overflow-auto">
@@ -326,5 +335,5 @@ const rankBase = computed(() => (page.value - 1) * limit.value)
         :last-page="lastPage"
       />
     </div>
-  </div>
+  </PageShell>
 </template>

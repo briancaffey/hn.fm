@@ -1,9 +1,12 @@
 <template>
-  <div class="container mx-auto px-4 py-8">
-    <!-- Debug indicator -->
-    <div class="bg-blue-100 border border-blue-300 text-blue-800 px-4 py-2 rounded mb-4">
-      🐛 RUN DETAIL PAGE - Item: {{ itemId }}, Run: {{ runId }}
-    </div>
+  <PageShell>
+    <Breadcrumbs
+      :items="[
+        { label: 'Stories', to: '/hn/items' },
+        { label: `Item ${itemId}`, to: `/hn/item/${itemId}` },
+        { label: `Run ${runId}` },
+      ]"
+    />
 
     <div class="mb-6">
       <NuxtLink
@@ -23,24 +26,24 @@
       {{ error }}
     </div>
 
-    <div v-if="deleteMessage" class="bg-green-100 border border-green-300 text-green-800 px-4 py-3 rounded mb-4">
+    <div v-if="deleteMessage" class="bg-ok-bg border border-ok-border text-ok px-4 py-3 rounded mb-4">
       {{ deleteMessage }}
     </div>
 
     <div v-else-if="!!item && !!run" class="space-y-6">
       <!-- Item Info -->
       <div class="bg-card border rounded-lg p-6">
-        <h1 class="text-3xl font-bold mb-4">{{ item.title || 'No Title' }}</h1>
+        <h1 class="text-xl font-semibold mb-4">{{ item.title || 'No Title' }}</h1>
 
         <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
           <div class="flex flex-wrap gap-2">
-            <Badge class="bg-orange-500 text-white border-orange-500 text-sm">
+            <Badge class="bg-primary text-primary-foreground border-primary text-sm">
               Item ID: {{ item.id }}
             </Badge>
-            <Badge class="bg-blue-500 text-white border-blue-500 text-sm">
+            <Badge class="bg-running-bg text-running border-running-border text-sm">
               Run: {{ run.run }}
             </Badge>
-            <Badge class="bg-green-500 text-white border-green-500 text-sm">
+            <Badge class="bg-ok-bg text-ok border-ok-border text-sm">
               {{ formatDateTime(run.created_at) }}
             </Badge>
           </div>
@@ -48,7 +51,7 @@
             variant="destructive"
             size="sm"
             :disabled="isDeleting"
-            class="ml-auto bg-red-600 hover:bg-red-700 text-white border-red-600"
+            class="ml-auto bg-danger hover:bg-danger text-white border-danger-border"
             @click="deleteRun"
           >
             <span v-if="isDeleting">Deleting...</span>
@@ -131,7 +134,7 @@
                         <Badge
                           v-for="tag in run.tags"
                           :key="tag"
-                          class="bg-blue-100 text-blue-800 border-blue-200 text-sm"
+                          class="bg-running-bg text-running border-running-border text-sm"
                         >
                           #{{ tag }}
                         </Badge>
@@ -186,7 +189,7 @@
             </Button>
             <Button
               :disabled="isCreatingSegment"
-              class="bg-green-600 hover:bg-green-700 text-white border-green-600"
+              class="bg-ok hover:bg-ok text-white border-ok-border"
               @click="createSegmentWithPipeline"
             >
               <span v-if="isCreatingSegment">Creating...</span>
@@ -217,7 +220,7 @@
             <div class="flex items-center justify-between">
               <div class="flex-1">
                 <div class="flex items-center gap-2 mb-2">
-                  <Badge class="bg-purple-500 text-white border-purple-500 text-sm">
+                  <Badge class="bg-stale-bg text-stale border-stale-border text-sm">
                     Segment {{ segment.seg }}
                   </Badge>
                 </div>
@@ -265,7 +268,7 @@
     <div v-else class="text-center py-8 text-muted-foreground">
       Run not found
     </div>
-  </div>
+  </PageShell>
 </template>
 
 <script setup>

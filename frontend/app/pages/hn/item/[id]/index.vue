@@ -21,13 +21,13 @@
     <div v-else-if="!!item" class="space-y-6">
       <!-- Header -->
       <div class="bg-card border rounded-lg p-6">
-        <h1 class="text-3xl font-bold leading-tight">
+        <h1 class="text-xl font-semibold leading-tight">
           <a
             v-if="item.url"
             :href="item.url"
             target="_blank"
             rel="noopener noreferrer"
-            class="hover:text-orange-600 transition-colors"
+            class="hover:text-primary transition-colors"
           >
             {{ item.title || 'No Title' }}
           </a>
@@ -40,7 +40,7 @@
 
         <!-- Compact badge row -->
         <div class="mt-4 flex flex-wrap items-center gap-2">
-          <Badge class="bg-orange-500 text-white border-orange-500 text-xs">
+          <Badge class="bg-primary text-primary-foreground border-primary text-xs">
             ▲ {{ item.score || 0 }} points
           </Badge>
           <Badge variant="outline" class="text-xs">
@@ -57,7 +57,7 @@
               :href="item.url"
               target="_blank"
               rel="noopener noreferrer"
-              class="hover:text-orange-600"
+              class="hover:text-primary"
             >
               {{ domain }}
             </a>
@@ -67,7 +67,7 @@
               :href="`https://news.ycombinator.com/item?id=${item.id}`"
               target="_blank"
               rel="noopener noreferrer"
-              class="hover:text-orange-600"
+              class="hover:text-primary"
             >
               HN ↗
             </a>
@@ -111,7 +111,7 @@
           <span
             v-if="actionMessage"
             class="text-sm"
-            :class="actionMessageIsError ? 'text-destructive' : 'text-green-600 dark:text-green-400'"
+            :class="actionMessageIsError ? 'text-destructive' : 'text-ok'"
           >
             {{ actionMessage }}
           </span>
@@ -216,7 +216,7 @@
                 </Badge>
                 <span
                   v-if="gen.style_theme_name || gen.style_theme"
-                  class="rounded bg-purple-100 px-1.5 py-0.5 text-[11px] text-purple-900 dark:bg-purple-900/30 dark:text-purple-300"
+                  class="rounded bg-stale-bg px-1.5 py-0.5 text-[11px] text-stale"
                 >
                   {{ gen.style_theme_name || gen.style_theme }}
                 </span>
@@ -420,8 +420,8 @@ function qaLabel(verdict) {
 
 function qaClass(verdict) {
   return qaPassed(verdict)
-    ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-    : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
+    ? 'bg-ok-bg text-ok border border-ok-border'
+    : 'bg-warn-bg text-warn'
 }
 
 onBeforeUnmount(() => {

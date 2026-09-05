@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import PageShell from '~/components/kit/PageShell.vue'
 import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
 import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
@@ -68,10 +69,10 @@ const prettyDate = (iso: string) => new Date(iso).toLocaleString()
 </script>
 
 <template>
-  <div class="container mx-auto p-6 space-y-6">
+  <PageShell>
     <div class="flex items-start justify-between gap-4">
       <div>
-        <h1 class="text-3xl font-bold">Kindle Digests</h1>
+        <h1 class="text-xl font-semibold">Digests</h1>
         <p class="text-muted-foreground mt-1">
           Top-ranked stories, typeset to read. Built from Story Briefs, so a digest
           costs no LLM calls of its own.
@@ -150,5 +151,5 @@ const prettyDate = (iso: string) => new Date(iso).toLocaleString()
         </div>
       </CardContent>
     </Card>
-  </div>
+  </PageShell>
 </template>
