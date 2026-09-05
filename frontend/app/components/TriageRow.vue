@@ -43,8 +43,8 @@ function ageFromUnix(time: number | null): string {
 
 function scoreClass(s: number | null | undefined) {
   if (s == null) return 'text-muted-foreground/50'
-  if (s >= 70) return 'text-green-600 dark:text-green-400'
-  if (s >= 40) return 'text-amber-600 dark:text-amber-400'
+  if (s >= 70) return 'text-ok'
+  if (s >= 40) return 'text-warn'
   return 'text-muted-foreground'
 }
 
@@ -59,16 +59,21 @@ const needsBetterSource = computed(() =>
 
 const verdictBadgeClass = computed(() => {
   switch (props.item.verdict) {
-    case 'great':
-      return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'
-    case 'good':
-      return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300'
-    case 'marginal':
-      return 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-300'
-    default:
-      return 'bg-red-100 text-red-700 dark:bg-red-900/25 dark:text-red-300/80'
+    case 'great': return 'bg-ok-bg text-ok border-ok-border'
+    case 'good': return 'bg-running-bg text-running border-running-border'
+    case 'marginal': return 'bg-warn-bg text-warn border-warn-border'
+    default: return 'bg-danger-bg text-danger border-danger-border'
   }
 })
+
+/** What each verdict means, on hover. Derived from the two axes, not asked of
+ *  the model — it was bad at bucketing its own scores. */
+const VERDICT_HINT: Record<string, string> = {
+  great: 'High on both axes. The pipeline would make this without hesitation.',
+  good: 'Worth making. Solid on both interest and producibility.',
+  marginal: 'Middling. Gets a Story Brief only if it ranks well enough.',
+  unsuitable: 'Below the floor on interest or producibility — usually a thin scrape. No brief, no generation.',
+}
 
 const GEN_AI_TOPIC = /(^|[\s_/-])(ai|ml|llms?|gpt|genai|gen[\s_-]?ai|agents?|models?|diffusion|transformers?|neural|machine[\s_-]?learning|deep[\s_-]?learning|openai|anthropic|claude|inference|rag|embeddings?)($|[\s_/-])/i
 
@@ -77,8 +82,8 @@ function isGenAiTopic(topic: string): boolean {
 }
 
 function meterClass(value: number): string {
-  if (value >= 7) return 'bg-green-500'
-  if (value >= 4) return 'bg-amber-500'
+  if (value >= 7) return 'bg-ok'
+  if (value >= 4) return 'bg-warn'
   return 'bg-muted-foreground/50'
 }
 
@@ -133,19 +138,19 @@ const feedbackButtons: { verdict: HumanVerdict; emoji: string; label: string; ac
     verdict: 'starred',
     emoji: '⭐',
     label: 'Star',
-    activeClass: 'border-yellow-500 bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300',
+    activeClass: 'border-warn-border bg-warn-bg text-warn',
   },
   {
     verdict: 'approved',
     emoji: '👍',
     label: 'Approve',
-    activeClass: 'border-green-500 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300',
+    activeClass: 'border-ok-border bg-ok-bg text-ok',
   },
   {
     verdict: 'rejected',
     emoji: '👎',
     label: 'Reject',
-    activeClass: 'border-red-500 bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-300',
+    activeClass: 'border-danger-border bg-danger-bg text-danger',
   },
 ]
 
@@ -209,7 +214,7 @@ export interface TriageItem {
 </script>
 
 <template>
-  <div class="rounded-lg border bg-card px-3 py-2.5 transition-colors hover:border-orange-300 dark:hover:border-orange-900">
+  <div class="rounded-lg border bg-card px-3 py-2.5 transition-colors hover:border-primary/40">
     <div class="flex items-start gap-3">
       <!-- Rank + the two axes -->
       <div class="flex w-16 shrink-0 flex-col items-center pt-0.5">
@@ -233,14 +238,15 @@ export interface TriageItem {
           {{ item.producibility ?? '—' }}
         </span>
         <span
-          class="mt-0.5 inline-flex rounded-full px-1.5 py-0.5 text-[10px] font-medium capitalize"
+          class="mt-0.5 inline-flex rounded-full border px-1.5 py-0.5 text-[10px] font-medium capitalize"
           :class="verdictBadgeClass"
+          :title="VERDICT_HINT[item.verdict] || ''"
         >
           {{ item.verdict }}
         </span>
         <span
           v-if="needsBetterSource"
-          class="mt-1 inline-flex rounded-full bg-purple-100 px-1.5 py-0.5 text-center text-[9px] font-medium leading-tight text-purple-800 dark:bg-purple-900/30 dark:text-purple-300"
+          class="mt-1 inline-flex rounded-full border border-stale-border bg-stale-bg px-1.5 py-0.5 text-center text-[9px] font-medium leading-tight text-stale"
           title="Worth making, but the scrape was too thin — retry with a better source"
         >
           needs source
@@ -253,7 +259,7 @@ export interface TriageItem {
         <div class="flex items-baseline gap-2">
           <NuxtLink
             :to="`/hn/item/${item.item_id}`"
-            class="truncate font-semibold text-foreground hover:text-orange-600"
+            class="truncate font-semibold text-foreground hover:text-primary"
           >
             {{ item.title || `Item ${item.item_id}` }}
           </NuxtLink>
@@ -262,13 +268,13 @@ export interface TriageItem {
             :href="item.url"
             target="_blank"
             rel="noopener noreferrer"
-            class="shrink-0 truncate text-xs text-muted-foreground hover:text-orange-600"
+            class="shrink-0 truncate text-xs text-muted-foreground hover:text-primary"
           >
             {{ domain(item.url) }}
           </a>
           <span
             v-if="item.videos_count > 0"
-            class="inline-flex shrink-0 items-center gap-1 rounded-full border border-green-300 px-1.5 py-0.5 text-[10px] font-medium text-green-700 dark:border-green-800 dark:text-green-400"
+            class="inline-flex shrink-0 items-center gap-1 rounded-full border border-ok-border bg-ok-bg px-1.5 py-0.5 text-[10px] font-medium text-ok"
           >
             <Icon name="lucide:check" class="h-2.5 w-2.5" />
             generated
@@ -288,7 +294,7 @@ export interface TriageItem {
             :key="`t-${topic}`"
             class="rounded-full border px-1.5 py-0.5 text-[10px]"
             :class="isGenAiTopic(topic)
-              ? 'border-orange-300 bg-orange-50 text-orange-700 dark:border-orange-900 dark:bg-orange-950/30 dark:text-orange-300'
+              ? 'border-primary/40 bg-primary/10 text-primary'
               : 'border-border text-muted-foreground'"
           >
             {{ topic }}
@@ -296,7 +302,7 @@ export interface TriageItem {
           <span
             v-for="flag in item.flags || []"
             :key="`f-${flag}`"
-            class="rounded-full border border-amber-400 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-400"
+            class="rounded-full border border-warn-border bg-warn-bg px-1.5 py-0.5 text-[10px] font-medium text-warn"
           >
             ⚑ {{ flag }}
           </span>
@@ -373,7 +379,7 @@ export interface TriageItem {
             type="button"
             class="rounded-md border px-1.5 py-1 text-xs transition-colors"
             :class="noteOpen || item.human_note
-              ? 'border-orange-400 text-orange-600 dark:text-orange-400'
+              ? 'border-primary text-primary'
               : 'border-border text-muted-foreground hover:bg-muted hover:text-foreground'"
             title="Add a note"
             @click="noteOpen = !noteOpen"
@@ -405,7 +411,7 @@ export interface TriageItem {
               @click="generate('video')"
             >
               <Icon v-if="genBusy === 'video'" name="lucide:loader-2" class="mr-1 h-3 w-3 animate-spin" />
-              <span v-if="genQueued.has('video')" class="text-green-600 dark:text-green-400">Queued</span>
+              <span v-if="genQueued.has('video')" class="text-ok">Queued</span>
               <span v-else>🎬 Video</span>
             </Button>
             <Button
@@ -416,7 +422,7 @@ export interface TriageItem {
               @click="generate('audio')"
             >
               <Icon v-if="genBusy === 'audio'" name="lucide:loader-2" class="mr-1 h-3 w-3 animate-spin" />
-              <span v-if="genQueued.has('audio')" class="text-green-600 dark:text-green-400">Queued</span>
+              <span v-if="genQueued.has('audio')" class="text-ok">Queued</span>
               <span v-else>🎙️ Audio</span>
             </Button>
           </template>

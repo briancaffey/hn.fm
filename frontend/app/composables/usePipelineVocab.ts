@@ -100,6 +100,7 @@ export const STAGE: Record<string, { label: string; hint: string }> = {
   audio: { label: 'Audio', hint: 'Text-to-speech per section, stitched, then transcribed back to check it against the script.' },
   images: { label: 'Images', hint: 'One scene per section. Each prompt sees the previous shots so a take holds its cast and setting.' },
   media_plan: { label: 'Media plan', hint: 'Chooses image sequence, motion clip or hyperframe per section, then critiques its own plan.' },
+  source_images: { label: 'Source images', hint: 'Images lifted from the article itself, used alongside generated scenes when the source has usable art.' },
   video: { label: 'Video', hint: 'Assembles images, motion, captions and audio into the finished file.' },
   task: { label: 'Task', hint: 'A whole task that died outside any step — recorded so a crash cannot be invisible.' },
 }

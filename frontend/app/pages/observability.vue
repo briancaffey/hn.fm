@@ -1,19 +1,31 @@
 <template>
-  <div class="mx-auto max-w-7xl p-4 text-sm">
-    <div class="mb-4 flex items-center justify-between">
-      <div>
-        <h1 class="text-xl font-semibold">Pipeline Observability</h1>
-        <p class="text-xs text-muted-foreground">
-          {{ records.length }} renders · x-ray into time, tokens & output per stage
-        </p>
-      </div>
-      <button class="rounded border px-2 py-1 text-xs hover:bg-muted" @click="load">Refresh</button>
-    </div>
+  <PageShell>
+    <PageHeader
+      title="Observability"
+      subtitle="Where a render spends its time and tokens, stage by stage."
+      hint="Each record is one finished render. Use it to answer where the cost actually goes — media planning and video assembly dominate, and the LLM stages are cheap by comparison. Only finalized full-pipeline runs appear here."
+      :meta="loading ? [] : [`${records.length} renders`, `${totalTokens.toLocaleString()} tokens total`]"
+    >
+      <template #actions>
+        <Button variant="outline" size="sm" :disabled="loading" @click="load">
+          <Icon name="lucide:refresh-cw" class="mr-1.5 h-3.5 w-3.5" :class="loading ? 'animate-spin' : ''" />
+          Refresh
+        </Button>
+      </template>
+    </PageHeader>
 
-    <p v-if="loading" class="text-xs text-muted-foreground">Loading metrics…</p>
-    <p v-else-if="!records.length" class="text-xs text-muted-foreground">
-      No metrics yet — render a video and it'll show up here.
-    </p>
+    <LoadingRows v-if="loading && !records.length" :rows="3" height="h-28" />
+
+    <EmptyState
+      v-else-if="!records.length"
+      icon="lucide:activity"
+      title="No renders measured yet"
+      body="A record appears here when a full pipeline run finishes. Start one from Triage, then come back to see where its time went."
+    >
+      <template #action>
+        <Button as-child size="sm"><NuxtLink to="/triage">Go to Triage</NuxtLink></Button>
+      </template>
+    </EmptyState>
 
     <template v-else>
       <!-- aggregate cards -->
@@ -55,7 +67,7 @@ v-for="s in STAGES" :key="s"
             <div v-for="s in STAGES" :key="s" class="flex items-center gap-2 text-xs">
               <span class="w-28 capitalize">{{ s.replace('_',' ') }}</span>
               <div class="h-2 flex-1 rounded bg-muted">
-                <div class="h-2 rounded bg-orange-500" :style="{ width: pct(avgTok[s], maxAvgTok) + '%' }"/>
+                <div class="h-2 rounded bg-primary" :style="{ width: pct(avgTok[s], maxAvgTok) + '%' }"/>
               </div>
               <span class="w-24 text-right tabular-nums">{{ avgTok[s] ? Math.round(avgTok[s]).toLocaleString() : '—' }}</span>
             </div>
@@ -86,10 +98,16 @@ v-for="s in STAGES" :key="s"
         <div class="space-y-2">
           <div v-for="r in records" :key="keyOf(r)" class="rounded border">
             <button class="flex w-full items-center gap-3 p-2 text-left hover:bg-muted/50" @click="toggle(keyOf(r))">
-              <span class="text-xs" :class="r.status==='ok' ? 'text-green-600' : 'text-red-600'">●</span>
+              <StatusBadge :status="r.status" dot />
               <span class="min-w-0 flex-1 truncate">{{ title(r) }}</span>
-              <span v-if="r.theme" class="hidden rounded bg-purple-100 px-1.5 py-0.5 text-[11px] text-purple-900 dark:bg-purple-900 dark:text-purple-100 sm:inline">{{ r.theme }}</span>
-              <span class="hidden rounded bg-blue-100 px-1.5 py-0.5 text-[11px] text-blue-900 dark:bg-blue-900 dark:text-blue-100 sm:inline">{{ r.format || '16:9' }}</span>
+              <span
+                v-if="r.theme" :title="`Visual theme: ${r.theme}. Every shot in a take shares one style so the piece hangs together.`"
+                class="hidden rounded border border-stale-border bg-stale-bg px-1.5 py-0.5 text-[11px] text-stale sm:inline"
+              >{{ r.theme }}</span>
+              <span
+                :title="`Aspect ratio ${r.format || '16:9'} — 9:16 is the vertical cut.`"
+                class="hidden rounded border border-running-border bg-running-bg px-1.5 py-0.5 text-[11px] text-running sm:inline"
+              >{{ r.format || '16:9' }}</span>
               <!-- mini stacked bar -->
               <span class="hidden h-3 w-40 overflow-hidden rounded md:flex">
                 <span v-for="s in STAGES" :key="s" :style="{ width: pct(stageSec(r,s), r.total_seconds||1) + '%', background: COLORS[s] }"/>
@@ -119,11 +137,11 @@ v-for="s in STAGES" :key="s"
                   <div class="mb-1 font-medium text-muted-foreground">Output</div>
                   <div v-for="[k,v] in Object.entries(r.counts||{})" :key="k" class="flex justify-between">
                     <span class="capitalize">{{ k.replace(/_/g,' ') }}</span>
-                    <span class="tabular-nums" :class="k.includes('fail') && v ? 'text-red-600' : ''">{{ v }}</span>
+                    <span class="tabular-nums" :class="k.includes('fail') && v ? 'text-danger' : ''">{{ v }}</span>
                   </div>
                   <div class="mt-2 flex gap-3">
-                    <NuxtLink :to="`/hn/item/${r.item_id}/run/${r.run}/segment/${r.seg}`" class="inline-block text-blue-600 hover:underline">x-ray ↗</NuxtLink>
-                    <NuxtLink :to="`/hn/item/${r.item_id}`" class="inline-block text-blue-600 hover:underline">story ↗</NuxtLink>
+                    <NuxtLink :to="`/hn/item/${r.item_id}/run/${r.run}/segment/${r.seg}`" class="inline-block text-primary hover:underline">x-ray ↗</NuxtLink>
+                    <NuxtLink :to="`/hn/item/${r.item_id}`" class="inline-block text-primary hover:underline">story ↗</NuxtLink>
                   </div>
                 </div>
               </div>
@@ -132,18 +150,29 @@ v-for="s in STAGES" :key="s"
         </div>
       </div>
     </template>
-  </div>
+  </PageShell>
 </template>
 
 <script setup lang="ts">
+import { Button } from '~/components/ui/button'
+import { Icon } from '#components'
+import PageShell from '~/components/kit/PageShell.vue'
+import PageHeader from '~/components/kit/PageHeader.vue'
+import EmptyState from '~/components/kit/EmptyState.vue'
+import StatusBadge from '~/components/kit/StatusBadge.vue'
+import LoadingRows from '~/components/kit/LoadingRows.vue'
+
+useHead({ title: 'hn.fm · Observability' })
+
 const config = useRuntimeConfig()
 const apiBase = computed(() => config.public?.apiBase || 'http://localhost:8000')
 
 const STAGES = ['scrape', 'source_images', 'script', 'audio', 'images', 'media_plan', 'video']
-const COLORS: Record<string, string> = {
-  scrape: '#64748b', source_images: '#0ea5e9', script: '#a855f7', audio: '#22c55e',
-  images: '#f97316', media_plan: '#eab308', video: '#ef4444',
-}
+// Colours come from the shared vocabulary (usePipelineVocab), not a map
+// declared here. This page and live.vue each had one, with different values.
+const COLORS: Record<string, string> = Object.fromEntries(
+  STAGES.map(s => [s, `hsl(var(--stage-${s}))`]),
+)
 
 // The shape `metrics.finalize` writes (see src/hnfm/utils/metrics.py). Typed
 // out rather than left as `any` because this page is the only consumer, so a
@@ -228,7 +257,7 @@ const cards = computed(() => {
     { label: 'Renders', value: records.value.length },
     { label: 'Avg time', value: fmt(avgT) },
     { label: 'Avg tokens', value: Math.round(totalTokens.value / n).toLocaleString() },
-    { label: 'LTX clips', value: ltx, sub: ltxF ? `${ltxF} failed` : 'all ok', cls: ltxF ? 'text-red-600' : '' },
+    { label: 'LTX clips', value: ltx, sub: ltxF ? `${ltxF} failed` : 'all ok', cls: ltxF ? 'text-danger' : '' },
     { label: 'Hyperframes', value: sum('hyperframes') },
     { label: 'Source imgs', value: sum('source_images') },
   ]

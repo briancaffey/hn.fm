@@ -76,6 +76,8 @@ html {
      * everywhere it appears.
      */
     --stage-scrape: 199 89% 48%;
+    /* Images pulled from the article itself rather than generated. */
+    --stage-source_images: 188 86% 40%;
     --stage-summary: 199 89% 48%;
     --stage-enrich: 199 89% 48%;
     --stage-triage: 258 90% 66%;
@@ -146,6 +148,7 @@ html {
     --st-stale-border: 270 30% 33%;
 
     --stage-scrape: 199 85% 60%;
+    --stage-source_images: 188 70% 55%;
     --stage-summary: 199 85% 60%;
     --stage-enrich: 199 85% 60%;
     --stage-triage: 258 85% 74%;
