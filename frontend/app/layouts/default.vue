@@ -12,16 +12,45 @@ interface NavItem {
   icon: string
   /** path prefix used for active-route highlighting */
   match: string
+  /** Shown on hover. A flat list of seven nouns said nothing about what each
+   *  page is for, or in what order you would use them. */
+  hint: string
 }
 
-const navItems: NavItem[] = [
-  { label: 'Stories', to: '/hn/items', icon: 'lucide:newspaper', match: '/hn' },
-  { label: 'Triage', to: '/triage', icon: 'lucide:list-checks', match: '/triage' },
-  { label: 'Segments', to: '/segments', icon: 'lucide:layers', match: '/segments' },
-  { label: 'Digests', to: '/digests', icon: 'lucide:book-open', match: '/digests' },
-  { label: 'Live', to: '/live', icon: 'lucide:radio', match: '/live' },
-  { label: 'Observability', to: '/observability', icon: 'lucide:activity', match: '/observability' },
-  { label: 'Services', to: '/services', icon: 'lucide:server', match: '/services' },
+/**
+ * Grouped by what you are doing, in pipeline order: choose material, look at
+ * what came out, watch the machine.
+ */
+const navGroups: Array<{ label: string, items: NavItem[] }> = [
+  {
+    label: 'Content',
+    items: [
+      { label: 'Stories', to: '/hn/items', icon: 'lucide:newspaper', match: '/hn',
+        hint: 'Everything ingested from Hacker News. Queue more from here.' },
+      { label: 'Triage', to: '/triage', icon: 'lucide:list-checks', match: '/triage',
+        hint: 'The ranked queue — what is worth making, and your overrides.' },
+    ],
+  },
+  {
+    label: 'Output',
+    items: [
+      { label: 'Segments', to: '/segments', icon: 'lucide:layers', match: '/segments',
+        hint: 'Finished pieces: script, audio, images and video for one run.' },
+      { label: 'Digests', to: '/digests', icon: 'lucide:book-open', match: '/digests',
+        hint: 'Reading editions built from Story Briefs, sent to Kindle.' },
+    ],
+  },
+  {
+    label: 'Pipeline',
+    items: [
+      { label: 'Live', to: '/live', icon: 'lucide:radio', match: '/live',
+        hint: 'Every step as it happens, streamed from the audit trail.' },
+      { label: 'Observability', to: '/observability', icon: 'lucide:activity', match: '/observability',
+        hint: 'Where a render spends its time and tokens.' },
+      { label: 'Services', to: '/services', icon: 'lucide:server', match: '/services',
+        hint: 'Inference backend health, and what breaks without each one.' },
+    ],
+  },
 ]
 
 function isActive(item: NavItem): boolean {
@@ -35,25 +64,43 @@ function isActive(item: NavItem): boolean {
     <aside class="w-52 shrink-0 border-r bg-card flex flex-col">
       <!-- Wordmark -->
       <div class="px-4 py-3.5 border-b">
-        <NuxtLink to="/hn/items" class="text-lg font-bold text-foreground">
-          <span class="text-orange-600">hn</span>.fm
+        <NuxtLink to="/" class="text-lg font-bold text-foreground">
+          <span class="text-primary">hn</span>.fm
         </NuxtLink>
       </div>
 
       <!-- Nav -->
-      <nav class="flex-1 overflow-y-auto px-2 py-3 space-y-1">
+      <nav class="flex-1 space-y-4 overflow-y-auto px-2 py-3">
         <NuxtLink
-          v-for="item in navItems"
-          :key="item.to"
-          :to="item.to"
+          to="/"
           class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors"
-          :class="isActive(item)
-            ? 'bg-orange-100 text-orange-700 dark:bg-orange-950/40 dark:text-orange-300'
+          :class="route.path === '/'
+            ? 'bg-primary/10 text-primary'
             : 'text-muted-foreground hover:bg-muted hover:text-foreground'"
+          title="Corpus, live work, queue depth and service health at a glance."
         >
-          <Icon :name="item.icon" class="h-4 w-4 shrink-0" />
-          <span class="truncate">{{ item.label }}</span>
+          <Icon name="lucide:layout-dashboard" class="h-4 w-4 shrink-0" />
+          <span class="truncate">Overview</span>
         </NuxtLink>
+
+        <div v-for="group in navGroups" :key="group.label" class="space-y-1">
+          <p class="px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
+            {{ group.label }}
+          </p>
+          <NuxtLink
+            v-for="item in group.items"
+            :key="item.to"
+            :to="item.to"
+            :title="item.hint"
+            class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors"
+            :class="isActive(item)
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:bg-muted hover:text-foreground'"
+          >
+            <Icon :name="item.icon" class="h-4 w-4 shrink-0" />
+            <span class="truncate">{{ item.label }}</span>
+          </NuxtLink>
+        </div>
       </nav>
 
       <!-- Bottom: theme toggle + activity -->

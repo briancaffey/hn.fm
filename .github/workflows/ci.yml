@@ -25,6 +25,10 @@ jobs:
           cache-dependency-path: frontend/yarn.lock
       - run: yarn install --frozen-lockfile
       - run: yarn lint
+      # Design-system rules: no hardcoded palette colours (they were the
+      # reason dark mode looked wrong), no page container outside the two
+      # archetypes, no heading off the scale.
+      - run: yarn audit
 
   backend:
     name: Backend tests
