@@ -4,12 +4,19 @@ import { Card, CardContent, CardHeader, CardTitle } from '~/components/ui/card'
 import { Badge } from '~/components/ui/badge'
 import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
+import StatusBadge from '~/components/kit/StatusBadge.vue'
 
 interface DigestFile {
   slug: string
   formats: string[]
   bytes: number
   modified: string
+  /** When it actually reached the mail provider. Null = never sent. */
+  sent_at: string | null
+  message_id: string | null
+  edition_name: string | null
+  shape: string | null
+  tracked: boolean
 }
 
 interface DigestsResponse {
@@ -57,6 +64,7 @@ const sendExisting = async (slug: string) => {
     const res = await $fetch<{ status: string, file: string }>(
       `${apiBase}/api/digests/${slug}/send`, { method: 'POST' })
     message.value = `Sent ${res.file} to your Kindle.`
+    await refresh()
   } catch (e: unknown) {
     message.value = `Send failed: ${e}`
   } finally {
@@ -64,8 +72,32 @@ const sendExisting = async (slug: string) => {
   }
 }
 
-const prettyBytes = (n: number) => n < 1024 ? `${n} B` : `${(n / 1024).toFixed(1)} KB`
+const prettyBytes = (n: number) =>
+  n < 1024 ? `${n} B` : n < 1048576 ? `${(n / 1024).toFixed(0)} KB` : `${(n / 1048576).toFixed(1)} MB`
 const prettyDate = (iso: string) => new Date(iso).toLocaleString()
+
+const unsent = computed(() =>
+  (data.value?.digests || []).filter(d => !d.sent_at))
+
+/** Send everything that has never reached the Kindle, oldest first. */
+const sendingAll = ref(false)
+const sendAllUnsent = async () => {
+  sendingAll.value = true
+  const queue = [...unsent.value].reverse()
+  let ok = 0
+  for (const d of queue) {
+    message.value = `Sending ${d.slug}… (${ok + 1} of ${queue.length})`
+    try {
+      await $fetch(`${apiBase}/api/digests/${d.slug}/send`, { method: 'POST' })
+      ok++
+    } catch {
+      // Keep going: one rejected attachment should not strand the rest.
+    }
+  }
+  message.value = `Sent ${ok} of ${queue.length}. Refreshing…`
+  await refresh()
+  sendingAll.value = false
+}
 </script>
 
 <template>
@@ -114,7 +146,24 @@ const prettyDate = (iso: string) => new Date(iso).toLocaleString()
     </Card>
 
     <Card>
-      <CardHeader><CardTitle class="text-base">Rendered digests</CardTitle></CardHeader>
+      <CardHeader>
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <CardTitle class="text-base">Rendered digests</CardTitle>
+          <div v-if="data?.digests?.length" class="flex items-center gap-2">
+            <span class="text-xs text-muted-foreground">
+              {{ data.digests.length - unsent.length }} of {{ data.digests.length }} delivered
+            </span>
+            <Button
+              v-if="unsent.length"
+              size="sm"
+              :disabled="sendingAll || busy || !data.delivery_ready"
+              @click="sendAllUnsent"
+            >
+              {{ sendingAll ? 'Sending…' : `Send ${unsent.length} unsent` }}
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
       <CardContent>
         <p v-if="!data?.digests?.length" class="text-sm text-muted-foreground">
           None yet. Build one above — note that only stories with a Story Brief are
@@ -126,13 +175,24 @@ const prettyDate = (iso: string) => new Date(iso).toLocaleString()
             :key="d.slug"
             class="flex flex-wrap items-center justify-between gap-3 py-3"
           >
-            <div>
-              <div class="font-medium">{{ d.slug }}</div>
+            <div class="min-w-0">
+              <div class="flex flex-wrap items-center gap-2">
+                <span class="font-medium">{{ d.edition_name || d.slug }}</span>
+                <StatusBadge
+                  :status="d.sent_at ? 'ok' : 'queued'"
+                  :label="d.sent_at ? 'Delivered' : 'Not sent'"
+                  dot
+                />
+                <span v-if="d.shape" class="text-xs text-muted-foreground">{{ d.shape }}</span>
+              </div>
+              <div class="mt-0.5 font-mono text-xs text-muted-foreground">{{ d.slug }}</div>
               <div class="text-xs text-muted-foreground">
-                {{ prettyDate(d.modified) }} · {{ prettyBytes(d.bytes) }}
+                built {{ prettyDate(d.modified) }} · {{ prettyBytes(d.bytes) }}
+                <template v-if="d.sent_at"> · delivered {{ prettyDate(d.sent_at) }}</template>
+                <template v-else-if="!d.tracked"> · built before delivery was tracked</template>
               </div>
             </div>
-            <div class="flex items-center gap-2">
+            <div class="flex shrink-0 items-center gap-2">
               <a
                 v-for="f in d.formats"
                 :key="f"
@@ -142,10 +202,10 @@ const prettyDate = (iso: string) => new Date(iso).toLocaleString()
               >{{ f.toUpperCase() }}</a>
               <Button
                 size="sm"
-                variant="outline"
-                :disabled="busy || !data.delivery_ready"
+                :variant="d.sent_at ? 'outline' : 'default'"
+                :disabled="busy || sendingAll || !data.delivery_ready"
                 @click="sendExisting(d.slug)"
-              >Send to Kindle</Button>
+              >{{ d.sent_at ? 'Send again' : 'Send to Kindle' }}</Button>
             </div>
           </div>
         </div>

@@ -1576,7 +1576,28 @@ async def list_digests():
             entry["modified"] = datetime.fromtimestamp(
                 os.path.getmtime(path)
             ).isoformat()
-        items = sorted(seen.values(), key=lambda d: d["slug"], reverse=True)
+        # Newest first by file time, not by slug. Sorting by slug put three
+        # stale `hnfm-edition-*` files from an old session above every real
+        # digest, which is why recent ones looked missing.
+        items = sorted(
+            seen.values(), key=lambda d: d["modified"] or "", reverse=True
+        )
+
+    # Delivery state, so a digest is never silently unsent.
+    try:
+        from ..db import repo as _repo
+
+        states = _repo.digest_edition_states()
+    except Exception as e:
+        logger.warning(f"digest states unavailable (non-fatal): {e}")
+        states = {}
+    for it in items:
+        st = states.get(it["slug"]) or {}
+        it["sent_at"] = st.get("sent_at")
+        it["message_id"] = st.get("message_id")
+        it["edition_name"] = (st.get("edition_name") or "").strip() or None
+        it["shape"] = st.get("shape")
+        it["tracked"] = bool(st)
 
     ready, reason = delivery_config()
     return {"digests": items, "delivery_ready": ready, "delivery": reason}
@@ -1619,9 +1640,20 @@ async def send_existing_digest(slug: str):
         path = os.path.join(out_dir, f"{slug}.{ext}")
         if os.path.exists(path):
             try:
-                return {"status": "sent", "message_id": send_digest(path), "file": f"{slug}.{ext}"}
+                message_id = send_digest(path)
             except DeliveryError as e:
                 raise HTTPException(status_code=502, detail=str(e))
+            # Record it, so a manual resend shows up in the UI like any other.
+            sent_at = None
+            try:
+                from ..db import repo as _repo
+
+                if _repo.mark_digest_edition_sent(slug, message_id):
+                    sent_at = _repo.digest_edition_states().get(slug, {}).get("sent_at")
+            except Exception as e:
+                logger.warning(f"could not mark {slug} sent (non-fatal): {e}")
+            return {"status": "sent", "message_id": message_id,
+                    "file": f"{slug}.{ext}", "sent_at": sent_at}
     raise HTTPException(status_code=404, detail="Digest not found")
 
 

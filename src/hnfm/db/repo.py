@@ -991,6 +991,48 @@ def record_digest_edition(
         s.commit()
 
 
+def mark_digest_edition_sent(slug: str, message_id: str = None) -> bool:
+    """Record that an edition actually reached the delivery provider.
+
+    Separate from `record_digest_edition` because the two happen at different
+    moments: the edition is recorded when it is built, and the send happens
+    after. Folding them together is how every row ended up with a null
+    `sent_at` — the record was written before there was anything to record.
+    """
+    from datetime import datetime as _dt
+
+    with db_session() as s:
+        row = s.get(DigestEditionRow, slug)
+        if row is None:
+            return False
+        row.sent_at = _dt.utcnow()
+        meta = dict(row.meta or {})
+        if message_id:
+            meta["message_id"] = message_id
+        row.meta = meta
+        s.commit()
+        return True
+
+
+def digest_edition_states() -> dict:
+    """slug -> {sent_at, title, shape, message_id} for every recorded edition."""
+    with db_session() as s:
+        rows = s.query(DigestEditionRow).all()
+        return {
+            r.slug: {
+                "title": r.title,
+                # The short generated name, when the edition has one. Falls
+                # back to the generic title for editions built before naming.
+                "edition_name": (r.meta or {}).get("edition_name") or r.title,
+                "shape": r.shape,
+                "created_at": r.created_at.isoformat() if r.created_at else None,
+                "sent_at": r.sent_at.isoformat() if r.sent_at else None,
+                "message_id": (r.meta or {}).get("message_id"),
+            }
+            for r in rows
+        }
+
+
 def recently_published_item_ids(days: int = 7) -> set:
     """Item ids carried by any edition in the last `days`.
 

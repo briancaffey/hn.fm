@@ -57,7 +57,22 @@ figcaption .fc-style { text-transform: uppercase; letter-spacing: .06em;
                        font-weight: bold; }
 figcaption .fc-prompt { font-style: italic; }
 figcaption .fc-meta { color: #777; }
+.cover { text-align: center; margin: 0 0 1.4em; page-break-after: avoid; }
+.cover img { max-width: 100%; height: auto; }
+.cover-name { font-size: 1.5em; line-height: 1.15; margin: .5em 0 .1em;
+              text-align: center; }
+.cover-date { font-size: .85em; text-transform: uppercase;
+              letter-spacing: .12em; margin: 0 0 .2em; text-align: center; }
 """
+
+
+def _kindle_title(name: str, when) -> str:
+    """What shows on the Kindle shelf.
+
+    Short name first so editions are distinguishable at a glance, then a
+    condensed date — the year is noise on a device holding a week of them.
+    """
+    return f"{name} · {when:%-m/%-d}"
 
 
 def _esc(text) -> str:
@@ -203,23 +218,38 @@ def _section_body(sec, illos=None) -> str:
     return "\n".join(out)
 
 
-def render_html(digest: Digest, sections=None, illustrations=None) -> str:
+def render_html(digest: Digest, sections=None, illustrations=None,
+                cover=None, edition_name: str = "") -> str:
     """One self-contained HTML document — browser view and Send-to-Kindle HTML.
 
     `illustrations` maps story id -> list of Illustration. Images travel as
     data URIs because a digest arrives as an email attachment and Amazon's
     converter does not reliably fetch remote images.
     """
+    # Amazon reads the HTML's own metadata when it converts. Without an author
+    # meta the library shows "Unknown" under every edition — the EPUB path
+    # already set dc:creator, but Brevo rejects .epub attachments so the HTML
+    # is what actually arrives.
+    name = edition_name or digest.title
     parts = [
         "<!DOCTYPE html>",
         '<html lang="en"><head><meta charset="utf-8">',
         '<meta name="viewport" content="width=device-width, initial-scale=1">',
-        f"<title>{_esc(digest.title)} — {digest.generated_at:%d %B %Y}</title>",
+        '<meta name="author" content="hn.fm"/>',
+        '<meta name="generator" content="hn.fm"/>',
+        f"<title>{_esc(_kindle_title(name, digest.generated_at))}</title>",
         f"<style>{_CSS}\nbody{{max-width:38em;margin:0 auto;padding:2em 1.2em;}}</style>",
         "</head><body>",
-        f"<h1>{_esc(digest.title)}</h1>",
-        f'<p class="meta">{_esc(digest.subtitle)}</p>',
     ]
+    if cover is not None:
+        parts.append(
+            '<div class="cover">'
+            f'<img src="{cover.data_uri}" alt="{_esc(name)}"/>'
+            '</div>'
+        )
+    parts.append(f'<p class="cover-date">hn.fm · {digest.generated_at:%-m/%-d}</p>')
+    parts.append(f'<h1 class="cover-name">{_esc(name)}</h1>')
+    parts.append(f'<p class="meta" style="text-align:center">{_esc(digest.subtitle)}</p>')
     if sections:
         # Composed edition: teaser, quick hits, feature, bonus. No rule before
         # the teaser — it reads as part of the masthead.
@@ -250,7 +280,8 @@ def _xhtml(title: str, body: str) -> str:
     )
 
 
-def write_epub(digest: Digest, out_path: str, sections=None) -> str:
+def write_epub(digest: Digest, out_path: str, sections=None,
+               illustrations=None, cover=None, edition_name: str = "") -> str:
     """Write an EPUB and return its path.
 
     `mimetype` must be the first entry and stored uncompressed — readers check
@@ -304,7 +335,7 @@ def write_epub(digest: Digest, out_path: str, sections=None) -> str:
         'unique-identifier="bookid">'
         '<metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
         f"<dc:identifier id=\"bookid\">{uid}</dc:identifier>"
-        f"<dc:title>{_esc(digest.title)} — {digest.generated_at:%d %B %Y}</dc:title>"
+        f"<dc:title>{_esc(_kindle_title(edition_name or digest.title, digest.generated_at))}</dc:title>"
         "<dc:language>en</dc:language>"
         "<dc:creator>hn.fm</dc:creator>"
         f'<meta property="dcterms:modified">{stamp}</meta>'

@@ -311,3 +311,54 @@ def plan(stories, per_story: int = 2, seed: int = 7) -> dict:
                 picks.append(cand)
         out[s.item_id] = picks
     return out
+
+
+# --- edition furniture -----------------------------------------------------
+
+COVER_STYLE = Style(
+    "cover", "Cover plate", "constraint list",
+    _constraint_list("a bold black-ink cover illustration", [
+        "One strong central motif, symmetrical, filling the frame",
+        "Heavy confident line weight so it survives a low-contrast screen",
+        "Pure black on white, no grey wash, no text, no lettering",
+        "Woodblock poster feel",
+    ]),
+    steps=32,
+)
+
+
+def edition_name(stories) -> str:
+    """A short name for the edition, taken from what is actually in it.
+
+    "hn.fm Digest — 05 September 2026" is a filename, not a title: on the
+    Kindle shelf every edition looks identical, so there is no way to tell
+    yesterday's from today's without opening them.
+    """
+    from ..content.llm_service import LLMService, LLMError
+
+    titles = "\n".join(f"- {s.title}" for s in stories[:8])
+    prompt = (
+        "Below are the stories in one edition of a tech reading digest. "
+        "Give the edition a short name: 2-4 words, title case, concrete, "
+        "drawn from what these stories have in common. It goes on a Kindle "
+        "shelf beside other editions, so it must be distinguishable at a "
+        "glance. No colon, no subtitle, no quotes, no date, no preamble.\n\n"
+        f"{titles}"
+    )
+    try:
+        out = LLMService(task="image.scene").generate_content(prompt).strip()
+        out = out.strip('"').split("\n")[0].rstrip(".")
+        # A model that ignores the word limit gives a sentence; a sentence is
+        # worse than the fallback, so take the fallback.
+        return out if 0 < len(out.split()) <= 6 else ""
+    except (LLMError, Exception) as e:
+        logger.info(f"edition name fallback: {e}")
+        return ""
+
+
+def cover_for(stories, name: str):
+    """One cover plate for the edition, or None."""
+    if not stories:
+        return None
+    subject = subject_for(stories[0])
+    return render(subject, name or stories[0].title, COVER_STYLE, seed=3)

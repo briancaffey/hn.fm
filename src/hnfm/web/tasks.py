@@ -2489,9 +2489,17 @@ def build_digest(
     # Illustrations. Off by default: they cost a flux call and an LLM call per
     # picture, and the plain digest is the one that goes out nightly.
     illustrations = {}
+    cover = None
+    edition_name = ""
     if illustrate_n:
         from ..digest import illustrate as _ill
 
+        edition_name = _ill.edition_name(digest.stories)
+        cover = _ill.cover_for(digest.stories, edition_name)
+        logger.info(
+            f"digest: edition name {edition_name!r}, "
+            f"cover {'ok' if cover else 'none'}"
+        )
         assignment = _ill.plan(digest.stories, per_story=int(illustrate_n),
                                seed=int(illustrate_seed or 7))
         for story in digest.stories:
@@ -2526,12 +2534,15 @@ def build_digest(
     html_path = os.path.join(out_dir, f"{base}.html")
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(render_html(digest, sections=sections,
-                            illustrations=illustrations))
+                            illustrations=illustrations,
+                            cover=cover, edition_name=edition_name))
 
     epub_path = None
     if fmt == "epub":
         epub_path = write_epub(
-            digest, os.path.join(out_dir, f"{base}.epub"), sections=sections
+            digest, os.path.join(out_dir, f"{base}.epub"), sections=sections,
+            illustrations=illustrations, cover=cover,
+            edition_name=edition_name,
         )
 
     result = {
@@ -2553,10 +2564,19 @@ def build_digest(
         repo.record_digest_edition(
             slug=base, title=digest.title, shape=shape,
             stories=[(s.item_id, roles.get(s.item_id)) for s in digest.stories],
-            meta={"titles": [s.title for s in digest.stories]},
+            meta={"titles": [s.title for s in digest.stories],
+                  "edition_name": edition_name,
+                  "illustrations": sum(len(v) for v in illustrations.values()),
+                  "has_cover": cover is not None},
         )
     except Exception as e:
         logger.warning(f"digest: could not record edition (non-fatal): {e}")
+
+    subject_line = (
+        f"{edition_name} · {digest.generated_at:%-m/%-d}" if edition_name
+        else f"hn.fm Digest {digest.generated_at:%-m/%-d}"
+    )
+    result["edition_name"] = edition_name
 
     if send:
         ready, why = delivery_config()
@@ -2571,9 +2591,15 @@ def build_digest(
         to_send = epub_path if (fmt == "epub" and _provider_accepts_epub()) else html_path
         try:
             result["message_id"] = send_digest(
-                to_send, subject=f"hn.fm Digest {digest.generated_at:%d %b %Y}"
+                to_send, subject=subject_line
             )
             result["sent_file"] = os.path.basename(to_send)
+            # Only now is there something to record. Doing this at build time
+            # is why every edition row had a null sent_at.
+            try:
+                repo.mark_digest_edition_sent(base, result["message_id"])
+            except Exception as e:
+                logger.warning(f"digest: could not mark sent (non-fatal): {e}")
         except DeliveryError as e:
             result["status"] = "built_not_sent"
             result["send_error"] = str(e)
