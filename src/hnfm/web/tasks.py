@@ -2421,6 +2421,8 @@ def build_digest(
     send: bool = False,
     score_first: bool = True,
     shape: str = "daily",
+    illustrate_n: int = 0,
+    illustrate_seed: int = 7,
     skip: int = 0,
     exclude_recent_days: int = 7,
 ) -> Dict[str, any]:
@@ -2484,19 +2486,47 @@ def build_digest(
         except Exception as e:
             logger.warning(f"digest: composition failed, using flat layout: {e}")
 
+    # Illustrations. Off by default: they cost a flux call and an LLM call per
+    # picture, and the plain digest is the one that goes out nightly.
+    illustrations = {}
+    if illustrate_n:
+        from ..digest import illustrate as _ill
+
+        assignment = _ill.plan(digest.stories, per_story=int(illustrate_n),
+                               seed=int(illustrate_seed or 7))
+        for story in digest.stories:
+            subject = _ill.subject_for(story)
+            made = []
+            for style in assignment.get(story.item_id, []):
+                got = _ill.render(subject, story.title, style,
+                                  seed=int(illustrate_seed or 7))
+                if got:
+                    made.append(got)
+            if made:
+                illustrations[story.item_id] = made
+            logger.info(
+                f"digest: {len(made)} illustration(s) for {story.item_id} "
+                f"— subject: {subject[:70]}"
+            )
+
     out_dir = os.path.join(outputs_root, "digests")
     base = f"hnfm-digest-{digest.generated_at:%Y-%m-%d}"
     if shape != "daily":
         # Distinct slug per shape so several editions can coexist on one day
         # instead of overwriting each other.
         base = f"{base}-{shape}"
+    if illustrate_n:
+        # Keep the illustrated edition beside the plain one rather than
+        # replacing it, so the two can be compared.
+        base = f"{base}-illustrated"
 
     # Always write the HTML: it is the browser view regardless of what gets
     # emailed, so the UI has something to link to even when fmt is epub.
     os.makedirs(out_dir, exist_ok=True)
     html_path = os.path.join(out_dir, f"{base}.html")
     with open(html_path, "w", encoding="utf-8") as f:
-        f.write(render_html(digest, sections=sections))
+        f.write(render_html(digest, sections=sections,
+                            illustrations=illustrations))
 
     epub_path = None
     if fmt == "epub":

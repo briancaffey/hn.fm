@@ -48,6 +48,15 @@ ul { margin: 0 0 .8em 1.1em; padding: 0; }
 li { margin: 0 0 .35em; }
 .rule { border: 0; border-top: 1px solid #999; margin: 1.6em 0; }
 .footer { font-size: .8em; margin-top: 1.6em; }
+figure { margin: 1.1em 0; padding: 0; text-align: center;
+         page-break-inside: avoid; }
+figure img { max-width: 100%; height: auto; }
+figcaption { font-size: .68em; line-height: 1.35; text-align: left;
+             margin-top: .35em; color: #444; }
+figcaption .fc-style { text-transform: uppercase; letter-spacing: .06em;
+                       font-weight: bold; }
+figcaption .fc-prompt { font-style: italic; }
+figcaption .fc-meta { color: #777; }
 """
 
 
@@ -55,7 +64,26 @@ def _esc(text) -> str:
     return html.escape(str(text or ""), quote=True)
 
 
-def _story_body(story: DigestStory) -> str:
+def _figure(illo) -> str:
+    """One illustration with its full prompt as the caption.
+
+    The prompt is shown in full rather than summarised: the point of carrying
+    images at all is to work out which styles and phrasings survive a
+    greyscale 6" screen, and that judgement needs the input beside the output.
+    """
+    return (
+        '<figure>'
+        f'<img src="{illo.data_uri}" alt="{_esc(illo.style.label)}"/>'
+        '<figcaption>'
+        f'<span class="fc-style">{_esc(illo.style.label)}</span> · '
+        f'<span class="fc-meta">{_esc(illo.style.technique)} · '
+        f'ink {illo.ink:.2f} · {illo.seconds:.1f}s</span><br/>'
+        f'<span class="fc-prompt">{_esc(illo.prompt)}</span>'
+        '</figcaption></figure>'
+    )
+
+
+def _story_body(story: DigestStory, illos=None) -> str:
     """One story as XHTML, shared by both output formats.
 
     Sections are emitted only when the brief actually has them. An empty
@@ -64,6 +92,10 @@ def _story_body(story: DigestStory) -> str:
     """
     b = story.brief or {}
     out: List[str] = []
+    # Spread through the piece rather than stacked at the top: one after the
+    # thesis, one mid-body, one before the footer. Any that are missing simply
+    # do not appear.
+    pics = list(illos or [])
 
     out.append(f'<p class="kicker">{_esc(b.get("why_now") or "From Hacker News")}</p>')
     out.append(f"<h2>{_esc(story.title)}</h2>")
@@ -75,6 +107,8 @@ def _story_body(story: DigestStory) -> str:
 
     if b.get("thesis"):
         out.append(f'<p class="thesis">{_esc(b["thesis"])}</p>')
+    if pics:
+        out.append(_figure(pics.pop(0)))
     for key, heading in (("angle", "The angle"), ("tension", "The tension"),
                          ("stakes", "Who it touches")):
         if b.get(key):
@@ -89,6 +123,9 @@ def _story_body(story: DigestStory) -> str:
                 attrib = f.get("hn_user") or f.get("source") or ""
                 cite = f" — {_esc(attrib)}" if attrib else ""
                 out.append(f"<blockquote>{_esc(f['quote'])}{cite}</blockquote>")
+
+    if pics:
+        out.append(_figure(pics.pop(0)))
 
     numbers = [n for n in (b.get("numbers") or []) if n.get("value")]
     if numbers:
@@ -107,6 +144,9 @@ def _story_body(story: DigestStory) -> str:
             out.append(f"<li>{_esc(u)}</li>")
         out.append("</ul>")
 
+    for extra in pics:
+        out.append(_figure(extra))
+
     links = [f'<a href="{_esc(story.hn_url)}">Discussion</a>']
     if story.url:
         links.append(f'<a href="{_esc(story.url)}">Source</a>')
@@ -114,9 +154,10 @@ def _story_body(story: DigestStory) -> str:
     return "\n".join(out)
 
 
-def _section_body(sec) -> str:
+def _section_body(sec, illos=None) -> str:
     """One composed section as XHTML, shared by both output formats."""
     out = []
+    pics = list(illos or [])
     if sec.kind == "teaser":
         out.append(f'<p class="thesis">{_esc(sec.body)}</p>')
         return "\n".join(out)
@@ -135,8 +176,19 @@ def _section_body(sec) -> str:
         f'<p class="kicker">{"Feature" if sec.kind == "deep" else "In brief"}</p>'
     )
     out.append(f"<h2>{_esc(sec.title)}</h2>")
-    for para in [p for p in sec.body.split("\n\n") if p.strip()]:
+    if pics:
+        out.append(_figure(pics.pop(0)))
+
+    paras = [p for p in sec.body.split("\n\n") if p.strip()]
+    # Spread the rest evenly through the body rather than stacking them: on a
+    # 6" screen a run of images pushes the text off the page entirely.
+    gap = max(2, (len(paras) // (len(pics) + 1)) or 2) if pics else 0
+    for i, para in enumerate(paras, start=1):
         out.append(f"<p>{_esc(para.strip())}</p>")
+        if pics and gap and i % gap == 0:
+            out.append(_figure(pics.pop(0)))
+    for leftover in pics:
+        out.append(_figure(leftover))
 
     links = []
     if sec.hn_url:
@@ -151,8 +203,13 @@ def _section_body(sec) -> str:
     return "\n".join(out)
 
 
-def render_html(digest: Digest, sections=None) -> str:
-    """One self-contained HTML document — browser view and Send-to-Kindle HTML."""
+def render_html(digest: Digest, sections=None, illustrations=None) -> str:
+    """One self-contained HTML document — browser view and Send-to-Kindle HTML.
+
+    `illustrations` maps story id -> list of Illustration. Images travel as
+    data URIs because a digest arrives as an email attachment and Amazon's
+    converter does not reliably fetch remote images.
+    """
     parts = [
         "<!DOCTYPE html>",
         '<html lang="en"><head><meta charset="utf-8">',
@@ -169,11 +226,13 @@ def render_html(digest: Digest, sections=None) -> str:
         for sec in sections:
             if sec.kind != "teaser":
                 parts.append('<hr class="rule"/>')
-            parts.append(_section_body(sec))
+            parts.append(_section_body(
+                sec, (illustrations or {}).get(sec.story_id)))
     else:
         for story in digest.stories:
             parts.append('<hr class="rule"/>')
-            parts.append(_story_body(story))
+            parts.append(_story_body(
+                story, (illustrations or {}).get(story.item_id)))
     if not digest.stories:
         parts.append("<p>No stories with a Story Brief were available.</p>")
     parts.append("</body></html>")

@@ -1546,6 +1546,9 @@ async def create_digest(request: dict = Body(default={})):
             "shape": request.get("shape") or "daily",
             "skip": int(request.get("skip") or 0),
             "exclude_recent_days": int(request.get("exclude_recent_days", 7)),
+            # Illustrations per story. 0 = none, which is the nightly default.
+            "illustrate_n": int(request.get("illustrate", 0) or 0),
+            "illustrate_seed": int(request.get("illustrate_seed", 7) or 7),
         }
     )
     return {"status": "queued", "task_id": task.id}
