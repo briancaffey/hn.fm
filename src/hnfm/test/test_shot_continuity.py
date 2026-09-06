@@ -129,3 +129,41 @@ class TestVisualRegisters:
         joined = " ".join(VISUAL_REGISTERS).lower()
         for axis in ("human", "material", "architectural", "mechanism", "landscape"):
             assert axis in joined
+
+
+class TestNarrationChunking:
+    """Magpie's gRPC response cap is 4 MB — roughly 95 seconds of audio, about
+    350 words — and a longer request fails outright. Script lines never reach
+    it; digest sections are 350-500 words and reach it every time."""
+
+    def test_long_prose_is_split(self):
+        from ..audio.digest_audio import MAX_WORDS_PER_CALL, chunk_for_tts
+
+        text = "This is a sentence about porting an old game. " * 40
+        chunks = chunk_for_tts(text)
+        assert len(chunks) > 1
+        assert all(len(c.split()) <= MAX_WORDS_PER_CALL for c in chunks)
+
+    def test_sentences_are_never_cut(self):
+        """A mid-sentence split is audible: the voice drops its intonation."""
+        from ..audio.digest_audio import chunk_for_tts
+
+        text = "One sentence here. " * 60
+        assert all(c.rstrip().endswith(".") for c in chunk_for_tts(text))
+
+    def test_short_prose_is_left_alone(self):
+        from ..audio.digest_audio import chunk_for_tts
+
+        assert chunk_for_tts("Just the one line.") == ["Just the one line."]
+
+    def test_no_content_is_dropped(self):
+        from ..audio.digest_audio import chunk_for_tts
+
+        text = "Alpha beta. Gamma delta. " * 30
+        joined = " ".join(chunk_for_tts(text))
+        assert joined.split() == text.split()
+
+    def test_empty_input_does_not_crash(self):
+        from ..audio.digest_audio import chunk_for_tts
+
+        assert chunk_for_tts("") == []

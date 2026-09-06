@@ -2455,6 +2455,7 @@ def build_digest(
     shape: str = "daily",
     illustrate_n: int = 0,
     illustrate_seed: int = 7,
+    narrate: bool = False,
     skip: int = 0,
     exclude_recent_days: int = 7,
     source: str = None,
@@ -2637,6 +2638,28 @@ def build_digest(
         )
     except Exception as e:
         logger.warning(f"digest: could not record edition (non-fatal): {e}")
+
+    # A narrated edition: the same composed sections, voiced as one listen.
+    # Built from `sections` rather than a separate audio script so the episode
+    # and the document cannot drift apart.
+    if narrate and sections:
+        try:
+            from ..audio.digest_audio import build_audio_digest
+
+            audio_out = os.path.join(out_dir, f"{base}.wav")
+            info = build_audio_digest(
+                sections, audio_out,
+                voice_seed=int(digest.generated_at.strftime("%j")),
+            )
+            result["audio_path"] = info["path"]
+            result["audio_marks"] = info["marks"]
+            result["audio_seconds"] = round(info["duration_ms"] / 1000, 1)
+            logger.info(
+                f"digest: narrated {info['sections']} sections, "
+                f"{result['audio_seconds']}s"
+            )
+        except Exception as e:
+            logger.warning(f"digest: narration failed (non-fatal): {e}")
 
     subject_line = (
         f"{edition_name} · {digest.generated_at:%-m/%-d}" if edition_name

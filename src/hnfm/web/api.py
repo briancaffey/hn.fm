@@ -1594,6 +1594,8 @@ async def create_digest(request: dict = Body(default={})):
             "illustrate_seed": int(request.get("illustrate_seed", 7) or 7),
             # Restrict to one HN list, for a `new`-submissions edition.
             "source": request.get("source") or None,
+            # Voice the edition as one continuous episode.
+            "narrate": bool(request.get("narrate", False)),
         }
     )
     return {"status": "queued", "task_id": task.id}
