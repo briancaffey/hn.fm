@@ -51,6 +51,8 @@ const navGroups: Array<{ label: string, items: NavItem[] }> = [
         hint: 'Where a render spends its time and tokens.' },
       { label: 'Diagnostics', to: '/diagnostics', icon: 'lucide:gauge', match: '/diagnostics',
         hint: 'Pipeline cost by stage and model, over a window.' },
+      { label: 'Evolution', to: '/evolution', icon: 'lucide:git-branch', match: '/evolution',
+        hint: 'How the prompts got here — what was measured, changed, and what moved.' },
       { label: 'Services', to: '/services', icon: 'lucide:server', match: '/services',
         hint: 'Inference backend health, and what breaks without each one.' },
     ],

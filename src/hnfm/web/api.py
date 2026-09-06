@@ -672,6 +672,50 @@ async def image_catalog(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+@app.get("/api/evolution", tags=["activity"])
+async def evolution_endpoint():
+    """Prompt-evolution rounds: what was measured, changed, and what moved.
+
+    Reads the JSON each eval round writes plus the changelog, so the page and
+    the report cannot disagree about what happened.
+    """
+    import glob
+    import json as _json
+
+    root = os.getenv("OUTPUTS_ROOT", "/app/outputs")
+    rounds = []
+    for path in sorted(glob.glob(os.path.join(root, "evals", "*.json"))):
+        try:
+            with open(path) as f:
+                d = _json.load(f)
+        except Exception as e:
+            logger.debug(f"evolution: skipping {path} ({e})")
+            continue
+        rounds.append({
+            "label": d.get("label") or os.path.basename(path)[:-5],
+            "at": d.get("at"),
+            "summary": d.get("summary") or {},
+            "stories": [
+                {"item_id": r.get("item_id"),
+                 "title": r.get("title"),
+                 "sections": len(r.get("sections") or []),
+                 "script": r.get("script"),
+                 "intents": r.get("intents"),
+                 "report": r.get("report")}
+                for r in (d.get("results") or [])
+            ],
+        })
+
+    changelog = ""
+    for cand in ("/app/evals/CHANGELOG.md", os.path.join(root, "evals", "CHANGELOG.md")):
+        if os.path.exists(cand):
+            with open(cand) as f:
+                changelog = f.read()
+            break
+
+    return {"rounds": rounds, "changelog": changelog}
+
+
 @app.get("/api/diagnostics", tags=["activity"])
 async def diagnostics_endpoint(days: int = 7):
     """Pipeline cost and model usage over a window, for the dashboard."""
