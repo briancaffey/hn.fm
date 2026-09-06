@@ -103,3 +103,49 @@ two-desks / laptop-on-island now runs hands-and-laptop / workbench with circuit
 fragments / two attic desks / **a mechanic beneath a diesel engine** / **a brass
 ball on a marble incline** / **glass vials on a lab bench**. Registers are being
 obeyed.
+
+---
+
+## Round 3 — the script prompt (`script.write` v1 → v5, plus a guard)
+
+Baseline script metrics were mostly healthy — switch rate 0.456, no repeated
+openings, lexical diversity 0.748 — so the target was the two visible defects:
+one story rendered a rich article as **six** sections against a requested
+10-16, and section lengths clustered.
+
+### What was tried, and what each attempt did
+
+| attempt | change | sections (3 stories) | length variation |
+|---|---|---|---|
+| v1 baseline | — | 16 / **6** / 9 | 0.224 |
+| v3 | numeric rhythm quota ("two under ten words, two over twenty-five") + firmer section floor | 14 / 15 / 8 | **0.139** |
+| v4 | rhythm reframed as function-driven, softer floor | 10 / 12 / **3** | 0.146 |
+| v5 | v3's floor + the plain one-line rhythm note | 14 / 14 / 6 | 0.165 |
+
+Two honest negatives worth keeping:
+
+- **The numeric rhythm quota backfired.** Asking for "at least two sections
+  under ten words and two over twenty-five" produced *fewer* of both — short
+  sections went from 2/0/0 to 0/0/0. Giving a model numeric targets made it
+  aim for the middle.
+- **Softening the section floor collapsed one script to three sections.** The
+  firmer wording was doing real work.
+
+### The actual fix was not a prompt
+
+Across four samples of the same story with the same prompt, section count came
+back as 9, 8, 3 and 6. It is unstable run to run, and no wording made it
+reliable — the same lesson as speaker runs and teaser grounding. So the floor
+is enforced in code: a script under eight sections built from more than 3,000
+characters of source is retried once, and the fuller of the two is kept.
+
+| metric | before | after |
+|---|---|---|
+| **minimum sections across the three stories** | **6** | **12** |
+| visual_intent overlap | 0.028 | 0.021 |
+| intent lexical diversity | 0.796 | 0.817 |
+
+**Pattern across three rounds:** where output is *structurally* wrong —
+speaker runs, teaser subject, section count — prompt wording is unreliable and
+a deterministic guard is not. Where output is a matter of *content* — which
+subject to draw — the prompt is the only lever, and it works.

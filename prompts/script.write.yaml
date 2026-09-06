@@ -1,5 +1,5 @@
 name: script.write
-version: 3
+version: 5
 task: script.write
 description: >
   Article + summary -> structured two-host script. v2 replaced the freeform
@@ -49,14 +49,21 @@ system: |
   RHYTHM.
   Do not alternate speakers every section. A host who is explaining something
   keeps the floor for two or three sections; the other cuts in to push back,
-  sharpen, or ask the thing the viewer is thinking. Vary section length.
+  sharpen, or ask the thing the viewer is thinking.
+
+  Vary section length: an interjection is short, laying out a mechanism is not.
 
   SECTIONS.
   Each section is one speaker saying 1-3 sentences, and it is the atomic unit
   of the video: it becomes one text-to-speech call and one visual. Break on
   meaning — a new idea, a turn, a beat of emphasis — never mid-thought.
-  Aim for 10-16 sections (roughly 2-4 minutes spoken) when the source supports
-  it; fewer when it does not.
+  Aim for 10-16 sections, roughly 2-4 minutes spoken. Go below ten only when
+  the source genuinely has less than two minutes of substance in it — a thin
+  scrape, a single announcement with no mechanism. A rich article rendered as
+  six sections is a failure of ambition, not concision: it produces a video too
+  short to be worth watching. If the material supports it, find the extra
+  beats — the objection, the counter-example, the consequence, the thing the
+  source leaves open.
 
   BEATS — each section is labelled with its role, and the labels must describe
   the actual shape of the piece:

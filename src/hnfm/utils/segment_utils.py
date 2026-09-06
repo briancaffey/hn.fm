@@ -207,8 +207,25 @@ def generate_script(
         content=content_clean or "",
     )
 
+    def _ask():
+        return LLMService(task="script.write").generate_structured(prompt, Script)
+
     try:
-        script = LLMService(task="script.write").generate_structured(prompt, Script)
+        script = _ask()
+        # Section count is unstable run to run: the same story and prompt
+        # produced 9, 8, 3 and 6 sections across four samples, and no wording
+        # made it reliable. A script far below the requested 10-16 becomes a
+        # video too short to be worth watching, so retry once and keep the
+        # fuller of the two — the same shape of fix as the speaker-run and
+        # teaser-grounding guards, for the same reason.
+        if len(script.sections) < MIN_SECTIONS and len(content_clean or "") > 3000:
+            logger.info(
+                f"script came back with {len(script.sections)} sections from "
+                f"{len(content_clean)} chars of source; retrying once"
+            )
+            retry = _ask()
+            if len(retry.sections) > len(script.sections):
+                script = retry
     except LLMError as e:
         raise RuntimeError(f"Failed to generate script: {e}") from e
 
@@ -322,6 +339,11 @@ def script_quality_flags(script: "Script") -> List[dict]:
 # recent scripts before this check existed: 735 of 746 adjacent pairs switched
 # — 0.99. Anything above this is ping-pong, whatever the prompt said.
 MAX_SPEAKER_SWITCH_RATE = 0.7
+
+# Below this, a substantial article has been rendered as a video too short to
+# be worth watching. The prompt asks for 10-16; this is the floor worth a
+# retry, not the target.
+MIN_SECTIONS = 8
 
 
 def speaker_switch_rate(script: "Script") -> Optional[float]:
