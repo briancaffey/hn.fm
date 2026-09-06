@@ -959,6 +959,7 @@ def build_segment_images(
                     text, run_summary, theme=theme, shot_hint=shot_hint,
                     visual_intent=visual_intent,
                     prior_scenes=prior_scenes,
+                    section_index=i,
                 )
                 st.set(prompt=prompt)
             # Carried forward so the next shot knows what this take has already

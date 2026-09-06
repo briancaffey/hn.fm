@@ -595,21 +595,81 @@ def alignment_from_sections(
         return None
 
 
-# How many previous scenes to show the art director. Enough to carry the cast
-# and setting; more would crowd out the beat actually being written.
-PRIOR_SCENE_WINDOW = 3
+# How many previous shots to summarise for the art director. Enough to steer
+# away from what has been used; short enough not to become the brief.
+PRIOR_SCENE_WINDOW = 5
+
+# Words that carry no subject. Stripping them is what turns a scene sentence
+# into a usable "already used" list.
+_SUBJECT_STOP = {
+    "a", "an", "the", "and", "or", "of", "in", "on", "at", "to", "with",
+    "from", "over", "under", "into", "across", "shot", "view", "angle",
+    "close", "wide", "macro", "overhead", "low", "high", "top", "down",
+    "composition", "perspective", "detail", "scene", "frame", "captures",
+    "shows", "focuses", "lit", "softly", "sharply", "dramatic", "extreme",
+    "intimate", "dynamic", "sleek", "warm", "cool", "gently", "slowly",
+    "its", "his", "her", "their", "one", "two", "three", "as", "is", "are",
+    "while", "where", "that", "this", "it", "by", "for", "up", "out",
+}
+
+
+def _subjects_of(scene: str, limit: int = 6) -> str:
+    """The nouns a scene is about, without the cinematography.
+
+    Passing the full previous scenes was actively harmful: shown a wall of
+    walnut-desk prose the model continued it, which is how sixteen distinct
+    visual intents became one repeated tableau. A list of bare subjects reads
+    as a set of things to avoid rather than a house style to match.
+    """
+    import re
+
+    words = [
+        w for w in re.findall(r"[a-zA-Z][a-zA-Z'-]{2,}", scene or "")
+        if w.lower() not in _SUBJECT_STOP
+    ]
+    seen, out = set(), []
+    for w in words:
+        k = w.lower()
+        if k not in seen:
+            seen.add(k)
+            out.append(k)
+        if len(out) >= limit:
+            break
+    return ", ".join(out)
 
 
 def _prior_scenes_block(prior_scenes: Optional[List[str]]) -> str:
     if not prior_scenes:
         return ""
     recent = [s for s in prior_scenes if s][-PRIOR_SCENE_WINDOW:]
-    if not recent:
+    subjects = [t for t in (_subjects_of(s) for s in recent) if t]
+    if not subjects:
         return ""
-    lines = "\n".join(
-        f"  {i}. {s.strip()[:200]}" for i, s in enumerate(recent, start=1)
+    lines = "\n".join(f"  - {t}" for t in subjects)
+    return (
+        f"\nSubjects already used in this take — do NOT build on these:\n"
+        f"{lines}\n"
     )
-    return f"\nScenes already shown in this take:\n{lines}\n"
+
+
+# Structural registers, rotated across a take. Camera angle alone was never
+# the problem — `shot_coverage` was already 0.64 while subjects repeated — so
+# this varies WHAT is in frame rather than where the camera stands. Rotating
+# rather than choosing at random keeps consecutive beats structurally
+# different, which is the thing a viewer notices.
+VISUAL_REGISTERS = [
+    "human scale — a person or hands mid-action, the body doing the work",
+    "material close — the substance itself: metal, paper, dust, water, wear",
+    "architectural — the built space around the subject, people small or absent",
+    "mechanism — the working part, exposed: linkage, circuit, valve, gear",
+    "landscape or weather — the wider world the story sits in",
+    "trace or aftermath — what the event left behind rather than the event",
+]
+
+
+def _register_block(index: int) -> str:
+    reg = VISUAL_REGISTERS[(index - 1) % len(VISUAL_REGISTERS)]
+    return f"REGISTER FOR THIS BEAT (binding): {reg}\n"
 
 
 def generate_image_prompt_v1(
@@ -619,6 +679,7 @@ def generate_image_prompt_v1(
     shot_hint: str = "",
     visual_intent: str = "",
     prior_scenes: Optional[List[str]] = None,
+    section_index: int = 1,
 ) -> str:
     """Write a vivid SCENE for one section, then apply the take's visual THEME.
 
@@ -651,6 +712,7 @@ def generate_image_prompt_v1(
         ),
         shot_hint=(f"\nShot direction: {shot_hint}\n" if shot_hint else ""),
         prior_scenes=_prior_scenes_block(prior_scenes),
+        register=_register_block(section_index),
     )
 
     try:

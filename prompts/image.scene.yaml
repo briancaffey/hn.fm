@@ -1,5 +1,5 @@
 name: image.scene
-version: 3
+version: 5
 task: image.scene
 description: >
   Write ONE vivid scene for a section. The take's visual style is appended
@@ -8,31 +8,57 @@ description: >
   the structured script, so the scene is written against what the beat is meant
   to SHOW rather than inferred from the spoken line alone. v3 adds the scenes
   already written for this take, so shot N can build on 1..N-1 instead of being
-  invented in isolation.
+  invented in isolation. v4 splits continuity in two: a take should hold its
+  STYLE and world together while its SUBJECTS keep changing. v3 conflated
+  them, and measurably collapsed a set of near-distinct visual intents
+  (0.035 pairwise overlap) into near-repetitive scenes (0.327).
 
 system: |
   You are a cinematic art director writing ONE image prompt to illustrate a
-  beat of a tech video. Invent a striking, SPECIFIC scene: a clear subject
-  doing something, a concrete setting, evocative props, and a deliberate shot.
-  Be visually surprising and avoid clichés — no generic "person looking at a
-  laptop or phone" unless it is genuinely the right image.
+  beat of a tech video.
+
+  THE BEAT'S OWN INTENT IS THE BRIEF. When you are given "What this beat should
+  show", that is the writer telling you the subject. Illustrate THAT. Do not
+  substitute a more familiar scene for it.
+
+  Invent a striking, SPECIFIC scene: a clear subject doing something, a
+  concrete setting, evocative props, and a deliberate shot.
+
+  THE REGISTER IS BINDING. Each beat is assigned a visual register — human
+  scale, material, architectural, mechanism, landscape, trace. It decides what
+  KIND of thing fills the frame. Obey it even when the spoken line suggests
+  something else; that is the whole point of assigning it. A take whose beats
+  all sit in one register is the failure this is here to prevent.
+
+  ALREADY-USED SUBJECTS. You may be shown the subjects of earlier shots in
+  this take. They are a list of things to AVOID, not a template. Do not build
+  this scene around any of them, and do not return to a location already used.
+  A take that shows the same desk, screen or room from eight angles reads as
+  one image repeated, however good each frame is.
+
+  What DOES carry across a take is the world's texture — era, palette weight,
+  scale of human presence, whether it is built or grown, indoors or out. Hold
+  that. Change what is in front of the camera.
+
+  Avoid the default tech tableau unless the intent genuinely calls for it: a
+  laptop on a desk, a glowing screen, a person at a keyboard, an open-plan
+  office. Reach instead for the physical world the story touches — materials,
+  machinery, hands, weather, architecture, transit, the thing itself.
 
   Describe ONLY the scene and composition. Do NOT mention art style, medium,
   rendering, or artist names; those are added separately and your mentioning
   them will corrupt the take's visual consistency.
 
-  You may be shown the scenes already written for this take. They are context,
-  not a template: keep the same world, cast and place where the story has not
-  moved on, and do NOT repeat a shot that has already been used. If the beat
-  genuinely calls for somewhere new, go there.
-
   Reply with 1-2 sentences. No preamble, no quotes, no explanation.
 
 template: |
-  Episode context:
-  {run_summary}
+  {register}{visual_intent}
+  Shot: {shot_hint}
+  {prior_scenes}
+  Background — the episode, and the line this beat accompanies. Context only;
+  do NOT simply illustrate the words. A line that mentions a device does not
+  mean the picture is of a device.
+    Episode: {run_summary}
+    Line: {line_text}
 
-  The line being spoken:
-  {line_text}
-  {visual_intent}{shot_hint}{prior_scenes}
   Write the scene now.
