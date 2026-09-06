@@ -41,6 +41,81 @@ class Section:
     sources: List[dict] = field(default_factory=list)
 
 
+_STOP = {
+    "about", "after", "again", "against", "already", "although", "always",
+    "among", "another", "around", "because", "become", "becomes", "been",
+    "before", "being", "below", "between", "both", "could", "does", "doing",
+    "during", "each", "either", "enough", "every", "first", "from", "have",
+    "having", "here", "however", "into", "itself", "just", "last", "like",
+    "made", "make", "makes", "many", "more", "most", "much", "must", "never",
+    "next", "not", "now", "often", "once", "only", "other", "over", "same",
+    "several", "since", "some", "still", "such", "than", "that", "their",
+    "them", "then", "there", "these", "they", "this", "those", "through",
+    "today", "under", "until", "very", "what", "when", "where", "which",
+    "while", "will", "with", "within", "without", "would", "year", "years",
+}
+
+
+def _content_words(text: str) -> set:
+    import re
+
+    return {
+        w for w in re.findall(r"[a-z][a-z-]{3,}", (text or "").lower())
+        if w not in _STOP
+    }
+
+
+def grounding(text: str, stories) -> float:
+    """Share of the paragraph's distinctive words that appear in the material.
+
+    The teaser prompt used to say 'name concrete things (a synthetic cell, a
+    disc production line)'. The model read that as content rather than as an
+    illustration and opened six of fourteen editions with a synthetic cell —
+    including editions containing no such story. The prompt is fixed, but the
+    failure is worth being able to detect rather than re-read prompts for: a
+    paragraph about something that is not in the edition scores low here.
+    """
+    words = _content_words(text)
+    if not words:
+        return 1.0
+    source = _content_words(
+        " ".join(
+            f"{s.title} {(s.brief or {}).get('thesis') or ''} "
+            f"{(s.brief or {}).get('angle') or ''}"
+            for s in stories
+        )
+    )
+    return round(len(words & source) / len(words), 3)
+
+
+# Calibrated against the eleven teasers already shipped.
+#
+# The whole-paragraph score alone is not enough: a leaked opening followed by
+# three legitimate sentences about the edition still scores 0.46, because the
+# rest of the paragraph really is on topic. The signal lives in the FIRST
+# sentence, which is where the wrong subject lands and where a reader notices
+# it — grounded openings scored 0.40-0.50, leaked ones 0.00-0.32.
+MIN_GROUNDING = 0.30
+MIN_OPENING_GROUNDING = 0.35
+
+
+def _opening(text: str) -> str:
+    import re
+
+    return re.split(r"(?<=[.;—])\s", (text or "").strip())[0]
+
+
+def teaser_problem(text: str, stories) -> Optional[str]:
+    """Why this teaser should not ship, or None."""
+    whole = grounding(text, stories)
+    opening = grounding(_opening(text), stories)
+    if opening < MIN_OPENING_GROUNDING:
+        return f"opening only {opening:.0%} grounded in this edition"
+    if whole < MIN_GROUNDING:
+        return f"paragraph only {whole:.0%} grounded in this edition"
+    return None
+
+
 def _facts_block(brief: dict, limit: int = 8) -> str:
     facts = [f for f in (brief.get("key_facts") or []) if f.get("claim")][:limit]
     if not facts:
@@ -112,12 +187,26 @@ def compose(digest, deep_dives: int = None) -> List[Section]:
 
     # Teaser last-to-first in importance but first on the page. Written from
     # theses only: it should set up the day, not preview each item.
-    teaser = _write(
-        "digest.teaser",
-        stories="\n".join(
-            f"- {s.title}: {(s.brief.get('thesis') or '')[:220]}" for s in stories
-        ),
+    story_lines = "\n".join(
+        f"- {s.title}: {(s.brief.get('thesis') or '')[:220]}" for s in stories
     )
+    teaser = _write("digest.teaser", stories=story_lines)
+
+    # Retry when the paragraph is not about this edition. Cheaper than shipping
+    # an opening that describes stories the reader will not find.
+    problem = teaser_problem(teaser, stories) if teaser else None
+    if problem:
+        logger.warning(f"digest: teaser rejected — {problem}; retrying")
+        retry = _write("digest.teaser", stories=story_lines)
+        if retry and not teaser_problem(retry, stories):
+            teaser = retry
+        elif teaser_problem(teaser, stories):
+            logger.warning(
+                "digest: teaser still ungrounded, dropping it — better no "
+                "opening than one about stories the edition does not contain"
+            )
+            teaser = None
+
     if teaser:
         sections.append(Section(kind="teaser", title="", body=teaser))
 
