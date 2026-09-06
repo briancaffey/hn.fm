@@ -28,7 +28,7 @@ jobs:
       # Design-system rules: no hardcoded palette colours (they were the
       # reason dark mode looked wrong), no page container outside the two
       # archetypes, no heading off the scale.
-      - run: yarn audit
+      - run: yarn audit:design
 
   backend:
     name: Backend tests

@@ -98,6 +98,12 @@ const fmt = (v: unknown) => typeof v === 'number' ? v.toFixed(3) : '—'
       :meta="loading ? [] : [`${rounds.length} rounds`]"
     >
       <template #actions>
+        <Button as-child variant="outline" size="sm">
+          <a href="/prompt-evolution.pdf" target="_blank" rel="noopener">
+            <Icon name="lucide:file-text" class="mr-1.5 h-3.5 w-3.5" />
+            Report (PDF)
+          </a>
+        </Button>
         <Button variant="outline" size="sm" :disabled="loading" @click="load">
           <Icon name="lucide:refresh-cw" class="mr-1.5 h-3.5 w-3.5" :class="loading ? 'animate-spin' : ''" />
           Refresh

@@ -149,3 +149,15 @@ characters of source is retried once, and the fuller of the two is kept.
 speaker runs, teaser subject, section count — prompt wording is unreliable and
 a deterministic guard is not. Where output is a matter of *content* — which
 subject to draw — the prompt is the only lever, and it works.
+
+---
+
+## Report
+
+The whole cycle is written up in `evals/reports/prompt-evolution.pdf`, built by
+`evals/build_report.py` straight from the round JSON in `outputs/evals/` — so
+regenerating it after a new round picks the new numbers up rather than needing
+the prose edited. Rendered with headless chromium in the `hyperframes`
+container, which is the only image in the stack that already carries one. The
+same PDF is served at `/prompt-evolution.pdf` and linked from **Evolution** in
+the UI.

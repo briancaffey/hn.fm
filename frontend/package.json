@@ -10,7 +10,7 @@
     "postinstall": "nuxt prepare",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "audit": "node scripts/audit-frontend.mjs"
+    "audit:design": "node scripts/audit-frontend.mjs"
   },
   "dependencies": {
     "@nuxt/content": "3.6.3",
