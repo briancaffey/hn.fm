@@ -536,6 +536,13 @@ COVER_STYLE = Style(
 )
 
 
+# Category labels that could sit on any issue, so they name none of them.
+_NAME_STOP = {
+    "tech", "technology", "digest", "edition", "issue", "weekly", "daily",
+    "roundup", "report", "news", "briefing", "bulletin", "dispatch",
+}
+
+
 def edition_name(stories) -> str:
     """A short name for the edition, taken from what is actually in it.
 
@@ -547,11 +554,19 @@ def edition_name(stories) -> str:
 
     titles = "\n".join(f"- {s.title}" for s in stories[:8])
     prompt = (
-        "Below are the stories in one edition of a tech reading digest. "
-        "Give the edition a short name: 2-4 words, title case, concrete, "
-        "drawn from what these stories have in common. It goes on a Kindle "
-        "shelf beside other editions, so it must be distinguishable at a "
-        "glance. No colon, no subtitle, no quotes, no date, no preamble.\n\n"
+        # "a tech reading digest" was the framing here, and five editions in
+        # a row came back named "...Tech..." or "... Digest" — the model
+        # names the container it was handed rather than the contents. The
+        # framing now describes the job without supplying a single word that
+        # could be reused.
+        "Below are the pieces collected in one issue of a reading edition.\n"
+        "Give the issue a short name: 2-4 words, title case, concrete, drawn "
+        "from the subject matter these pieces share.\n"
+        "- It sits on a shelf beside other issues, so it must be "
+        "distinguishable at a glance from a name like it.\n"
+        "- Name the SUBJECT, never the format. No 'Tech', 'Digest', "
+        "'Edition', 'Issue', 'Weekly', 'Roundup', 'Report' or 'News'.\n"
+        "- No colon, no subtitle, no quotes, no date, no preamble.\n\n"
         f"{titles}"
     )
     try:
@@ -564,7 +579,18 @@ def edition_name(stories) -> str:
         out = re.sub(r"^(title|edition|name)\s*:\s*", "", out, flags=re.I).strip()
         # A model that ignores the word limit gives a sentence; a sentence is
         # worse than the fallback, so take the fallback.
-        return out if 0 < len(out.split()) <= 6 else ""
+        if not (0 < len(out.split()) <= 6):
+            return ""
+        # The banned words are asked for in the prompt and still arrive, so
+        # they are also checked here — a name that is mostly its own category
+        # label does not distinguish one issue from the next, which is the
+        # entire job. Stripping the label rather than rejecting the name
+        # keeps the specific half, which is the half worth having.
+        kept = [
+            w for w in out.split()
+            if w.strip(",&-").lower() not in _NAME_STOP
+        ]
+        return " ".join(kept) if kept else ""
     except (LLMError, Exception) as e:
         logger.info(f"edition name fallback: {e}")
         return ""

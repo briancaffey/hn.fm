@@ -2542,19 +2542,35 @@ def build_digest(
         # page of pictures and no story. One lead image, then one per couple
         # of paragraphs — so the feature earns its pictures and the brief
         # item gets the one it has room for.
+        # A narrative edition is one essay with no per-story sections, so its
+        # single section carries no story_id and the renderers'
+        # `illustrations[sec.story_id]` lookup found nothing — eighteen
+        # pictures were rendered and only the cover reached the page. One
+        # picture per story, collected under the section's own key.
+        _narrative = (
+            len(sections or []) == 1 and sections[0].story_id is None
+        )
+
         budget = {}
         for _sec in (sections or []):
             if _sec.kind not in ("quick", "deep") or _sec.story_id is None:
                 continue
             _paras = len([p for p in _sec.body.split("\n\n") if p.strip()])
-            budget[_sec.story_id] = max(
-                1, min(int(illustrate_n), 1 + _paras // 2)
-            )
+            # One picture per paragraph is the point at which they still
+            # alternate; beyond that they stack.
+            budget[_sec.story_id] = max(1, min(int(illustrate_n), _paras))
 
-        assignment = _ill.plan(digest.stories, per_story=int(illustrate_n),
+        if _narrative:
+            # The essay draws on every story but is one piece of prose, so a
+            # picture per story is what it can carry.
+            budget = {st.item_id: 1 for st in digest.stories}
+
+        # One spare recipe per story, because the ink guard drops pictures
+        # after they are rendered and a story should still reach its budget.
+        _plan_n = int(illustrate_n) + 1
+        assignment = _ill.plan(digest.stories, per_story=_plan_n,
                                seed=int(illustrate_seed or 7))
-        registers = _ill.plan_registers(digest.stories,
-                                        per_story=int(illustrate_n),
+        registers = _ill.plan_registers(digest.stories, per_story=_plan_n,
                                         seed=int(illustrate_seed or 7))
         # Subjects already drawn anywhere in this edition. One subject per
         # STORY produced three renderings of one drawing; one subject per
@@ -2563,10 +2579,12 @@ def build_digest(
         used_nouns = []
         for story in digest.stories:
             want = budget.get(story.item_id, int(illustrate_n))
-            styles = assignment.get(story.item_id, [])[:want]
+            styles = assignment.get(story.item_id, [])
             regs = registers.get(story.item_id, [])
             made, subjects = [], []
             for i, style in enumerate(styles):
+                if len(made) >= want:
+                    break
                 register = regs[i] if i < len(regs) else None
                 subject = _ill.subject_for(story, register=register,
                                            avoid=used_nouns)
@@ -2590,6 +2608,14 @@ def build_digest(
                     for i, sub in enumerate(subjects)
                 )
             )
+
+    if illustrate_n and sections and len(sections) == 1 \
+            and sections[0].story_id is None:
+        # Re-key onto the essay, in story order, so they spread through it.
+        illustrations = {
+            None: [p for st in digest.stories
+                   for p in illustrations.get(st.item_id, [])]
+        }
 
     from ..digest import diagnostics as _diag_mod
 
