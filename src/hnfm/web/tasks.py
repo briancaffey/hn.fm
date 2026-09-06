@@ -2456,6 +2456,7 @@ def build_digest(
     illustrate_seed: int = 7,
     skip: int = 0,
     exclude_recent_days: int = 7,
+    source: str = None,
 ) -> Dict[str, any]:
     """Render a digest of the top-ranked stories, optionally emailing it.
 
@@ -2499,6 +2500,7 @@ def build_digest(
         # Dedup so consecutive editions do not re-tell the same stories. 0
         # disables, for a deliberate re-run of the same material.
         exclude_recent_days=int(exclude_recent_days) or None,
+        source=source,
         title=f"hn.fm · {shape.title()}" if shape != "daily" else "hn.fm Digest",
     )
     if not digest.stories:

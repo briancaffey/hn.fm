@@ -50,6 +50,7 @@ def select_stories(
     title: str = "hn.fm Digest",
     exclude_recent_days: Optional[int] = None,
     exclude_ids: Optional[set] = None,
+    source: Optional[str] = None,
 ) -> Digest:
     """Top `limit` stories by effective rank, newest scores first.
 
@@ -68,8 +69,13 @@ def select_stories(
     # re-offering stories already made into videos. A digest is for reading,
     # so having a video is irrelevant — and excluding them silently dropped
     # the highest-ranked stories, which are exactly the ones already produced.
+    # A source filter is applied to these rows AFTER they are fetched, so the
+    # over-fetch has to be big enough that the restricted population is still
+    # represented. With ~400 scored stories and 20 tagged `new`, a window of 48
+    # contained almost none of them and the edition came out with two stories.
+    fetch_limit = 600 if source else max(limit * 6, 30)
     rows, _total = repo.list_triage(
-        offset=0, limit=max(limit * 6, 30), include_generated=True
+        offset=0, limit=fetch_limit, include_generated=True
     )
 
     # Re-order by INTEREST, not by the queue's rank_score. rank_score is
@@ -85,6 +91,14 @@ def select_stories(
         key=lambda r: (r.get("interest") or 0, r.get("effective_rank") or 0),
         reverse=True,
     )
+
+    if source:
+        # A `new`-only edition is a different product from the daily. `new` is
+        # the unfiltered firehose — roughly half of it scores unsuitable — so
+        # restricting the pool makes the brief requirement do more work, not
+        # less.
+        allowed = repo.item_ids_by_source(source)
+        rows = [r for r in rows if r.get("item_id") in allowed]
 
     # Stories already sent recently. The reader's complaint is not "this was
     # ranked low", it is "I read this yesterday" — so exclusion happens here,

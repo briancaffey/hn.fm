@@ -15,6 +15,7 @@ import base64
 import io
 import logging
 import random
+import re
 from dataclasses import dataclass
 from typing import Callable, List, Optional
 
@@ -434,6 +435,11 @@ def edition_name(stories) -> str:
     try:
         out = LLMService(task="image.scene").generate_content(prompt).strip()
         out = out.strip('"').split("\n")[0].rstrip(".")
+        # The model returns markdown when it feels like it, and a title reading
+        # "**Frontier Code & Culture Digest**" goes straight onto the Kindle
+        # shelf asterisks and all.
+        out = re.sub(r"[*_`#]+", "", out).strip()
+        out = re.sub(r"^(title|edition|name)\s*:\s*", "", out, flags=re.I).strip()
         # A model that ignores the word limit gives a sentence; a sentence is
         # worse than the fallback, so take the fallback.
         return out if 0 < len(out.split()) <= 6 else ""

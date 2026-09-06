@@ -963,6 +963,17 @@ def get_story_brief(item_id: int, run: int) -> Optional[dict]:
         }
 
 
+def item_ids_by_source(source: str) -> set:
+    """Item ids that arrived from one HN list."""
+    from .orm import HNItemRow
+
+    with db_session() as s:
+        return {
+            r[0] for r in s.query(HNItemRow.id)
+            .filter(HNItemRow.source == source).all()
+        }
+
+
 def set_item_source(item_id: int, source: str) -> None:
     """Record which HN list an item arrived from."""
     from .orm import HNItemRow
