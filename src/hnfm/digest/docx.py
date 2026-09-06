@@ -34,6 +34,21 @@ PT = 20
 EMU_PER_PX = 9525
 
 
+_MD_EMPHASIS = re.compile(r"(?<!\w)([*_]{1,2})(\S(?:[^*_\n]*\S)?)\1(?!\w)")
+
+
+def _plain(text: str) -> str:
+    """Body prose with its markdown taken off.
+
+    The composer is asked for prose and mostly returns prose, but "a *modified*
+    averaged Navier-Stokes equation" arrives with the asterisks intact and DOCX
+    has no markdown, so the reader sees the asterisks. Emphasis is unwrapped
+    rather than deleted — the word is wanted, the punctuation is not.
+    """
+    out = _MD_EMPHASIS.sub(r"\2", text or "")
+    return out.replace("`", "")
+
+
 def _t(text: str) -> str:
     return escape(str(text or ""))
 
@@ -239,6 +254,26 @@ def write_docx(digest, out_path: str, sections=None, illustrations=None,
     doc.para(name, "Title")
     doc.para(digest.subtitle, "Sub")
 
+    def _sources(sec):
+        """Where the piece came from.
+
+        The HTML edition has carried these since it was written; the DOCX —
+        the one that actually goes to the Kindle — dropped them, so the
+        reader had no way back to the thread a quote came from. Plain text
+        rather than links: this is read on a device that is usually offline,
+        and a bare URL can be typed.
+        """
+        bits = []
+        if getattr(sec, "hn_url", None):
+            bits.append(f"Discussion: {sec.hn_url}")
+        if getattr(sec, "url", None):
+            bits.append(f"Source: {sec.url}")
+        for src in (getattr(sec, "sources", None) or [])[:3]:
+            if src.get("url"):
+                bits.append(f"{src.get('title') or 'Reference'}: {src['url']}")
+        if bits:
+            doc.para("  ·  ".join(bits), "Caption")
+
     def _figure(illo):
         doc.image(illo.data_uri, width_px=440, alt=illo.style.label)
         doc.para(
@@ -276,11 +311,26 @@ def write_docx(digest, out_path: str, sections=None, illustrations=None,
             paras = [p for p in sec.body.split("\n\n") if p.strip()]
             gap = max(2, (len(paras) // (len(pics) + 1)) or 2) if pics else 0
             for i, para in enumerate(paras, start=1):
-                doc.para(para.strip())
+                doc.para(_plain(para.strip()))
                 if pics and gap and i % gap == 0:
                     _figure(pics.pop(0))
             for leftover in pics:
                 _figure(leftover)
+            _sources(sec)
+
+        if len(sections) == 1 and sections[0].story_id is None:
+            # A narrative edition is one essay that names its stories inline
+            # but links to none of them, so the reader who wants the thread
+            # behind a claim has nowhere to go. Listed once at the end rather
+            # than interrupting the prose.
+            doc.para("The pieces", "Heading1")
+            for st in digest.stories:
+                doc.para(st.title, "Body", bold=True)
+                doc.para(
+                    f"Discussion: {st.hn_url}"
+                    + (f"  ·  Source: {st.url}" if st.url else ""),
+                    "Caption",
+                )
     else:
         for story in digest.stories:
             b = story.brief or {}

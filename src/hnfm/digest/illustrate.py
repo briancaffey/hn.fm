@@ -539,7 +539,7 @@ COVER_STYLE = Style(
 # Category labels that could sit on any issue, so they name none of them.
 _NAME_STOP = {
     "tech", "technology", "digest", "edition", "issue", "weekly", "daily",
-    "roundup", "report", "news", "briefing", "bulletin", "dispatch",
+    "roundup", "report", "new", "briefing", "bulletin", "dispatch",
 }
 
 
@@ -579,7 +579,10 @@ def edition_name(stories) -> str:
         out = re.sub(r"^(title|edition|name)\s*:\s*", "", out, flags=re.I).strip()
         # A model that ignores the word limit gives a sentence; a sentence is
         # worse than the fallback, so take the fallback.
-        if not (0 < len(out.split()) <= 6):
+        # The prompt asks for 2-4 words. Accepting six let through "Missing
+        # Falcons Robot Arms C64 Peripheral" — the three headlines in a row,
+        # which is a list of contents rather than a name for them.
+        if not (0 < len(out.split()) <= 5):
             return ""
         # The banned words are asked for in the prompt and still arrive, so
         # they are also checked here — a name that is mostly its own category
@@ -588,9 +591,15 @@ def edition_name(stories) -> str:
         # keeps the specific half, which is the half worth having.
         kept = [
             w for w in out.split()
-            if w.strip(",&-").lower() not in _NAME_STOP
+            if w.strip(",&-").lower().rstrip("s") not in _NAME_STOP
         ]
-        return " ".join(kept) if kept else ""
+        name = " ".join(kept)
+        # Casing is structural, so it is fixed here rather than asked for
+        # again: the prompt says title case and still returned "WAR EVIDENCE
+        # LOGIC", which shouts on a shelf next to five that do not.
+        if name and name == name.upper():
+            name = name.title()
+        return name
     except (LLMError, Exception) as e:
         logger.info(f"edition name fallback: {e}")
         return ""
