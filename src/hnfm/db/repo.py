@@ -505,6 +505,7 @@ def list_stories(
     q: str = None,
     has_video: bool = None,
     has_runs: bool = None,
+    source: str = None,
 ) -> Tuple[List[dict], int]:
     """Stories with generation aggregates: one row per item, JOINed counts.
 
@@ -551,6 +552,10 @@ def list_stories(
 
     if q:
         query = query.where(HNItemRow.title.ilike(f"%{q}%"))
+    if source:
+        # Items ingested before this was recorded have a null source; they are
+        # excluded from a source filter rather than guessed at.
+        query = query.where(HNItemRow.source == source)
     if has_video is True:
         query = query.where(videos_count > 0)
     elif has_video is False:
@@ -588,6 +593,8 @@ def list_stories(
                 segments_count=int(n_segs or 0),
                 videos_count=int(n_videos or 0),
                 latest_activity=latest.isoformat() if latest else None,
+                # Null for anything ingested before sources were recorded.
+                source=getattr(item, "source", None),
             )
             out.append(d)
         return out, total
@@ -954,6 +961,88 @@ def get_story_brief(item_id: int, run: int) -> Optional[dict]:
             "prompt_version": row.prompt_version,
             "created_at": row.created_at.isoformat() if row.created_at else None,
         }
+
+
+def set_item_source(item_id: int, source: str) -> None:
+    """Record which HN list an item arrived from."""
+    from .orm import HNItemRow
+
+    with db_session() as s:
+        row = s.get(HNItemRow, item_id)
+        if row is not None and not row.source:
+            row.source = source
+            s.commit()
+
+
+# --- generated image catalogue ---------------------------------------------
+
+
+def record_generated_image(**fields) -> None:
+    """Add one image to the catalogue. Never raises — cataloguing must not be
+    able to fail the thing that produced the picture."""
+    from datetime import datetime as _dt
+
+    from .orm import GeneratedImageRow
+
+    try:
+        with db_session() as s:
+            fields.setdefault("created_at", _dt.utcnow())
+            s.add(GeneratedImageRow(**fields))
+            s.commit()
+    except Exception as e:
+        import logging
+
+        logging.getLogger(__name__).warning(f"image catalogue write failed: {e}")
+
+
+def list_generated_images(kind: str = None, style_key: str = None,
+                          item_id: int = None, sort: str = "recent",
+                          offset: int = 0, limit: int = 60) -> tuple:
+    """Catalogue page plus the total, and the facet counts the UI needs."""
+    from sqlalchemy import func
+
+    from .orm import GeneratedImageRow as G
+
+    with db_session() as s:
+        q = s.query(G)
+        if kind:
+            q = q.filter(G.kind == kind)
+        if style_key:
+            q = q.filter(G.style_key == style_key)
+        if item_id:
+            q = q.filter(G.item_id == item_id)
+
+        total = q.count()
+        order = {
+            "recent": G.created_at.desc(),
+            "oldest": G.created_at.asc(),
+            "ink": G.ink.desc().nullslast(),
+            "ink_asc": G.ink.asc().nullsfirst(),
+            "slowest": G.seconds.desc().nullslast(),
+            "style": G.style_key.asc().nullslast(),
+        }.get(sort, G.created_at.desc())
+        rows = q.order_by(order).offset(offset).limit(limit).all()
+
+        kinds = dict(s.query(G.kind, func.count()).group_by(G.kind).all())
+        styles = dict(
+            s.query(G.style_label, func.count())
+            .filter(G.style_label.isnot(None))
+            .group_by(G.style_label).all()
+        )
+        items = [
+            {
+                "id": r.id, "kind": r.kind, "created_at": r.created_at.isoformat(),
+                "item_id": r.item_id, "run": r.run, "seg": r.seg, "slug": r.slug,
+                "title": r.title, "prompt": r.prompt,
+                "style_key": r.style_key, "style_label": r.style_label,
+                "technique": r.technique, "model": r.model,
+                "width": r.width, "height": r.height,
+                "ink": r.ink, "seconds": r.seconds,
+                "path": r.path, "thumb": r.thumb,
+            }
+            for r in rows
+        ]
+    return items, total, {"kinds": kinds, "styles": styles}
 
 
 # --- digest editions -------------------------------------------------------

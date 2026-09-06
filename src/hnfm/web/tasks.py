@@ -54,7 +54,8 @@ logger = logging.getLogger(__name__)
 
 
 @celery_app.task(name="hnfm.web.tasks.hn_fetch_item")
-def hn_fetch_item(item_id: int, continue_to_triage: bool = False) -> Dict[str, any]:
+def hn_fetch_item(item_id: int, continue_to_triage: bool = False,
+                  source: str = None) -> Dict[str, any]:
     """Fetch and store a Hacker News item; optionally chain into triage
     (cheap text half + suitability score, no GPU)."""
     try:
@@ -68,6 +69,15 @@ def hn_fetch_item(item_id: int, continue_to_triage: bool = False) -> Dict[str, a
 
         # Fetch and store the item
         get_item_json_and_store(item_id, outputs_dir=outputs_dir)
+
+        # Which HN list it came from. `top` and `new` are different
+        # populations and the story list is much easier to read when you can
+        # tell them apart.
+        if source:
+            try:
+                repo.set_item_source(item_id, source)
+            except Exception as e:
+                logger.debug(f"could not record source for {item_id}: {e}")
 
         logger.info(f"Successfully fetched and stored item {item_id}")
 
@@ -1040,6 +1050,19 @@ def build_segment_images(
 
             # Save to Postgres and disk
             save_segment_image(si, outputs_root=outputs_root)
+            # Also into the shared catalogue, so segment art is findable
+            # beside digest art rather than only through its own segment.
+            try:
+                repo.record_generated_image(
+                    kind="segment", item_id=item_id, run=run, seg=seg,
+                    title=run_summary[:120] if run_summary else None,
+                    prompt=prompt, style_key=theme.key,
+                    style_label=theme.name, technique="art-direction theme",
+                    model="flux2-klein", width=_w, height=_h,
+                    path=out,
+                )
+            except Exception as _e:
+                logger.debug(f"catalogue skipped for image {i}: {_e}")
             logger.info(f"Saved image {i} metadata")
 
         # 6) Update segment image status
@@ -2496,7 +2519,7 @@ def build_digest(
         from ..digest import illustrate as _ill
 
         edition_name = _ill.edition_name(digest.stories)
-        cover = _ill.cover_for(digest.stories, edition_name)
+        cover = _ill.cover_for(digest.stories, edition_name, slug=digest.slug)
         logger.info(
             f"digest: edition name {edition_name!r}, "
             f"cover {'ok' if cover else 'none'}"
@@ -2508,7 +2531,9 @@ def build_digest(
             made = []
             for style in assignment.get(story.item_id, []):
                 got = _ill.render(subject, story.title, style,
-                                  seed=int(illustrate_seed or 7))
+                                  seed=int(illustrate_seed or 7),
+                                  kind="digest", item_id=story.item_id,
+                                  slug=digest.slug)
                 if got:
                     made.append(got)
             if made:

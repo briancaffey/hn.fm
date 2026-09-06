@@ -52,6 +52,9 @@ class HNItemRow(Base):
     type: Mapped[str] = mapped_column(Text, nullable=True)
     by: Mapped[str] = mapped_column(Text, nullable=True)
     time: Mapped[int] = mapped_column(BigInteger, nullable=True)  # unix seconds
+    # Which HN list this arrived from: top | new | manual. They are different
+    # populations — `new` is unfiltered, `top` already survived the front page.
+    source: Mapped[str] = mapped_column(Text, nullable=True, index=True)
     url: Mapped[str] = mapped_column(Text, nullable=True)
     title: Mapped[str] = mapped_column(Text, nullable=True)
     text: Mapped[str] = mapped_column(Text, nullable=True)
@@ -149,6 +152,46 @@ class SegmentSectionRow(Base):
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+
+
+class GeneratedImageRow(Base):
+    """Every image the pipeline has produced, whatever produced it.
+
+    A catalogue rather than a second copy of `segment_images`: digest
+    illustrations and covers had nowhere to live at all, and the segment
+    prompts that did exist were unreachable next to them. One table means the
+    question "what have we drawn, in what style, at what cost" has one answer.
+    """
+
+    __tablename__ = "generated_images"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True, autoincrement=True,
+    )
+    # digest | cover | segment
+    kind: Mapped[str] = mapped_column(Text, nullable=False, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+
+    item_id: Mapped[int] = mapped_column(BigInteger, nullable=True, index=True)
+    run: Mapped[int] = mapped_column(Integer, nullable=True)
+    seg: Mapped[int] = mapped_column(Integer, nullable=True)
+    slug: Mapped[str] = mapped_column(Text, nullable=True, index=True)
+
+    title: Mapped[str] = mapped_column(Text, nullable=True)
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    style_key: Mapped[str] = mapped_column(Text, nullable=True, index=True)
+    style_label: Mapped[str] = mapped_column(Text, nullable=True)
+    technique: Mapped[str] = mapped_column(Text, nullable=True)
+    model: Mapped[str] = mapped_column(Text, nullable=True)
+    width: Mapped[int] = mapped_column(Integer, nullable=True)
+    height: Mapped[int] = mapped_column(Integer, nullable=True)
+    ink: Mapped[float] = mapped_column(Float, nullable=True)
+    seconds: Mapped[float] = mapped_column(Float, nullable=True)
+    # Where the bytes are. Segment images live on disk; digest images are
+    # embedded in the document, so they keep a thumbnail here instead.
+    path: Mapped[str] = mapped_column(Text, nullable=True)
+    thumb: Mapped[str] = mapped_column(Text, nullable=True)
 
 
 class SegmentImageRow(Base):

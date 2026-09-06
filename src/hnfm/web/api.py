@@ -189,7 +189,7 @@ def _serve_media(local_path: str, media_type: str, filename: str, proxy: bool = 
     return FileResponse(path=local_path, media_type=media_type, filename=filename)
 
 
-def queue_item_if_not_exists(item_id: int) -> dict:
+def queue_item_if_not_exists(item_id: int, source: str = None) -> dict:
     """Queue an item for processing only if it doesn't already exist in the
     database. New items chain straight into triage (scrape + summarize +
     score, no GPU) unless TRIAGE_ON_INGEST=false."""
@@ -199,7 +199,8 @@ def queue_item_if_not_exists(item_id: int) -> dict:
 
     triage_on_ingest = os.getenv("TRIAGE_ON_INGEST", "true").lower() == "true"
     task = hn_fetch_item.apply_async(
-        args=[item_id], kwargs={"continue_to_triage": triage_on_ingest}
+        args=[item_id],
+        kwargs={"continue_to_triage": triage_on_ingest, "source": source},
     )
     logger.info(f"Item {item_id} queued for fetching (triage={triage_on_ingest})")
     return {"status": "queued", "id": item_id, "task_id": task.id}
@@ -221,7 +222,7 @@ async def queue_top_stories(limit: int = 50):
         skipped_items = []
 
         for item_id in ids_to_queue:
-            result = queue_item_if_not_exists(item_id)
+            result = queue_item_if_not_exists(item_id, source="top")
             if result["status"] == "queued":
                 queued_items.append(item_id)
             else:
@@ -255,7 +256,7 @@ async def queue_new_stories(limit: int = 50):
         skipped_items = []
 
         for item_id in ids_to_queue:
-            result = queue_item_if_not_exists(item_id)
+            result = queue_item_if_not_exists(item_id, source="new")
             if result["status"] == "queued":
                 queued_items.append(item_id)
             else:
@@ -556,6 +557,7 @@ async def list_stories_endpoint(
     q: str = None,
     has_video: bool = None,
     has_runs: bool = None,
+    source: str = None,
 ):
     """Stories joined with generation aggregates — the mission-control table.
 
@@ -569,6 +571,7 @@ async def list_stories_endpoint(
         rows, total = repo.list_stories(
             offset=offset, limit=limit, sort=sort, direction=dir,
             q=q, has_video=has_video, has_runs=has_runs,
+            source=source,
         )
         return {
             "items": rows,
@@ -638,6 +641,46 @@ async def cost_endpoint(limit: int = 200):
         return {"runs": steps.cost_rollup(limit=limit)}
     except Exception as e:
         logger.error(f"cost rollup failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/images/catalog", tags=["images"])
+async def image_catalog(
+    kind: str = None, style: str = None, item_id: int = None,
+    sort: str = "recent", offset: int = 0, limit: int = 48,
+):
+    """Every generated image with the prompt that produced it.
+
+    Covers digest illustrations, edition covers and segment art in one place —
+    they were previously either unrecorded or reachable only through the
+    segment that owned them.
+    """
+    try:
+        from ..db import repo as _repo
+
+        items, total, facets = _repo.list_generated_images(
+            kind=kind, style_key=style, item_id=item_id,
+            sort=sort, offset=offset, limit=min(int(limit), 200),
+        )
+        return {
+            "images": items,
+            "facets": facets,
+            "pagination": {"offset": offset, "limit": limit, "total": total},
+        }
+    except Exception as e:
+        logger.error(f"image catalog failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/diagnostics", tags=["activity"])
+async def diagnostics_endpoint(days: int = 7):
+    """Pipeline cost and model usage over a window, for the dashboard."""
+    try:
+        from ..db import steps as _steps
+
+        return _steps.diagnostics(days=days)
+    except Exception as e:
+        logger.error(f"diagnostics failed: {e}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
 

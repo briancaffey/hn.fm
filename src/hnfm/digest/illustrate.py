@@ -124,6 +124,35 @@ def _diagram(kind: str):
     return build
 
 
+def _instrument(instrument: str):
+    """Names the tool that made the mark rather than the style it produces."""
+    def build(subject: str, _title: str) -> str:
+        return (
+            f"Drawn with {instrument}. Subject: {_norm(subject)}. "
+            f"The mark of the tool is visible throughout — nothing smoothed or "
+            f"cleaned up afterwards. Black on white."
+        )
+    return build
+
+
+def _absence(present: str, absent: str):
+    """Describes the image by what is missing from it."""
+    def build(subject: str, _title: str) -> str:
+        return (
+            f"{_norm(subject).capitalize()}, rendered so that only the {present} "
+            f"is drawn and the {absent} is left as bare white paper. "
+            f"High contrast, no midtones."
+        )
+    return build
+
+
+def _single_constraint(rule: str):
+    """One rule, stated absolutely. Terse prompts sometimes beat long ones."""
+    def build(subject: str, _title: str) -> str:
+        return f"{_norm(subject).capitalize()}. {rule}"
+    return build
+
+
 # --- the catalogue ---------------------------------------------------------
 
 STYLES: List[Style] = [
@@ -188,6 +217,38 @@ STYLES: List[Style] = [
           ])),
 ]
 
+STYLES += [
+    Style("charcoal", "Charcoal on newsprint", "instrument-named",
+          _instrument("a stick of compressed charcoal held flat"), steps=30),
+
+    Style("technical-pen", "0.1mm technical pen", "instrument-named",
+          _instrument("a 0.1mm technical pen and a straight edge")),
+
+    Style("silhouette", "Silhouette only", "absence",
+          _absence("silhouette", "interior detail")),
+
+    Style("shadow", "Cast shadow only", "absence",
+          _absence("cast shadow on the ground", "object itself")),
+
+    Style("one-line", "Single continuous line", "single constraint",
+          _single_constraint(
+              "Drawn as ONE continuous black line that never lifts from the "
+              "page and never crosses itself. White ground.")),
+
+    Style("halftone", "Newspaper halftone", "single constraint",
+          _single_constraint(
+              "Reproduced as a coarse newspaper halftone: visible black dots "
+              "of varying size on white, no continuous tone, 1960s print.")),
+
+    Style("blackout", "Inverted blackout", "single constraint",
+          _single_constraint(
+              "Rendered in reverse: solid black page, the subject scratched "
+              "out in fine white lines like a scraperboard engraving.")),
+
+    Style("diagram-exploded", "Exploded assembly", "diagram-as-artefact",
+          _diagram("exploded assembly diagram, parts separated along an axis")),
+]
+
 STYLE_BY_KEY = {s.key: s for s in STYLES}
 
 
@@ -229,8 +290,31 @@ class Illustration:
     seconds: float
 
 
+def _catalogue(illo: "Illustration", kind: str, item_id=None,
+               slug=None, title=None) -> None:
+    """Record the picture so it is findable later with its prompt intact.
+
+    A digest image lives inside the document, so the catalogue keeps a small
+    thumbnail rather than a path — otherwise the only copy of a prompt that
+    produced something good would be buried in an email attachment.
+    """
+    try:
+        from ..db import repo
+
+        repo.record_generated_image(
+            kind=kind, item_id=item_id, slug=slug, title=title,
+            prompt=illo.prompt, style_key=illo.style.key,
+            style_label=illo.style.label, technique=illo.style.technique,
+            model="flux2-klein", width=RENDER_W, height=RENDER_H,
+            ink=illo.ink, seconds=illo.seconds, thumb=illo.data_uri,
+        )
+    except Exception as e:
+        logger.debug(f"catalogue skipped: {e}")
+
+
 def render(subject: str, title: str, style: Style,
-           seed: Optional[int] = None) -> Optional[Illustration]:
+           seed: Optional[int] = None, kind: str = "digest",
+           item_id=None, slug=None) -> Optional[Illustration]:
     """One illustration, or None. Never raises: a digest missing a picture is
     far better than a digest that failed to build."""
     import time
@@ -247,13 +331,15 @@ def render(subject: str, title: str, style: Style,
         )
         raw = base64.b64decode(res["artifacts"][0]["base64"])
         jpeg = _to_kindle_bytes(raw)
-        return Illustration(
+        illo = Illustration(
             style=style,
             prompt=prompt,
             data_uri="data:image/jpeg;base64," + base64.b64encode(jpeg).decode(),
             ink=ink_coverage(jpeg),
             seconds=round(time.time() - t0, 1),
         )
+        _catalogue(illo, kind=kind, item_id=item_id, slug=slug, title=title)
+        return illo
     except Exception as e:
         logger.warning(f"illustration failed ({style.key}): {e}")
         return None
@@ -356,9 +442,10 @@ def edition_name(stories) -> str:
         return ""
 
 
-def cover_for(stories, name: str):
+def cover_for(stories, name: str, slug: str = None):
     """One cover plate for the edition, or None."""
     if not stories:
         return None
     subject = subject_for(stories[0])
-    return render(subject, name or stories[0].title, COVER_STYLE, seed=3)
+    return render(subject, name or stories[0].title, COVER_STYLE, seed=3,
+                  kind="cover", slug=slug, item_id=stories[0].item_id)

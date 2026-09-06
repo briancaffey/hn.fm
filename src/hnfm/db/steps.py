@@ -319,6 +319,74 @@ def activity(recent_minutes: int = 10) -> dict:
     return {"running": running, "recent": recent}
 
 
+def diagnostics(days: int = 7) -> dict:
+    """Aggregate pipeline cost for the dashboard.
+
+    Same source as the digest's closing section — `pipeline_steps` — so the two
+    can never disagree about what a thing cost.
+    """
+    from datetime import timedelta
+
+    from sqlalchemy import func
+
+    cutoff = datetime.utcnow() - timedelta(days=days)
+    with db_session() as s:
+        rows = s.execute(
+            select(
+                PipelineStepRow.stage,
+                func.count().label("steps"),
+                func.sum(PipelineStepRow.llm_calls).label("calls"),
+                func.sum(PipelineStepRow.tokens_in).label("tokens_in"),
+                func.sum(PipelineStepRow.tokens_out).label("tokens_out"),
+                func.sum(PipelineStepRow.seconds).label("seconds"),
+                func.count().filter(PipelineStepRow.status == "error").label("errors"),
+            )
+            .where(PipelineStepRow.started_at >= cutoff)
+            .group_by(PipelineStepRow.stage)
+            .order_by(func.sum(PipelineStepRow.seconds).desc().nullslast())
+        ).all()
+
+        models = s.execute(
+            select(
+                PipelineStepRow.model,
+                func.count().label("calls"),
+                func.sum(PipelineStepRow.tokens_in).label("tokens_in"),
+                func.sum(PipelineStepRow.tokens_out).label("tokens_out"),
+            )
+            .where(PipelineStepRow.started_at >= cutoff,
+                   PipelineStepRow.model.isnot(None))
+            .group_by(PipelineStepRow.model)
+            .order_by(func.count().desc())
+        ).all()
+
+    stages = [
+        {
+            "stage": r.stage, "steps": r.steps, "calls": int(r.calls or 0),
+            "tokens_in": int(r.tokens_in or 0), "tokens_out": int(r.tokens_out or 0),
+            "seconds": round(float(r.seconds or 0), 1), "errors": r.errors,
+        }
+        for r in rows
+    ]
+    return {
+        "days": days,
+        "stages": stages,
+        "models": [
+            {"model": m.model, "calls": m.calls,
+             "tokens_in": int(m.tokens_in or 0),
+             "tokens_out": int(m.tokens_out or 0)}
+            for m in models
+        ],
+        "totals": {
+            "steps": sum(r["steps"] for r in stages),
+            "calls": sum(r["calls"] for r in stages),
+            "tokens_in": sum(r["tokens_in"] for r in stages),
+            "tokens_out": sum(r["tokens_out"] for r in stages),
+            "seconds": round(sum(r["seconds"] for r in stages), 1),
+            "errors": sum(r["errors"] for r in stages),
+        },
+    }
+
+
 def cost_rollup(limit: int = 200) -> List[dict]:
     """Per-run cost, derived from the audit trail rather than a parallel table.
 
