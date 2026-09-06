@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 # Wide enough to look deliberate at 6", small enough that twenty of them do not
 # push the email past a provider attachment limit.
 RENDER_W, RENDER_H = 768, 512
+# The usable band on e-ink. See the guard in `render`.
+INK_MIN, INK_MAX = 0.02, 0.85
 EMBED_W = 640
 JPEG_QUALITY = 72
 
@@ -332,11 +334,28 @@ def render(subject: str, title: str, style: Style,
         )
         raw = base64.b64decode(res["artifacts"][0]["base64"])
         jpeg = _to_kindle_bytes(raw)
+
+        # An e-ink guard, not an aesthetic one. Below the floor the page looks
+        # blank and the reader wonders what failed to load; above the ceiling
+        # it is a solid slab that reads as a black rectangle and costs a slow
+        # full refresh. Either is worse than no picture, so the picture is
+        # dropped and the caller places one fewer. Measured rather than
+        # assumed per style: the same recipe lands at 0.05 on one story and
+        # 0.95 on the next.
+        ink = ink_coverage(jpeg)
+        if not (INK_MIN <= ink <= INK_MAX):
+            logger.info(
+                f"illustration dropped ({style.key}): ink {ink:.2f} outside "
+                f"{INK_MIN}-{INK_MAX} — "
+                + ("blank on e-ink" if ink < INK_MIN else "a black slab")
+            )
+            return None
+
         illo = Illustration(
             style=style,
             prompt=prompt,
             data_uri="data:image/jpeg;base64," + base64.b64encode(jpeg).decode(),
-            ink=ink_coverage(jpeg),
+            ink=ink,
             seconds=round(time.time() - t0, 1),
         )
         _catalogue(illo, kind=kind, item_id=item_id, slug=slug, title=title)
@@ -346,29 +365,96 @@ def render(subject: str, title: str, style: Style,
         return None
 
 
-def subject_for(story) -> str:
-    """A concrete, drawable subject for a story.
+# Which *kind* of thing the picture is of — assigned per image, not per story.
+# The style catalogue already varies how a picture is drawn; without this, all
+# three pictures for a story were the same subject rendered three ways, which
+# is a set of variations rather than a set of illustrations. Kept broad enough
+# to fit any story on Hacker News: a register is a lens on the material, not a
+# subject list, so nothing here presumes the story is about software.
+# A gloss must describe the LENS, never supply vocabulary. The first draft of
+# `mechanism` read "the thing that moves, meshes, latches or transfers force"
+# and every mechanism image in the edition came back as gear teeth — the model
+# answered the gloss rather than the story, the same failure as the old
+# "favour objects, materials, hands, tools" line that made every story hands.
+REGISTERS = [
+    ("material", "what this is physically made of, seen close enough that its "
+                 "texture and construction are legible"),
+    ("mechanism", "the working part that actually does the job, drawn so a "
+                  "reader could tell how it works"),
+    ("human scale", "a person mid-action at whole-body or room scale, doing "
+                    "the work the story describes"),
+    ("place", "the setting where this happens, with nobody in it"),
+    ("landscape", "the wider world it sits in, seen from a distance"),
+    ("trace", "the evidence left behind once it is over"),
+]
+
+
+def subject_for(story, register: tuple = None, avoid: List[str] = None) -> str:
+    """A concrete, drawable subject for a story, in one visual register.
 
     Deliberately one short LLM call rather than passing the headline straight
     through: "Formalizing Fermat's Last Theorem" is a topic, not a picture, and
     the model will render text-on-a-page if asked to draw an abstraction.
+
+    `register` and `avoid` are what stop an edition looking like one drawing.
+    The register is binding and differs per image, so two pictures of the same
+    story are two different things rather than two renderings of one thing.
+    `avoid` carries the subjects already used elsewhere in the edition — the
+    old prompt's "favour objects, materials, hands, tools, landscapes,
+    architecture" made every story in a five-story digest come back as hands,
+    because an enumerated list is answered from its front.
     """
     from ..content.llm_service import LLMService, LLMError
 
     b = story.brief or {}
     context = (b.get("thesis") or b.get("angle") or "")[:400]
+
+    reg_line = ""
+    if register:
+        name, gloss = register
+        reg_line = (
+            f"- THE REGISTER IS BINDING: show {name} — {gloss}. A scene that "
+            f"is not {name} is the wrong answer however good it is.\n"
+            "- The register is a lens on THIS story, not a subject of its "
+            "own. Draw something that only this story could be about.\n"
+        )
+    avoid_line = ""
+    if avoid:
+        # Subjects, not whole scenes: handing back the previous sentences
+        # invites the model to continue them instead of departing from them.
+        #
+        # The window has to span the whole edition, not the last image or
+        # two. At eight nouns it reached back barely one subject, and three
+        # consecutive stories converged on brass — the model had forgotten
+        # the brass it chose four pictures ago. Deduplicated so one repeated
+        # word cannot consume the whole window.
+        seen, distinct = set(), []
+        for a in reversed(avoid):
+            if a not in seen:
+                seen.add(a)
+                distinct.append(a)
+            if len(distinct) >= 24:
+                break
+        avoid_line = (
+            "- ALREADY DRAWN in this edition. Do not use any of these, and "
+            "do not use a near-synonym of one: "
+            + ", ".join(distinct)
+            + "\n"
+        )
+
     prompt = (
         "Name ONE concrete physical scene that could illustrate this story for "
         "a print magazine printed in BLACK INK ONLY.\n"
         "Rules:\n"
-        "- A physical subject, doing something, somewhere.\n"
+        + reg_line
+        + "- A physical subject, doing something, somewhere.\n"
         "- Never a screen, monitor, laptop, phone, terminal or UI. Those are "
         "the one thing that cannot be drawn well in ink.\n"
         "- No colour words at all — the page is greyscale, so 'glowing blue' "
         "and 'warm golden' describe nothing.\n"
         "- No text, logos, charts, diagrams or recognisable faces.\n"
-        "- Favour objects, materials, hands, tools, landscapes, architecture.\n"
-        "Answer with the scene only, under 18 words, no preamble, no full stop."
+        + avoid_line
+        + "Answer with the scene only, under 18 words, no preamble, no full stop."
         "\n\n"
         f"Headline: {story.title}\n{context}"
     )
@@ -379,6 +465,22 @@ def subject_for(story) -> str:
     except (LLMError, Exception) as e:
         logger.info(f"subject fallback for {story.item_id}: {e}")
         return story.title
+
+
+def subject_nouns(subject: str) -> List[str]:
+    """The content words of a subject, for the avoid-list and for measuring.
+
+    Bare nouns rather than the sentence, for the reason given in `subject_for`.
+    """
+    words = re.findall(r"[a-z]{4,}", (subject or "").lower())
+    return [w for w in words if w not in _SUBJECT_STOP][:6]
+
+
+_SUBJECT_STOP = {
+    "with", "onto", "into", "under", "over", "beside", "near", "against",
+    "while", "from", "their", "this", "that", "some", "very", "held", "seen",
+    "rendered", "showing", "depicting", "scene", "shot", "view", "image",
+}
 
 
 def plan(stories, per_story: int = 2, seed: int = 7) -> dict:
@@ -396,6 +498,26 @@ def plan(stories, per_story: int = 2, seed: int = 7) -> dict:
             cand = deck.pop()
             if cand.key not in {p.key for p in picks}:
                 picks.append(cand)
+        out[s.item_id] = picks
+    return out
+
+
+def plan_registers(stories, per_story: int = 2, seed: int = 7) -> dict:
+    """A register per image, walked as a rotating deck rather than picked at
+    random, so a five-story edition covers the whole range instead of landing
+    on `material` four times. The offset moves with the seed, so two editions
+    built the same day open on different registers.
+    """
+    rng = random.Random(seed)
+    order = REGISTERS[:]
+    rng.shuffle(order)
+    out: dict = {}
+    i = 0
+    for s in stories:
+        picks = []
+        for _ in range(per_story):
+            picks.append(order[i % len(order)])
+            i += 1
         out[s.item_id] = picks
     return out
 

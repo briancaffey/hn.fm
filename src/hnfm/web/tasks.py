@@ -2503,7 +2503,7 @@ def build_digest(
         # disables, for a deliberate re-run of the same material.
         exclude_recent_days=int(exclude_recent_days) or None,
         source=source,
-        title=f"hn.fm · {shape.title()}" if shape != "daily" else "hn.fm Digest",
+        title=_edition_title(shape, source),
     )
     if not digest.stories:
         logger.warning("digest: nothing to send — no stories have a Story Brief")
@@ -2536,14 +2536,47 @@ def build_digest(
             f"digest: edition name {edition_name!r}, "
             f"cover {'ok' if cover else 'none'}"
         )
+        # How many pictures a story can actually carry. A quick hit is two
+        # paragraphs; asking for three images there stacked the last two
+        # against each other with no text between, which on a 6" screen is a
+        # page of pictures and no story. One lead image, then one per couple
+        # of paragraphs — so the feature earns its pictures and the brief
+        # item gets the one it has room for.
+        budget = {}
+        for _sec in (sections or []):
+            if _sec.kind not in ("quick", "deep") or _sec.story_id is None:
+                continue
+            _paras = len([p for p in _sec.body.split("\n\n") if p.strip()])
+            budget[_sec.story_id] = max(
+                1, min(int(illustrate_n), 1 + _paras // 2)
+            )
+
         assignment = _ill.plan(digest.stories, per_story=int(illustrate_n),
                                seed=int(illustrate_seed or 7))
+        registers = _ill.plan_registers(digest.stories,
+                                        per_story=int(illustrate_n),
+                                        seed=int(illustrate_seed or 7))
+        # Subjects already drawn anywhere in this edition. One subject per
+        # STORY produced three renderings of one drawing; one subject per
+        # IMAGE, in a different register each time and told what the edition
+        # has already used, produces three illustrations.
+        used_nouns = []
         for story in digest.stories:
-            subject = _ill.subject_for(story)
-            made = []
-            for style in assignment.get(story.item_id, []):
+            want = budget.get(story.item_id, int(illustrate_n))
+            styles = assignment.get(story.item_id, [])[:want]
+            regs = registers.get(story.item_id, [])
+            made, subjects = [], []
+            for i, style in enumerate(styles):
+                register = regs[i] if i < len(regs) else None
+                subject = _ill.subject_for(story, register=register,
+                                           avoid=used_nouns)
+                subjects.append(subject)
+                used_nouns.extend(_ill.subject_nouns(subject))
                 got = _ill.render(subject, story.title, style,
-                                  seed=int(illustrate_seed or 7),
+                                  # A per-image seed: one seed for the whole
+                                  # edition made flux repeat composition even
+                                  # where the prompt had genuinely changed.
+                                  seed=int(illustrate_seed or 7) + i,
                                   kind="digest", item_id=story.item_id,
                                   slug=digest.slug)
                 if got:
@@ -2551,8 +2584,11 @@ def build_digest(
             if made:
                 illustrations[story.item_id] = made
             logger.info(
-                f"digest: {len(made)} illustration(s) for {story.item_id} "
-                f"— subject: {subject[:70]}"
+                f"digest: {len(made)} illustration(s) for {story.item_id} — "
+                + " | ".join(
+                    f"{(regs[i][0] if i < len(regs) else '?')}: {sub[:44]}"
+                    for i, sub in enumerate(subjects)
+                )
             )
 
     from ..digest import diagnostics as _diag_mod
@@ -2568,6 +2604,12 @@ def build_digest(
 
     out_dir = os.path.join(outputs_root, "digests")
     base = f"hnfm-digest-{digest.generated_at:%Y-%m-%d}"
+    if source:
+        # A `top` edition and a `new` edition are different products drawn
+        # from different populations, so they need different slugs — without
+        # this, building both in the same shape on the same day silently
+        # overwrote the first with the second.
+        base = f"{base}-{source}"
     if shape != "daily":
         # Distinct slug per shape so several editions can coexist on one day
         # instead of overwriting each other.
@@ -2724,6 +2766,19 @@ def _provider_accepts_epub() -> bool:
         "mailgun",
         "mailjet",
     }
+
+
+def _edition_title(shape: str, source: str = None) -> str:
+    """The edition's name, before an LLM proposes a better one.
+
+    Shape and source are the two things that actually distinguish one
+    edition from another, and a reader with four of them on the Kindle needs
+    to tell which is which from the shelf.
+    """
+    where = {"top": "Front Page", "new": "New Arrivals"}.get(source or "")
+    what = "" if shape == "daily" else shape.title()
+    parts = [p for p in (where, what) if p]
+    return "hn.fm · " + " ".join(parts) if parts else "hn.fm Digest"
 
 
 def _score_unbriefed(limit: int) -> int:

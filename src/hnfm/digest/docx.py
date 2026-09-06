@@ -250,6 +250,25 @@ def write_docx(digest, out_path: str, sections=None, illustrations=None,
     if sections:
         for sec in sections:
             pics = list((illustrations or {}).get(sec.story_id) or [])
+
+            # The teaser is the edition's opening paragraph — it has no
+            # headline and is not an item, so labelling it "In brief" printed
+            # that kicker twice running with nothing between them. The bonus
+            # is a list, not a story. Only quick and deep are items, and
+            # theirs is the label that tells a commuter at a glance whether
+            # this is a thirty-second read. The HTML renderer already made
+            # this distinction; the DOCX path did not.
+            if sec.kind == "teaser":
+                doc.para(sec.body.strip(), "Body", italic=True)
+                continue
+            if sec.kind == "bonus":
+                doc.para("Also", "Kicker")
+                doc.para(sec.title or "Also worth knowing", "Heading1")
+                for line in sec.body.splitlines():
+                    if line.strip():
+                        doc.para(line.strip(), "Body")
+                continue
+
             doc.para("Feature" if sec.kind == "deep" else "In brief", "Kicker")
             doc.para(sec.title, "Heading1")
             if pics:
