@@ -1634,13 +1634,29 @@ async def send_existing_digest(slug: str):
     if not ready:
         raise HTTPException(status_code=400, detail=f"Delivery not configured: {reason}")
 
+    try:
+        from ..db import repo as _repo
+
+        states_for_send = _repo.digest_edition_states()
+    except Exception:
+        states_for_send = {}
+
     out_dir = os.path.join(os.getenv("OUTPUTS_ROOT", "/app/outputs"), "digests")
-    # Prefer HTML: Brevo rejects .epub outright, and Amazon converts HTML fine.
-    for ext, media in (("html", None), ("epub", None)):
+    # DOCX first: it is the only accepted format that carries a real title,
+    # author and cover through Amazon's converter. HTML loses all three.
+    for ext, media in (("docx", None), ("html", None), ("epub", None)):
         path = os.path.join(out_dir, f"{slug}.{ext}")
         if os.path.exists(path):
             try:
-                message_id = send_digest(path)
+                from ..digest.docx import safe_filename
+                from datetime import datetime as _dtm
+
+                state = (states_for_send or {}).get(slug) or {}
+                nice = (state.get("edition_name") or slug)
+                when = _dtm.utcnow()
+                message_id = send_digest(
+                    path, filename=safe_filename(nice, when, ext=ext)
+                )
             except DeliveryError as e:
                 raise HTTPException(status_code=502, detail=str(e))
             # Record it, so a manual resend shows up in the UI like any other.

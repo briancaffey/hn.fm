@@ -219,7 +219,7 @@ def _section_body(sec, illos=None) -> str:
 
 
 def render_html(digest: Digest, sections=None, illustrations=None,
-                cover=None, edition_name: str = "") -> str:
+                cover=None, edition_name: str = "", diagnostics=None) -> str:
     """One self-contained HTML document — browser view and Send-to-Kindle HTML.
 
     `illustrations` maps story id -> list of Illustration. Images travel as
@@ -265,6 +265,10 @@ def render_html(digest: Digest, sections=None, illustrations=None,
                 story, (illustrations or {}).get(story.item_id)))
     if not digest.stories:
         parts.append("<p>No stories with a Story Brief were available.</p>")
+    if diagnostics:
+        from .diagnostics import as_html as _diag_html
+
+        parts.append(_diag_html(diagnostics))
     parts.append("</body></html>")
     return "\n".join(parts)
 

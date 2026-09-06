@@ -204,7 +204,14 @@ def send_digest(
     file_path: str,
     subject: Optional[str] = None,
     to: Optional[str] = None,
+    filename: Optional[str] = None,
 ) -> str:
+    """`filename` overrides the attached name.
+
+    It matters more than it looks: Amazon takes the shelf title from the
+    attachment filename on the HTML path, so sending
+    `hnfm-digest-2026-09-05-illustrated.html` puts exactly that on the device.
+    """
     """Email `file_path` to the Kindle address. Returns the provider message id."""
     ready, reason = delivery_config()
     if not ready:
@@ -222,7 +229,7 @@ def send_digest(
             f"{file_path} is {len(payload)} bytes, over Send to Kindle's 50 MB limit"
         )
 
-    filename = os.path.basename(file_path)
+    filename = filename or os.path.basename(file_path)
     ext = os.path.splitext(filename)[1].lower()
     content_type = _MIME.get(ext, "application/octet-stream")
 

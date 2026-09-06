@@ -2433,6 +2433,7 @@ def build_digest(
     triage scoring — which `full_pipeline` never runs. Without this the nightly
     digest would quietly shrink to whatever was scored by hand.
     """
+    _t_start = time.time()
     from ..digest import select_stories, render_html, write_epub
     from ..digest.compose import compose, compose_narrative
     from ..digest.deliver import send_digest, delivery_config, DeliveryError
@@ -2517,6 +2518,17 @@ def build_digest(
                 f"— subject: {subject[:70]}"
             )
 
+    from ..digest import diagnostics as _diag_mod
+
+    try:
+        diagnostics = _diag_mod.collect(
+            digest, illustrations=illustrations, cover=cover,
+            edition_seconds=time.time() - _t_start,
+        )
+    except Exception as e:
+        logger.warning(f"digest: diagnostics unavailable (non-fatal): {e}")
+        diagnostics = None
+
     out_dir = os.path.join(outputs_root, "digests")
     base = f"hnfm-digest-{digest.generated_at:%Y-%m-%d}"
     if shape != "daily":
@@ -2535,7 +2547,23 @@ def build_digest(
     with open(html_path, "w", encoding="utf-8") as f:
         f.write(render_html(digest, sections=sections,
                             illustrations=illustrations,
-                            cover=cover, edition_name=edition_name))
+                            cover=cover, edition_name=edition_name,
+                            diagnostics=diagnostics))
+
+    # The Kindle artifact. HTML loses the title to the attachment filename,
+    # cannot carry an author at all, and will not take a cover; DOCX carries
+    # all three and Brevo accepts it.
+    docx_path = None
+    try:
+        from ..digest.docx import write_docx
+
+        docx_path = write_docx(
+            digest, os.path.join(out_dir, f"{base}.docx"), sections=sections,
+            illustrations=illustrations, cover=cover,
+            edition_name=edition_name, diagnostics=diagnostics,
+        )
+    except Exception as e:
+        logger.warning(f"digest: docx build failed, will send HTML: {e}")
 
     epub_path = None
     if fmt == "epub":
@@ -2547,6 +2575,8 @@ def build_digest(
 
     result = {
         "status": "ok",
+        "docx_path": docx_path,
+        "diagnostics": diagnostics,
         "stories": len(digest.stories),
         "slug": digest.slug,
         "html_path": html_path,
@@ -2588,10 +2618,24 @@ def build_digest(
         # Brevo rejects .epub attachments ("Unsupported file format"), so the
         # emailed artifact is the HTML unless a provider that accepts EPUB is
         # configured. Amazon converts HTML to a proper Kindle document anyway.
-        to_send = epub_path if (fmt == "epub" and _provider_accepts_epub()) else html_path
+        # Preference order is about what survives Amazon's converter, not
+        # about file size: docx keeps title/author/cover, epub would too but
+        # Brevo rejects it, html loses all three.
+        if docx_path and os.path.exists(docx_path):
+            to_send = docx_path
+        elif fmt == "epub" and _provider_accepts_epub():
+            to_send = epub_path
+        else:
+            to_send = html_path
         try:
+            from ..digest.docx import safe_filename
+
             result["message_id"] = send_digest(
-                to_send, subject=subject_line
+                to_send, subject=subject_line,
+                filename=safe_filename(
+                    edition_name or digest.title, digest.generated_at,
+                    ext=os.path.splitext(to_send)[1].lstrip(".") or "docx",
+                ),
             )
             result["sent_file"] = os.path.basename(to_send)
             # Only now is there something to record. Doing this at build time
