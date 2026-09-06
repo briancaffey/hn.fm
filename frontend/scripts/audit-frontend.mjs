@@ -24,7 +24,13 @@ const EXCLUDE = [join(COMPONENTS, 'ui')]
 const PALETTE =
   'slate|gray|zinc|neutral|stone|red|orange|amber|yellow|lime|green|emerald|teal|cyan|sky|blue|indigo|violet|purple|fuchsia|pink|rose'
 const COLOR_RE = new RegExp(`\\b(?:bg|text|border|ring|from|to|via)-(?:${PALETTE})-\\d{2,3}\\b`, 'g')
-const CONTAINER_RE = /<div class="[^"]*\b(?:container|max-w-\d?xl|max-w-screen-\w+)\b[^"]*"/g
+/**
+ * Only the page ROOT is an archetype question. A modal or a prose column
+ * inside a page legitimately sets its own max width, and flagging those pushes
+ * people to write worse markup to satisfy the linter.
+ */
+const ROOT_CONTAINER_RE =
+  /<template>\s*\n\s*<div class="[^"]*\b(?:container|max-w-\d?xl|max-w-screen-\w+)\b[^"]*"/g
 const H1_RE = /<h1[^>]*class="([^"]*)"/g
 const ALLOWED_H1 = ['text-base', 'text-lg', 'text-xl', 'text-2xl']
 
@@ -62,7 +68,7 @@ for (const file of [...walk(PAGES), ...walk(COMPONENTS)]) {
     problems.push({ rel, line, kind: 'palette', detail: m[0] })
   }
   if (rel.startsWith('app/pages')) {
-    for (const m of src.matchAll(CONTAINER_RE)) {
+    for (const m of src.matchAll(ROOT_CONTAINER_RE)) {
       const line = src.slice(0, m.index).split('\n').length
       problems.push({ rel, line, kind: 'container', detail: 'use <PageShell>' })
     }

@@ -113,8 +113,12 @@ x-common-env: &common-env
   META_MAX_HYPER: ${META_MAX_HYPER:-2}
   # TTS backend selection + Magpie voices
   TTS_BACKEND: ${TTS_BACKEND:-magpie}
-  MAGPIE_S1_VOICE: ${MAGPIE_S1_VOICE:-Magpie-Multilingual.EN-US.Mia}
-  MAGPIE_S2_VOICE: ${MAGPIE_S2_VOICE:-Magpie-Multilingual.EN-US.Jason}
+  # Deliberately no default. A default here pins every episode to one casting,
+  # which is why they all sounded like the same two people; unset lets the
+  # pipeline vary the pair per segment across the six voices Magpie serves.
+  # Set either to force a specific voice.
+  MAGPIE_S1_VOICE: ${MAGPIE_S1_VOICE:-}
+  MAGPIE_S2_VOICE: ${MAGPIE_S2_VOICE:-}
   STUDIO_VOICE_ENABLED: ${STUDIO_VOICE_ENABLED:-false}
   # Outputs (set both to avoid OUTPUTS_DIR/OUTPUTS_ROOT split)
   OUTPUTS_DIR: ${OUTPUTS_DIR:-/app/outputs}

@@ -539,11 +539,15 @@ def build_segment_audio(
                      "backend": os.getenv("TTS_BACKEND", "magpie"),
                      "voice": os.getenv("TTS_DEFAULT_VOICE", "notebooklm")},
                 ) as st:
-                    duration = tts_synthesize_to_wav(text, out_wav)
+                    duration = tts_synthesize_to_wav(
+                        text, out_wav, voice_seed=(item_id + run * 7 + seg * 13)
+                    )
 
                     # Clean with studio-voice
                     studio_voice_clean_inplace(out_wav)
-                    st.set(audio_path=out_wav, duration_ms=duration)
+                    st.set(audio_path=out_wav, duration_ms=duration,
+                           voices=getattr(tts_synthesize_to_wav, "last_voices", None),
+                           tts_model=getattr(tts_synthesize_to_wav, "last_model", None))
 
                 # Create metadata (don't save yet)
                 meta = SegmentSection(
@@ -699,11 +703,15 @@ def build_segment_audio(
                  "voice": os.getenv("TTS_DEFAULT_VOICE", "notebooklm"),
                  "text_override": text_override is not None},
             ) as st:
-                duration = tts_synthesize_to_wav(text, out_wav)
+                duration = tts_synthesize_to_wav(
+                    text, out_wav, voice_seed=(item_id + run * 7 + seg * 13)
+                )
 
                 # Step 3c: Clean with studio-voice
                 studio_voice_clean_inplace(out_wav)
-                st.set(audio_path=out_wav, duration_ms=duration)
+                st.set(audio_path=out_wav, duration_ms=duration,
+                       voices=getattr(tts_synthesize_to_wav, "last_voices", None),
+                       tts_model=getattr(tts_synthesize_to_wav, "last_model", None))
 
             # Step 3d: Create and save metadata
             meta = SegmentSection(

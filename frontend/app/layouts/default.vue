@@ -38,6 +38,8 @@ const navGroups: Array<{ label: string, items: NavItem[] }> = [
         hint: 'Finished pieces: script, audio, images and video for one run.' },
       { label: 'Digests', to: '/digests', icon: 'lucide:book-open', match: '/digests',
         hint: 'Reading editions built from Story Briefs, sent to Kindle.' },
+      { label: 'Images', to: '/images', icon: 'lucide:image', match: '/images',
+        hint: 'Every image drawn, with the prompt that drew it.' },
     ],
   },
   {
@@ -47,6 +49,8 @@ const navGroups: Array<{ label: string, items: NavItem[] }> = [
         hint: 'Every step as it happens, streamed from the audit trail.' },
       { label: 'Observability', to: '/observability', icon: 'lucide:activity', match: '/observability',
         hint: 'Where a render spends its time and tokens.' },
+      { label: 'Diagnostics', to: '/diagnostics', icon: 'lucide:gauge', match: '/diagnostics',
+        hint: 'Pipeline cost by stage and model, over a window.' },
       { label: 'Services', to: '/services', icon: 'lucide:server', match: '/services',
         hint: 'Inference backend health, and what breaks without each one.' },
     ],

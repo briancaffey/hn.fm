@@ -70,6 +70,25 @@
           </div>
         </div>
 
+        <!-- Work area: tabs on the left, the finished video pinned right. -->
+        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
+          <div class="min-w-0">
+            <div role="tablist" class="mb-3 flex flex-wrap gap-1 border-b">
+              <button
+                v-for="t in TABS" :key="t.key" type="button" role="tab"
+                :aria-selected="activeTab === t.key"
+                class="-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-sm font-medium transition-colors"
+                :class="activeTab === t.key
+                  ? 'border-primary text-primary'
+                  : 'border-transparent text-muted-foreground hover:text-foreground'"
+                @click="activeTab = t.key"
+              >
+                <Icon :name="t.icon" class="h-3.5 w-3.5" />
+                {{ t.label }}
+              </button>
+            </div>
+
+            <div v-show="activeTab === 'script'">
         <!-- Script Section -->
         <div class="bg-card border rounded-lg p-6">
           <h2 class="text-2xl font-bold mb-4">Script</h2>
@@ -77,20 +96,12 @@
             <pre class="whitespace-pre-wrap text-sm text-foreground font-mono overflow-x-auto">{{ segment.script }}</pre>
           </div>
         </div>
-
+            </div>
+            <div v-show="activeTab === 'audio'">
         <!-- Audio Section -->
         <div class="bg-card border rounded-lg p-6">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-2xl font-bold">Audio</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              class="flex items-center gap-2"
-              @click="toggleAudioExpanded"
-            >
-              <Icon :name="audioExpanded ? 'lucide:chevron-up' : 'lucide:chevron-down'" class="h-4 w-4" />
-              {{ audioExpanded ? 'Collapse' : 'Expand' }}
-            </Button>
           </div>
 
           <div class="flex items-center justify-between mb-4">
@@ -128,18 +139,12 @@
           </div>
 
           <!-- Expanded Audio Details -->
-          <div v-if="audioExpanded" class="space-y-4">
+          <div v-if="true" class="space-y-4">
             <!-- Combined Audio Player -->
             <div v-if="segment.audio_ready && segment.audio_combined_path" class="space-y-2">
               <h3 class="text-lg font-semibold">Combined Audio</h3>
               <div class="bg-muted/50 p-4 rounded-lg">
-                <audio
-                  controls
-                  class="w-full"
-                  :src="getCombinedAudioUrl()"
-                >
-                  Your browser does not support the audio element.
-                </audio>
+                <AudioPlayer :src="getCombinedAudioUrl()" label="Full episode" />
               </div>
             </div>
 
@@ -224,13 +229,11 @@
 
                   <!-- Section Audio Player -->
                   <div v-if="section.audio_path" class="bg-muted/50 p-3 rounded">
-                    <audio
-                      controls
-                      class="w-full"
-                      :src="getSectionAudioUrl(section.section)"
-                    >
-                      Your browser does not support the audio element.
-                    </audio>
+                    <AudioPlayer :src="getSectionAudioUrl(section.section)" compact />
+                    <p v-if="sectionVoice(section)" class="mt-1 text-[11px] text-muted-foreground">
+                      <Icon name="lucide:mic" class="mr-1 inline h-3 w-3" />
+                      {{ sectionVoice(section) }}
+                    </p>
                   </div>
                   <div v-else class="text-center py-4 text-muted-foreground">
                     <p class="text-sm">No audio generated for this section yet.</p>
@@ -245,20 +248,12 @@
             </div>
           </div>
         </div>
-
+            </div>
+            <div v-show="activeTab === 'images'">
         <!-- Images Section -->
         <div class="bg-card border rounded-lg p-6">
           <div class="flex items-center justify-between mb-4">
             <h2 class="text-2xl font-bold">Images</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              class="flex items-center gap-2"
-              @click="toggleImagesExpanded"
-            >
-              <Icon :name="imagesExpanded ? 'lucide:chevron-up' : 'lucide:chevron-down'" class="h-4 w-4" />
-              {{ imagesExpanded ? 'Collapse' : 'Expand' }}
-            </Button>
           </div>
 
           <div class="flex items-center justify-between mb-4">
@@ -293,7 +288,7 @@
           </div>
 
           <!-- Expanded Images Details -->
-          <div v-if="imagesExpanded" class="space-y-4">
+          <div v-if="true" class="space-y-4">
             <!-- Individual Images -->
             <div v-if="images.length > 0" class="space-y-4">
               <h3 class="text-lg font-semibold">Generated Images</h3>
@@ -436,7 +431,29 @@
             </div>
           </div>
         </div>
+            </div>
+            <div v-show="activeTab === 'xray'">
+        <!-- Pipeline X-Ray Section -->
+        <div class="bg-card border rounded-lg p-6">
+          <div class="flex items-center justify-between" :class="{ 'mb-4': xrayExpanded }">
+            <h2 class="text-2xl font-bold">Pipeline X-Ray</h2>
+          </div>
 
+          <!-- Expanded Pipeline X-Ray Details -->
+          <StepTimeline
+            
+            :item-id="itemId"
+            :run-id="runId"
+            :seg-id="segId"
+          />
+        </div>
+      </div>
+            </div>
+          </div>
+
+          <!-- The finished piece. Small by default, expandable, and no longer
+               at the bottom of a very long page. -->
+          <aside class="lg:sticky lg:top-4">
         <!-- Video Section -->
         <div class="bg-card border rounded-lg p-6">
           <h2 class="text-2xl font-bold mb-4">Video</h2>
@@ -461,10 +478,18 @@
           </div>
 
           <div v-if="segment.video_ready && segment.video_path">
+            <button
+              type="button"
+              class="mb-2 flex w-full items-center justify-between rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
+              @click="videoBig = !videoBig"
+            >
+              <span>{{ videoBig ? 'Shrink' : 'Expand' }} player</span>
+              <Icon :name="videoBig ? 'lucide:minimize-2' : 'lucide:maximize-2'" class="h-3.5 w-3.5" />
+            </button>
             <video
               controls
-              width="100%"
-              class="w-full max-w-4xl mx-auto rounded-lg border bg-black"
+              class="w-full rounded-lg border bg-black transition-all"
+              :class="videoBig ? 'fixed inset-4 z-50 m-auto max-h-[90vh] w-auto max-w-[92vw]' : ''"
               :src="getVideoUrl(segment.video_path)"
             >
               <track
@@ -485,30 +510,7 @@
             <p v-else>Video not generated yet. Click 'Generate Video' to create it.</p>
           </div>
         </div>
-
-        <!-- Pipeline X-Ray Section -->
-        <div class="bg-card border rounded-lg p-6">
-          <div class="flex items-center justify-between" :class="{ 'mb-4': xrayExpanded }">
-            <h2 class="text-2xl font-bold">Pipeline X-Ray</h2>
-            <Button
-              variant="outline"
-              size="sm"
-              class="flex items-center gap-2"
-              @click="toggleXrayExpanded"
-            >
-              <Icon :name="xrayExpanded ? 'lucide:chevron-up' : 'lucide:chevron-down'" class="h-4 w-4" />
-              {{ xrayExpanded ? 'Collapse' : 'Expand' }}
-            </Button>
-          </div>
-
-          <!-- Expanded Pipeline X-Ray Details -->
-          <StepTimeline
-            v-if="xrayExpanded"
-            :item-id="itemId"
-            :run-id="runId"
-            :seg-id="segId"
-          />
-        </div>
+          </aside>
       </div>
 
       <!-- Not Found -->
@@ -522,6 +524,7 @@
 import { Badge } from '~/components/ui/badge'
 import PageShell from '~/components/kit/PageShell.vue'
 import Breadcrumbs from '~/components/kit/Breadcrumbs.vue'
+import AudioPlayer from '~/components/kit/AudioPlayer.vue'
 import { Button } from '~/components/ui/button'
 import { Icon } from '#components'
 
@@ -561,7 +564,6 @@ const isDeleting = ref(false)
 // Audio data
 const isGeneratingAudio = ref(false)
 const isRegeneratingAudio = ref(false)
-const audioExpanded = ref(false)
 const isRegeneratingSection = ref({})
 const editingSection = ref({})
 const editingText = ref({})
@@ -570,7 +572,6 @@ const isSavingSection = ref({})
 // Image data
 const isGeneratingImages = ref(false)
 const isRegeneratingImages = ref(false)
-const imagesExpanded = ref(false)
 const isRegeneratingImage = ref({})
 const editingImageLine = ref({})
 const editingImageLineText = ref({})
@@ -581,14 +582,58 @@ const isSavingImagePrompt = ref({})
 const imageCount = ref(0)
 
 // Video data
+
+// ── layout state ────────────────────────────────────────────────────────────
+//
+// Tabs, not three independent collapse toggles. The old page could be in any
+// of eight open/closed combinations, none of them addressable, and every one
+// of them required scrolling past the sections you were not looking at.
+const TABS = [
+  { key: 'script', label: 'Script', icon: 'lucide:file-text' },
+  { key: 'audio', label: 'Audio', icon: 'lucide:volume-2' },
+  { key: 'images', label: 'Images', icon: 'lucide:image' },
+  { key: 'xray', label: 'X-ray', icon: 'lucide:activity' },
+]
+const activeTab = ref('script')
+
+/**
+ * Who read this section. Recorded on the audio step at render time — until
+ * now the page could play a section but not say whose voice it was, which
+ * made comparing castings impossible.
+ */
+// This block is plain JS, not TS — no generics or type annotations here.
+const stepVoices = ref({})
+function sectionVoice(section) {
+  return stepVoices.value[section.section] || null
+}
+async function loadVoices() {
+  try {
+    const res = await $fetch(
+      `${config.public.apiBase}/api/hn/items/${itemId.value}/runs/${runId.value}/segments/${segId.value}/steps`)
+    const map = {}
+    for (const st of res.steps || []) {
+      const m = st.step_key?.match(/audio\/sec_(\d+)/)
+      const v = st.outputs?.voices
+      const model = st.outputs?.tts_model
+      if (m && v) {
+        const names = [v.S1, v.S2].filter(Boolean).map(x => x.split('.').pop())
+        map[Number(m[1])] = `${model || 'magpie'} · ${names.join(' / ')}`
+      }
+    }
+    stepVoices.value = map
+  } catch {
+    // Voices are a nicety; the page works without them.
+  }
+}
+onMounted(loadVoices)
+// The finished video is the thing you most often want and it used to be at the
+// very bottom. Pinned top-right, small, expandable.
+const videoBig = ref(false)
+
 const isGeneratingVideo = ref(false)
 
 // Pipeline X-Ray data
-const xrayExpanded = ref(false)
 
-function toggleXrayExpanded() {
-  xrayExpanded.value = !xrayExpanded.value
-}
 
 // Fetch data
 const { data: itemData, pending: itemLoading, error: itemError } = await useAsyncData(
@@ -686,9 +731,6 @@ async function pollForAudio() {
 }
 
 // Audio UI methods
-function toggleAudioExpanded() {
-  audioExpanded.value = !audioExpanded.value
-}
 
 function getCombinedAudioUrl() {
   if (!segment.value?.audio_combined_path) return ''
@@ -883,9 +925,6 @@ async function pollForImages() {
 }
 
 // Image UI methods
-function toggleImagesExpanded() {
-  imagesExpanded.value = !imagesExpanded.value
-}
 
 function getImageUrl(imageIndex) {
   return `${config.public.apiBase}/api/images/${itemId.value}/${runId.value}/${segId.value}/${imageIndex}/image.png`

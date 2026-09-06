@@ -98,11 +98,11 @@ function onSearch(value: string | number) {
 
 type ChipKey = 'all' | 'has_video' | 'no_video' | 'ungenerated'
 
-const chips: { key: ChipKey; label: string }[] = [
-  { key: 'all', label: 'All' },
-  { key: 'has_video', label: 'Has video' },
-  { key: 'no_video', label: 'No video' },
-  { key: 'ungenerated', label: 'Un-generated' },
+const chips: { key: ChipKey; label: string; hint: string }[] = [
+  { key: 'all', label: 'All', hint: 'Every ingested story.' },
+  { key: 'has_video', label: 'Has video', hint: 'Stories with at least one finished video segment.' },
+  { key: 'no_video', label: 'No video', hint: 'Ingested and possibly scored, but nothing rendered yet.' },
+  { key: 'ungenerated', label: 'Un-generated', hint: 'No runs at all — never processed past the fetch.' },
 ]
 
 const activeChip = computed<ChipKey>(() => {
@@ -115,6 +115,21 @@ const activeChip = computed<ChipKey>(() => {
 function applyChip(chip: ChipKey) {
   setFilter('has_video', chip === 'has_video' ? true : chip === 'no_video' ? false : undefined)
   setFilter('has_runs', chip === 'ungenerated' ? false : undefined)
+}
+
+// ── source ──────────────────────────────────────────────────────────────────
+//
+// `top` and `new` are different populations: `new` is the unfiltered firehose
+// and mostly noise, `top` has already survived the front page. Judging the
+// pipeline on a mixed list is misleading, so they can be separated.
+const SOURCES: { key: string | undefined; label: string; hint: string }[] = [
+  { key: undefined, label: 'Any source', hint: 'Both lists, plus anything ingested before sources were recorded.' },
+  { key: 'top', label: 'Top', hint: 'Arrived from the Hacker News front page — already filtered by the crowd.' },
+  { key: 'new', label: 'New', hint: 'Arrived from /newest — unfiltered, higher volume, much lower hit rate.' },
+]
+const activeSource = computed(() => filters.source as string | undefined)
+function applySource(key: string | undefined) {
+  setFilter('source', key)
 }
 
 // ── queue actions ───────────────────────────────────────────────────────────
@@ -276,6 +291,22 @@ function goToItem(id: number) {
             @click="applyChip(chip.key)"
           >
             {{ chip.label }}
+          </button>
+        </div>
+
+        <div class="flex items-center gap-1">
+          <button
+            v-for="src in SOURCES"
+            :key="src.label"
+            type="button"
+            :title="src.hint"
+            class="rounded-full border px-2.5 py-1 text-xs font-medium transition-colors"
+            :class="activeSource === src.key
+              ? 'border-running-border bg-running-bg text-running'
+              : 'border-border bg-transparent text-muted-foreground hover:bg-muted hover:text-foreground'"
+            @click="applySource(src.key)"
+          >
+            {{ src.label }}
           </button>
         </div>
 

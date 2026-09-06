@@ -24,9 +24,40 @@ from typing import List, Optional, Dict, Any, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Magpie voice mapping for the two hn.fm hosts.
+# Magpie voices that actually answer. Probed against
+# /v1/audio/synthesize: these six return audio, everything else 400s. Worth
+# keeping as a list rather than a guess — a wrong name fails the whole section
+# rather than falling back.
+VOICE_POOL = [
+    "Magpie-Multilingual.EN-US.Mia",
+    "Magpie-Multilingual.EN-US.Jason",
+    "Magpie-Multilingual.EN-US.Sofia",
+    "Magpie-Multilingual.EN-US.Diego",
+    "Magpie-Multilingual.EN-US.Aria",
+    "Magpie-Multilingual.EN-US.Leo",
+]
+# Rough pitch grouping, so a pairing is always two contrasting voices rather
+# than two that sound alike.
+_HIGHER = ["Magpie-Multilingual.EN-US.Mia", "Magpie-Multilingual.EN-US.Sofia",
+           "Magpie-Multilingual.EN-US.Aria"]
+_LOWER = ["Magpie-Multilingual.EN-US.Jason", "Magpie-Multilingual.EN-US.Diego",
+          "Magpie-Multilingual.EN-US.Leo"]
+
 S1_VOICE = os.getenv("MAGPIE_S1_VOICE", "Magpie-Multilingual.EN-US.Mia")
 S2_VOICE = os.getenv("MAGPIE_S2_VOICE", "Magpie-Multilingual.EN-US.Jason")
+
+
+def voices_for(seed: int = 0) -> tuple:
+    """A contrasting (S1, S2) pair, varied per segment.
+
+    Every episode used the same two voices, which made a run of them sound
+    like one long show. Derived from a seed rather than random so the same
+    segment re-renders with the same casting.
+    """
+    if os.getenv("MAGPIE_S1_VOICE") or os.getenv("MAGPIE_S2_VOICE"):
+        return S1_VOICE, S2_VOICE
+    return (_HIGHER[seed % len(_HIGHER)],
+            _LOWER[(seed // len(_HIGHER)) % len(_LOWER)])
 MAGPIE_LANGUAGE = os.getenv("MAGPIE_LANGUAGE", "en-US")
 MAGPIE_SAMPLE_RATE = int(os.getenv("MAGPIE_SAMPLE_RATE", "22050"))
 TURN_GAP_MS = int(os.getenv("MAGPIE_TURN_GAP_MS", "180"))
@@ -95,7 +126,8 @@ class TtsApiService:
         }
 
     # ---- public API -------------------------------------------------------
-    def generate_speech(self, text: str, voice: str = "notebooklm") -> Optional[bytes]:
+    def generate_speech(self, text: str, voice: str = "notebooklm",
+                        voice_seed: int = 0) -> Optional[bytes]:
         """Generate a single WAV (bytes) for a `[S1]/[S2]` dialogue chunk."""
         if not text or not text.strip():
             logger.warning("Empty text provided for TTS")
@@ -107,7 +139,7 @@ class TtsApiService:
                 if self.backend == "dia":
                     audio = self._synthesize_dia(text, voice, random.randint(1, 100000))
                 else:
-                    audio = self._synthesize_magpie_dialogue(text)
+                    audio = self._synthesize_magpie_dialogue(text, voice_seed)
                 if audio:
                     logger.debug(f"✅ TTS produced {len(audio)} bytes")
                     return audio
@@ -119,15 +151,20 @@ class TtsApiService:
         return None
 
     # ---- magpie backend ---------------------------------------------------
-    def _synthesize_magpie_dialogue(self, text: str) -> Optional[bytes]:
+    def _synthesize_magpie_dialogue(self, text: str,
+                                    voice_seed: int = 0) -> Optional[bytes]:
         turns = self._parse_turns(self._clean_text_for_tts(text))
         if not turns:
             return None
+        s1_voice, s2_voice = voices_for(voice_seed)
+        # Recorded so the segment page can say who read which section — the
+        # question "which voice is this" had no answer before.
+        self.last_voices = {"S1": s1_voice, "S2": s2_voice}
         clips: List[bytes] = []
         for speaker, line in turns:
             if not line.strip():
                 continue
-            voice = S1_VOICE if speaker == "S1" else S2_VOICE
+            voice = s1_voice if speaker == "S1" else s2_voice
             clip = self._magpie_one(line, voice)
             if clip:
                 clips.append(clip)

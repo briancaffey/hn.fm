@@ -65,16 +65,22 @@ def split_script_into_sections(script: str) -> List[str]:
     return sections
 
 
-def tts_synthesize_to_wav(text: str, out_path: str) -> int:
+def tts_synthesize_to_wav(text: str, out_path: str,
+                          voice_seed: int = 0) -> int:
     """
     Synthesize text to WAV file using TTS service.
 
     Args:
         text: Text to synthesize
         out_path: Output WAV file path
+        voice_seed: picks the (S1, S2) casting. Derived from the segment so a
+            re-render keeps the same voices, while different segments differ —
+            every episode used to use one pair and a run of them sounded like
+            a single show.
 
     Returns:
-        Duration in milliseconds
+        Duration in milliseconds. `last_voices` on the returned service holds
+        who read what, for the UI.
     """
     from .tts_api_service import TtsApiService
 
@@ -85,7 +91,7 @@ def tts_synthesize_to_wav(text: str, out_path: str) -> int:
     tts_service = TtsApiService()
 
     # Generate speech
-    audio_data = tts_service.generate_speech(text)
+    audio_data = tts_service.generate_speech(text, voice_seed=voice_seed)
     if not audio_data:
         raise RuntimeError(f"Failed to generate speech for text: {text[:100]}...")
 
@@ -95,6 +101,8 @@ def tts_synthesize_to_wav(text: str, out_path: str) -> int:
 
     # Get duration
     duration_ms = _get_audio_duration_ms(out_path)
+    tts_synthesize_to_wav.last_voices = getattr(tts_service, "last_voices", None)
+    tts_synthesize_to_wav.last_model = getattr(tts_service, "backend", "magpie")
     return duration_ms
 
 

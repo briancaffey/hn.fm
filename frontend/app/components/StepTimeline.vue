@@ -204,6 +204,22 @@ function formatStepTime(step: Step): string {
   }
 }
 
+/**
+ * The image a step produced, if it produced one.
+ *
+ * Paths are stored absolute inside the container (`/app/outputs/hn/item/...`);
+ * the API serves them under /api/images, so the tail after `segments/<n>/` is
+ * what matters.
+ */
+function stepImage(step: { outputs?: Record<string, unknown> | null }): string | null {
+  const out = step.outputs || {}
+  const raw = (out.image_path || out.path || out.out || out.clip_path) as string | undefined
+  if (typeof raw !== 'string' || !/\.(png|jpe?g|webp)$/i.test(raw)) return null
+  const m = raw.match(/hn\/item\/(\d+)\/runs\/(\d+)\/segments\/(\d+)\/(.+)$/)
+  if (!m) return null
+  return `${apiBase}/api/images/${m[1]}/${m[2]}/${m[3]}/${m[4]}`
+}
+
 function prettyJson(value: unknown): string {
   try {
     return JSON.stringify(value, null, 2)
@@ -483,6 +499,15 @@ async function rebuildStale() {
                 <!-- Outputs -->
                 <div v-if="step.outputs && Object.keys(step.outputs).length > 0">
                   <p class="text-sm font-medium text-muted-foreground mb-1">Outputs</p>
+                  <!-- An image step's whole point is the picture. Showing the
+                       path and making you open it in a new tab defeated the
+                       purpose of an x-ray. -->
+                  <img
+                    v-if="stepImage(step)"
+                    :src="stepImage(step)"
+                    :alt="`Output of ${step.step_key}`"
+                    class="mb-2 max-h-72 rounded-lg border bg-muted object-contain"
+                  >
                   <div class="bg-muted/50 p-3 rounded-lg">
                     <pre class="whitespace-pre-wrap text-xs text-foreground font-mono overflow-x-auto">{{ prettyJson(step.outputs) }}</pre>
                   </div>
