@@ -651,7 +651,9 @@ def _subjects_of(scene: str, limit: int = 6) -> str:
     ]
     seen, out = set(), []
     for w in words:
-        k = w.lower()
+        # Cap each token: a scene containing one very long unbroken string
+        # would otherwise put the whole thing in the block.
+        k = w.lower()[:24]
         if k not in seen:
             seen.add(k)
             out.append(k)
