@@ -951,12 +951,45 @@ async def list_runs_for_item_endpoint(
     tags=["hacker-news"],
 )
 async def get_single_run(item_id: int, run: int):
-    """Get a single run by item ID and run number"""
+    """Get a single run by item ID and run number.
+
+    Two display fields are filled in here rather than stored on the run:
+
+    `title` has never existed on a run, so every card asking for it got null
+    and fell back to "Item 49582874 · run 3". It belongs to the submission.
+
+    `tags`/`emoji` are written as placeholders before triage and replaced by
+    `enrich_run` — but only on the run that was triaged. A segment is built on
+    a later run, so every segment card in the list showed the same "tech news
+    📰✨🔥💡". They describe the article, so the story's real ones are used
+    wherever this particular run never got its own.
+    """
+    from ..db import repo as _repo
+
     try:
         processed_run = get_run(item_id, run)
 
         if processed_run is None:
             raise HTTPException(status_code=404, detail="Run not found")
+
+        item = _repo.get_item(item_id)
+        if item is not None:
+            processed_run.title = item.title
+            if item.time:
+                from datetime import datetime as _dt, timezone as _tz
+
+                processed_run.submitted_at = _dt.fromtimestamp(
+                    item.time, tz=_tz.utc
+                ).replace(tzinfo=None)
+
+        if not processed_run.tags or \
+                processed_run.tags == _repo.PLACEHOLDER_TAGS:
+            labels = _repo.story_labels(item_id)
+            if labels:
+                processed_run.tags = labels["tags"]
+                processed_run.emoji = labels["emoji"]
+                if labels.get("haiku"):
+                    processed_run.haiku = labels["haiku"]
 
         return processed_run
 

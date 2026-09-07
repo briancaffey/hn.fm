@@ -120,10 +120,7 @@ function videoUrl(t: Take) {
 }
 
 function frameStyle(t: Take) {
-  const ar = { '16:9': '16 / 9', '1:1': '1 / 1', '9:16': '9 / 16' }[t.aspect_format || '16:9']
-  // cap vertical height so 9:16 cards stay reasonable
-  const maxW = (t.aspect_format === '9:16') ? '220px' : '100%'
-  return { aspectRatio: ar, maxWidth: maxW }
+  return videoFrameStyle(t.aspect_format, { portraitMaxWidth: '220px' })
 }
 
 function qaClass(verdict: string) {

@@ -237,9 +237,9 @@ function imagesReady(gen) {
 
 // Aspect-aware frame so 9:16 videos stay a reasonable size
 function frameStyle(gen) {
-  const ar = { '16:9': '16 / 9', '1:1': '1 / 1', '9:16': '9 / 16' }[gen.aspect_format || '16:9'] || '16 / 9'
-  const maxW = gen.aspect_format === '9:16' ? '280px' : '640px'
-  return { aspectRatio: ar, maxWidth: maxW }
+  return videoFrameStyle(gen.aspect_format, {
+    portraitMaxWidth: '280px', landscapeMaxWidth: '640px',
+  })
 }
 
 // Status chip styles

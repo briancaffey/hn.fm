@@ -42,8 +42,13 @@
               <Badge class="bg-stale-bg text-stale border-stale-border text-sm">
                 Segment: {{ segment.seg }}
               </Badge>
+              <!-- Both dates, labelled. A single unlabelled timestamp read
+                   as "when this happened" without saying which thing. -->
+              <Badge v-if="submittedAt" class="bg-stale-bg text-stale border-stale-border text-sm">
+                Posted: {{ formatDateTime(submittedAt) }}
+              </Badge>
               <Badge class="bg-ok-bg text-ok border-ok-border text-sm">
-                {{ formatDateTime(segment.created_at) }}
+                Made: {{ formatDateTime(segment.created_at) }}
               </Badge>
             </div>
             <Button
@@ -664,6 +669,14 @@ const { data: imagesData, pending: imagesLoading, error: imagesError, refresh: r
 
 // Computed properties
 const item = computed(() => itemData.value)
+
+/** HN stores submission time as unix seconds. */
+const submittedAt = computed(() => {
+  const t = itemData.value?.time
+  return typeof t === 'number' && t > 0
+    ? new Date(t * 1000).toISOString()
+    : null
+})
 const segment = computed(() => segmentData.value)
 const sections = computed(() => sectionsData.value?.sections || [])
 const images = computed(() => imagesData.value?.images || [])

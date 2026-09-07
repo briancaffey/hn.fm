@@ -91,6 +91,19 @@ class ProcessedRun(BaseModel):
         ..., description="List of exactly 4 emoji characters describing the content"
     )
     haiku: str = Field(..., description="Haiku describing the article content")
+    title: Optional[str] = Field(
+        None,
+        description="The HN submission title. Display-only, filled by the API "
+                    "from the item — a run has never carried one, so every "
+                    "caller was falling back to 'Item 49582874 · run 3'.",
+    )
+    submitted_at: Optional[datetime] = Field(
+        None,
+        description="When the story was posted to HN. Display-only, filled by "
+                    "the API from the item. Distinct from created_at, which is "
+                    "when this run was produced — a segment made today can be "
+                    "about a story from last week.",
+    )
 
 
 class RunSummary(BaseModel):

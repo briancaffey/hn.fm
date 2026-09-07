@@ -403,9 +403,7 @@ function posterUrl(gen) {
 }
 
 function galleryFrameStyle(gen) {
-  const ar = { '16:9': '16 / 9', '1:1': '1 / 1', '9:16': '9 / 16' }[gen.aspect_format || '16:9'] || '16 / 9'
-  const maxW = gen.aspect_format === '9:16' ? '240px' : '100%'
-  return { aspectRatio: ar, maxWidth: maxW }
+  return videoFrameStyle(gen.aspect_format, { portraitMaxWidth: '240px' })
 }
 
 // QA badge (shared style with GenerationsTable)

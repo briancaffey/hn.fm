@@ -194,6 +194,35 @@ def get_run(item_id: int, run: int) -> Optional[ProcessedRun]:
         return _run_to_model(row) if row else None
 
 
+# What `process_hn_item_run` writes before triage has decided the story is
+# worth four LLM calls. `enrich_run` replaces them — but only on the run that
+# was triaged, which is run 1. Every later run, and every run that produces a
+# segment, keeps the placeholder.
+PLACEHOLDER_TAGS = ["tech", "news"]
+
+
+def story_labels(item_id: int) -> dict:
+    """The tags, emoji and haiku for a story, from whichever run has real ones.
+
+    They describe the article, not the render — a second take of the same
+    story does not need four more LLM calls to rediscover that it is about
+    malloc. Newest enriched run wins, so a re-enrichment is picked up.
+    """
+    with db_session() as s:
+        rows = (
+            s.execute(
+                select(RunRow.tags, RunRow.emoji, RunRow.haiku)
+                .where(RunRow.item_id == item_id)
+                .order_by(RunRow.run.desc())
+            ).all()
+        )
+    for tags, emoji, haiku in rows:
+        if tags and list(tags) != PLACEHOLDER_TAGS:
+            return {"tags": list(tags), "emoji": list(emoji or []),
+                    "haiku": haiku or ""}
+    return {}
+
+
 def list_run_numbers(item_id: int, offset: int = 0, limit: int = 20) -> List[int]:
     """Run numbers for an item, newest-first (was LPUSH + LRANGE)."""
     with db_session() as s:

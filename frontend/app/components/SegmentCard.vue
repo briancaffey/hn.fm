@@ -34,10 +34,19 @@ const props = defineProps<{ segment: Segment }>()
 
 const config = useRuntimeConfig()
 const apiBase = config.public.apiBase
-const runData = ref<{ title?: string, tags?: string[], emoji?: string[], summary?: string } | null>(null)
+const runData = ref<{
+  title?: string
+  tags?: string[]
+  emoji?: string[]
+  summary?: string
+  submitted_at?: string
+} | null>(null)
 
+// The submission's own headline, which says what the segment is about. The
+// fallback stays short because the id and run are already on the line below —
+// repeating them in the heading was the whole of the heading.
 const title = computed(() =>
-  runData.value?.title || `Item ${props.segment.item_id} · run ${props.segment.run}`)
+  runData.value?.title || `Item ${props.segment.item_id}`)
 
 const videoUrl = computed(() =>
   `${apiBase}/api/video/${props.segment.item_id}/${props.segment.run}/${props.segment.seg}/segment.mp4`)
@@ -62,6 +71,12 @@ async function fetchRun() {
   }
 }
 onMounted(fetchRun)
+
+/** The exact timestamp, for the tooltip — "3d ago" is not enough to cite. */
+function absolute(iso?: string) {
+  if (!iso) return ''
+  return new Date(iso).toLocaleString()
+}
 
 function relative(iso?: string) {
   if (!iso) return ''
@@ -99,9 +114,21 @@ const href = computed(() =>
               <span class="opacity-40">·</span>
               <span>{{ segment.aspect_format }}</span>
             </template>
+            <!-- Two dates, because they answer different questions: is the
+                 story still current, and how long ago did we make this. An
+                 unlabelled "15h ago" beside a week-old story was misleading
+                 about both. -->
+            <template v-if="runData?.submitted_at">
+              <span class="opacity-40">·</span>
+              <span :title="absolute(runData.submitted_at)">
+                posted {{ relative(runData.submitted_at) }}
+              </span>
+            </template>
             <template v-if="segment.created_at">
               <span class="opacity-40">·</span>
-              <span>{{ relative(segment.created_at) }}</span>
+              <span :title="absolute(segment.created_at)">
+                made {{ relative(segment.created_at) }}
+              </span>
             </template>
           </p>
         </div>
@@ -146,13 +173,18 @@ const href = computed(() =>
         </div>
       </div>
 
-      <div v-if="segment.video_ready" class="w-full shrink-0 lg:w-72" @click.stop>
-        <video
-          :src="videoUrl"
-          controls
-          preload="metadata"
-          class="aspect-video w-full rounded-md border bg-muted object-cover"
-        />
+      <div v-if="segment.video_ready" class="flex w-full shrink-0 justify-center lg:w-72" @click.stop>
+        <div
+          class="overflow-hidden rounded-md border bg-black"
+          :style="videoFrameStyle(segment.aspect_format, { height: '164px' })"
+        >
+          <video
+            :src="videoUrl"
+            controls
+            preload="metadata"
+            class="h-full w-full object-contain"
+          />
+        </div>
       </div>
     </div>
   </article>
