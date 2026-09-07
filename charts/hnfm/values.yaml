@@ -196,7 +196,15 @@ flower:
 inference:
   llm:
     baseUrl: http://litellm.observability.svc.cluster.local:4000/v1
-    model: nvidia/nemotron-3-nano-omni
+    # Gateway route names. spark-omni is LM Studio's nvidia/nemotron-3-nano-omni
+    # on the spark box with no fallbacks (nemotron-omni falls through to paid
+    # cloud routes). If baseUrl points at LM Studio directly, use the model id
+    # LM Studio reports instead (nvidia/nemotron-3-nano-omni).
+    model: spark-omni
+    # Applied to triage and the vision-driven sequence planner, which pin
+    # their model in config.yaml and only take an override from env.
+    triageModel: spark-omni
+    visionModel: spark-omni
     provider: local
   tts:
     baseUrl: http://magpie-tts.inference-club.svc.cluster.local:9000

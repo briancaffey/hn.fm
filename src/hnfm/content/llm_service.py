@@ -91,6 +91,7 @@ class LLMService:
         self.base_url = base_url or os.getenv("LLM_BASE_URL")
         self.model = (
             model
+            or _profile_model_override(self.profile)
             or self.profile.get("model")
             or os.getenv("LLM_MODEL", "nvidia-nemotron-super")
         )
@@ -363,6 +364,19 @@ def _short(error: ValidationError, limit: int = 300) -> str:
         f"{'.'.join(str(p) for p in e['loc'])}: {e['msg']}" for e in error.errors()[:4]
     ]
     return "; ".join(parts)[:limit]
+
+
+def _profile_model_override(profile: dict) -> Optional[str]:
+    """A profile can name an env var (`model_env`) whose value, when set,
+    replaces its pinned `model`. The pin exists so a profile that needs a
+    particular model (sequence.plan needs the multimodal one) cannot be
+    quietly downgraded by $LLM_MODEL; the env hook exists because the same
+    model has a different name behind the LiteLLM gateway than it does on
+    LM Studio directly, and the cluster talks to the gateway."""
+    env_name = profile.get("model_env")
+    if not env_name:
+        return None
+    return os.getenv(env_name) or None
 
 
 def _profile_for(task: Optional[str]) -> dict:

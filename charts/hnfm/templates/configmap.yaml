@@ -47,6 +47,8 @@ data:
   LLM_BASE_URL: {{ .Values.inference.llm.baseUrl | quote }}
   LLM_MODEL: {{ .Values.inference.llm.model | quote }}
   LLM_PROVIDER: {{ .Values.inference.llm.provider | quote }}
+  TRIAGE_LLM_MODEL: {{ .Values.inference.llm.triageModel | default .Values.inference.llm.model | quote }}
+  LLM_VISION_MODEL: {{ .Values.inference.llm.visionModel | default .Values.inference.llm.model | quote }}
   # --- Inference services -------------------------------------------------------
   TTS_BACKEND: {{ .Values.inference.tts.backend | quote }}
   TTS_BASE_URL: {{ .Values.inference.tts.baseUrl | quote }}

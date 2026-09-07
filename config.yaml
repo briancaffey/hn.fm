@@ -114,6 +114,10 @@ llm:
       # spark-omni goes straight to LM Studio on the spark box and carries no
       # fallbacks, so a substitution cannot happen silently.
       model: "nvidia/nemotron-3-nano-omni"
+      # Same model, different name behind the gateway (spark-omni). Set only
+      # where the gateway is the LLM_BASE_URL (the k8s chart does); unset on
+      # the Mac, where LM Studio is addressed directly.
+      model_env: LLM_VISION_MODEL
       temperature: 0.85
       max_tokens: 500
     # The two halves of the Story Brief run at deliberately different
