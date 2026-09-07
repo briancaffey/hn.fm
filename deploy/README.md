@@ -75,6 +75,19 @@ Feature flags live under `features:`; anything else goes through `env:`.
 After that: push to `forgejo main`, wait for Actions, watch
 `kubectl -n hnfm rollout status deploy/hnfm-web`.
 
+Two things learned on the first bring-up (2026-09-07):
+
+- The Vaultwarden bridge serves a cached vault. After adding or changing the
+  item, `kubectl -n external-secrets exec deploy/vaultwarden-bridge -- curl -s
+  -X POST localhost:8087/sync`, or wait for its periodic re-sync; until then
+  the ExternalSecret reports "filter worked but didn't get any result".
+- Argo's automated retry reuses the revisions of the operation it is
+  retrying. If a sync is stuck on a hook (e.g. the migrate Job pulling an
+  image that does not exist yet), pushing a fix does not unstick it. Deleting
+  the `hnfm` Application CR is safe (it has no finalizer, so nothing in the
+  namespace is touched) and the root app recreates it against current git.
+  Strip `argocd.argoproj.io/hook-finalizer` from the stale Job to delete it.
+
 ## Local chart checks
 
 ```sh

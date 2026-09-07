@@ -49,10 +49,14 @@ jobs:
         run: |
           set -euo pipefail
           TAG="${GITHUB_SHA::12}"
+          # Each image gets the commit SHA and a moving `latest`. The chart's
+          # default tag is `latest`, so a fresh install with default values
+          # has something to pull instead of stalling on the migrate hook.
           build() {  # name context
             IMAGE="harbor.lan/apps/hnfm-$1"
-            docker build -t "$IMAGE:$TAG" "$2"
+            docker build -t "$IMAGE:$TAG" -t "$IMAGE:latest" "$2"
             docker push "$IMAGE:$TAG"
+            docker push "$IMAGE:latest"
           }
           build backend .
           build frontend ./frontend
