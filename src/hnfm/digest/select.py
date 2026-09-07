@@ -24,10 +24,21 @@ class DigestStory:
     interest: Optional[int]
     rank: float
     brief: dict = field(default_factory=dict)
+    # Which HN list the item was ingested from: "top", "new", or None for
+    # items that predate source tracking.
+    source: Optional[str] = None
+    # Fallback material for editions that do not require a brief: the run's
+    # summary and a slice of the scraped text. Empty when a brief exists.
+    summary: str = ""
+    excerpt: str = ""
 
     @property
     def hn_url(self) -> str:
         return f"https://news.ycombinator.com/item?id={self.item_id}"
+
+    @property
+    def has_brief(self) -> bool:
+        return bool((self.brief or {}).get("thesis"))
 
 
 @dataclass
@@ -141,6 +152,17 @@ def select_stories(
             skipped_no_brief += 1
             continue
 
+        # No brief and the edition accepts that: fall back to what the scrape
+        # produced, so the story is covered from its own text rather than
+        # dropped. The rapid-fire edition is the one that wants this — it
+        # covers the whole list, and a third of the list never earns a brief.
+        summary, excerpt = "", ""
+        if not brief.get("thesis"):
+            summary, excerpt = _scraped_material(repo, item_id, run)
+            if not summary and not excerpt:
+                skipped_no_brief += 1
+                continue
+
         passed += 1
         if passed <= skip:
             continue
@@ -155,6 +177,9 @@ def select_stories(
                 interest=row.get("interest"),
                 rank=float(row.get("effective_rank") or 0.0),
                 brief=brief,
+                source=row.get("source"),
+                summary=summary,
+                excerpt=excerpt,
             )
         )
 
@@ -176,3 +201,23 @@ def select_stories(
         generated_at=now,
         stories=stories,
     )
+
+
+# How much of the scraped article a brief-less story carries into the writer.
+# Enough for a conclusion, not a feature: the rapid-fire prompt asks for
+# bullets, and 3,500 characters is roughly the first screen and a half.
+EXCERPT_CHARS = 3500
+
+
+def _scraped_material(repo, item_id: int, run: int):
+    """(summary, excerpt) from the processed run, or ("", "") if it has none."""
+    try:
+        pr = repo.get_run(item_id, run)
+    except Exception as e:  # a missing run is a skip, not a crash
+        logger.debug(f"digest: no run for {item_id}:{run} ({e})")
+        return "", ""
+    if not pr:
+        return "", ""
+    summary = (getattr(pr, "summary", "") or "").strip()
+    text = (getattr(pr, "content_clean", "") or "").strip()
+    return summary, text[:EXCERPT_CHARS]

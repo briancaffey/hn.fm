@@ -8,6 +8,10 @@ arrives at the same volume. This module gives the day an arc:
     deep dives  one or two stories explained properly, with mechanism
     bonus       the surprising leftovers
 
+A second, flatter shape lives at the bottom of the file: `compose_punchline`
+writes every story as two to four bullets that answer its headline, for the
+edition that covers the whole front page and /new in one sitting.
+
 Roles are assigned by rank, not by the model: `select_stories` already orders
 by the triage score, and letting a second model re-litigate that would put two
 disagreeing judgements in series. The model's job here is writing, not ranking.
@@ -326,3 +330,136 @@ def compose_narrative(digest) -> List[Section]:
         body=body,
         sources=sources[:8],
     )]
+
+
+# ---------------------------------------------------------------------------
+# Punchline: the rapid-fire edition
+# ---------------------------------------------------------------------------
+
+# Bullets per story. Four is the ceiling the prompt asks for; anything past it
+# is the model padding, and the reader is here precisely to not read padding.
+PUNCHLINE_MAX_BULLETS = 4
+
+# How many stories are written at once. The calls are independent and the
+# gateway is the bottleneck, not the CPU; four keeps a hundred-story edition
+# under ten minutes without stampeding a local model.
+PUNCHLINE_WORKERS = 4
+
+# Order of the source groups on the page, and what each is called there.
+_PUNCHLINE_GROUPS = (
+    ("top", "Front page"),
+    ("new", "New arrivals"),
+    (None, "Elsewhere on Hacker News"),
+)
+
+
+def _punchline_material(story) -> str:
+    """What the writer sees for one story.
+
+    A brief when there is one — thesis, facts, numbers, the discussion, and
+    the unknowns so the writer does not resolve them. Otherwise the scrape:
+    the run's summary and a slice of the article, labelled as such so the
+    prompt's thin-material rule can fire on an error page.
+    """
+    b = story.brief or {}
+    if b.get("thesis"):
+        return "\n".join([
+            "MATERIAL (from the research brief):",
+            f"thesis: {b.get('thesis')}",
+            f"why now: {b.get('why_now') or '(none)'}",
+            f"tension: {b.get('tension') or '(none)'}",
+            f"facts:\n{_facts_block(b, limit=6)}",
+            f"numbers:\n{_numbers_block(b, limit=4)}",
+            f"discussion:\n{_discussion_block(b, limit=4)}",
+            f"not established by the source (never resolve):\n"
+            f"{_unknowns_block(b, limit=4)}",
+        ])
+    parts = ["MATERIAL (no research brief; article text only, no discussion):"]
+    if story.summary:
+        parts.append(f"summary: {story.summary}")
+    parts.append(f"article excerpt:\n{story.excerpt or '(nothing scraped)'}")
+    return "\n".join(parts)
+
+
+def parse_bullets(text: str, limit: int = PUNCHLINE_MAX_BULLETS) -> List[str]:
+    """Lines of a bulleted answer, stripped of their markers and capped.
+
+    Tolerant of the model's habits — "-", "•", "*", "1." — and of a stray
+    heading or "Here are the bullets:" line, which is dropped because it ends
+    in a colon and carries no claim.
+    """
+    import re
+
+    out = []
+    for raw in (text or "").splitlines():
+        line = re.sub(r"^\s*(?:[-•*·]|\d+[.)])\s*", "", raw).strip()
+        line = line.strip("*_ ").strip()
+        if not line or line.endswith(":") and len(line) < 40:
+            continue
+        out.append(line)
+        if len(out) >= limit:
+            break
+    return out
+
+
+def _punchline_one(story) -> Optional[Section]:
+    text = _write(
+        "digest.punchline",
+        title=story.title,
+        url=story.url or story.hn_url,
+        material=_punchline_material(story),
+    )
+    bullets = parse_bullets(text) if text else []
+    if not bullets:
+        return None
+    return Section(
+        kind="punchline", title=story.title, body="\n".join(bullets),
+        story_id=story.item_id, url=story.url, hn_url=story.hn_url,
+    )
+
+
+def compose_punchline(digest, workers: int = None) -> List[Section]:
+    """Every story as its punchline, grouped by which HN list it came from.
+
+    Stories are written concurrently but placed in list order, so a slow call
+    changes nothing about the page. A story whose call fails is dropped —
+    the edition says how many it covers, and a headline with no bullets
+    under it would read as a rendering bug.
+
+    Group headers are emitted as `heading` sections so the renderers need no
+    knowledge of sources; a group with no surviving stories gets no header.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    stories = digest.stories
+    if not stories:
+        return []
+
+    workers = int(
+        workers if workers is not None
+        else os.getenv("DIGEST_PUNCHLINE_WORKERS", PUNCHLINE_WORKERS)
+    )
+    with ThreadPoolExecutor(max_workers=max(1, workers)) as pool:
+        written = list(pool.map(_punchline_one, stories))
+
+    by_story = {s.item_id: sec for s, sec in zip(stories, written) if sec}
+
+    sections: List[Section] = []
+    known = {src for src, _ in _PUNCHLINE_GROUPS if src}
+    for src, label in _PUNCHLINE_GROUPS:
+        members = [
+            s for s in stories
+            if (s.source == src if src else s.source not in known)
+            and s.item_id in by_story
+        ]
+        if not members:
+            continue
+        sections.append(Section(kind="heading", title=label, body=""))
+        sections.extend(by_story[s.item_id] for s in members)
+
+    dropped = len(stories) - len(by_story)
+    logger.info(
+        f"digest: punchline composed {len(by_story)} of {len(stories)} stories"
+        + (f" ({dropped} dropped: no bullets came back)" if dropped else "")
+    )
+    return sections

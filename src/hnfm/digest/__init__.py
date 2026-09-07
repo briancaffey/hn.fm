@@ -6,6 +6,9 @@ re-derives content: a digest is a *rendering* of Story Briefs that triage and
 cannot invent a claim the brief does not contain.
 
     select.py   which stories go in (ranked, same order as the triage queue)
+    compose.py  the edition's own prose — and the punchline edition, which
+                covers the whole list in bullets and takes stories that have
+                only a scrape, not a brief
     render.py   brief -> HTML (browser, and Send-to-Kindle) and EPUB (Kindle)
     deliver.py  email the file to a Send-to-Kindle address
 """

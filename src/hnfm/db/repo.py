@@ -850,6 +850,9 @@ def list_triage(
                 time=item.time,
                 hn_score=item.score,
                 comments=item.descendants,
+                # Which HN list it came from (top | new), null before that
+                # was recorded. The rapid-fire digest groups by it.
+                source=getattr(item, "source", None),
                 human_verdict=human_verdict,
                 human_note=human_note,
                 segments_count=int(segments_count or 0),

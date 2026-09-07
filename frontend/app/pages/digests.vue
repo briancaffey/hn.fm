@@ -32,20 +32,51 @@ const { data, pending, refresh } = await useAsyncData<DigestsResponse>('digests'
   $fetch(`${apiBase}/api/digests`)
 )
 
+/**
+ * The editions the backend knows how to write. `stories` is the default the
+ * task uses when none is given; it is mirrored here so switching shape fills
+ * the count in rather than leaving a daily-sized number on a punchline run.
+ */
+const SHAPES = [
+  { value: 'daily', label: 'Daily', stories: 5, hint: 'Teaser, quick hits, two features, bonus.' },
+  { value: 'deep', label: 'Deep', stories: 3, hint: 'Three stories, two of them features.' },
+  { value: 'scan', label: 'Scan', stories: 8, hint: 'Eight quick hits, no feature.' },
+  { value: 'narrative', label: 'Narrative', stories: 6, hint: 'One essay across the edition.' },
+  { value: 'punchline', label: 'Punchline', stories: 60, hint: 'The whole front page and /new, every story cut to its punchline in two to four bullets. No pictures.' },
+]
+const SOURCES = [
+  { value: '', label: 'Front page + new' },
+  { value: 'top', label: 'Front page only' },
+  { value: 'new', label: 'New only' },
+]
+
+const shape = ref('daily')
+const source = ref('')
 const storyCount = ref(5)
 const sendAfterBuild = ref(false)
 const busy = ref(false)
 const message = ref('')
 
+const shapeInfo = computed(() => SHAPES.find(s => s.value === shape.value) || SHAPES[0])
+watch(shape, () => { storyCount.value = shapeInfo.value.stories })
+
 // Building runs triage first, which is several LLM calls per unscored story —
 // slow enough that a spinner alone would look stuck without saying why.
 const buildDigest = async () => {
   busy.value = true
-  message.value = 'Scoring stories and rendering… this can take a few minutes.'
+  message.value = shape.value === 'punchline'
+    ? `Scoring and writing ${storyCount.value} stories… a large edition takes ten minutes or so.`
+    : 'Scoring stories and rendering… this can take a few minutes.'
   try {
     await $fetch(`${apiBase}/api/digests`, {
       method: 'POST',
-      body: { limit: storyCount.value, send: sendAfterBuild.value, score_first: true },
+      body: {
+        limit: storyCount.value,
+        send: sendAfterBuild.value,
+        score_first: true,
+        shape: shape.value,
+        source: source.value || null,
+      },
     })
     message.value = sendAfterBuild.value
       ? 'Queued. It will be emailed to your Kindle when it finishes.'
@@ -130,8 +161,28 @@ const sendAllUnsent = async () => {
       <CardContent class="space-y-4">
         <div class="flex flex-wrap items-end gap-4">
           <div class="space-y-1">
+            <label class="text-sm font-medium" for="digest-shape">Edition</label>
+            <select
+              id="digest-shape"
+              v-model="shape"
+              class="block h-9 rounded-md border bg-card px-2 text-sm"
+            >
+              <option v-for="s in SHAPES" :key="s.value" :value="s.value">{{ s.label }}</option>
+            </select>
+          </div>
+          <div class="space-y-1">
+            <label class="text-sm font-medium" for="digest-source">From</label>
+            <select
+              id="digest-source"
+              v-model="source"
+              class="block h-9 rounded-md border bg-card px-2 text-sm"
+            >
+              <option v-for="s in SOURCES" :key="s.value" :value="s.value">{{ s.label }}</option>
+            </select>
+          </div>
+          <div class="space-y-1">
             <label class="text-sm font-medium">Stories</label>
-            <Input v-model.number="storyCount" type="number" min="1" max="20" class="w-24" />
+            <Input v-model.number="storyCount" type="number" min="1" :max="shape === 'punchline' ? 150 : 20" class="w-24" />
           </div>
           <label class="flex items-center gap-2 text-sm pb-2">
             <input v-model="sendAfterBuild" type="checkbox" class="h-4 w-4">
@@ -141,6 +192,7 @@ const sendAllUnsent = async () => {
             {{ busy ? 'Working…' : 'Build digest' }}
           </Button>
         </div>
+        <p class="text-xs text-muted-foreground">{{ shapeInfo.hint }}</p>
         <p v-if="message" class="text-sm text-muted-foreground">{{ message }}</p>
       </CardContent>
     </Card>

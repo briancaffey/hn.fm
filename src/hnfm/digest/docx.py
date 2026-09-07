@@ -303,6 +303,18 @@ def write_docx(digest, out_path: str, sections=None, illustrations=None,
                     if line.strip():
                         doc.para(line.strip(), "Body")
                 continue
+            if sec.kind == "heading":
+                doc.para(sec.title, "Heading1")
+                continue
+            if sec.kind == "punchline":
+                # Compact: a bold title, its bullets, the links. No kicker —
+                # the group heading above already says what these are.
+                doc.para(sec.title, "Heading2")
+                for line in sec.body.splitlines():
+                    if line.strip():
+                        doc.para("• " + _plain(line.strip()), "Body")
+                _sources(sec)
+                continue
 
             doc.para("Feature" if sec.kind == "deep" else "In brief", "Kicker")
             doc.para(sec.title, "Heading1")

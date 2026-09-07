@@ -2495,7 +2495,7 @@ def build_digest(
     """
     _t_start = time.time()
     from ..digest import select_stories, render_html, write_epub
-    from ..digest.compose import compose, compose_narrative
+    from ..digest.compose import compose, compose_narrative, compose_punchline
     from ..digest.deliver import send_digest, delivery_config, DeliveryError
 
     # Shape drives both how many stories are drawn and how they are written.
@@ -2505,18 +2505,30 @@ def build_digest(
         "deep":      {"stories": 3, "deep": 2},
         "scan":      {"stories": 8, "deep": 0},
         "narrative": {"stories": 6, "deep": 0},
+        # The rapid-fire edition: the whole front page and /new, every story
+        # cut to its punchline. No teaser, no feature, no pictures.
+        "punchline": {"stories": 60, "deep": 0},
     }
     spec = SHAPES.get(shape, SHAPES["daily"])
+    rapid = shape == "punchline"
 
     limit = int(limit or spec["stories"])
     fmt = (fmt or os.getenv("DIGEST_FORMAT", "html")).lower()
     outputs_root = os.getenv("OUTPUTS_ROOT", "/app/outputs")
 
+    if illustrate_n and rapid:
+        # The point of this edition is that it has no pictures.
+        logger.info("digest: punchline edition ignores illustrate_n")
+        illustrate_n = 0
+
     if score_first:
         # Score unscored stories so tonight's arrivals can appear tomorrow.
         # Best-effort: a scoring failure should shorten the digest, not cancel it.
+        # The x3 over-scores because the brief gate rejects a share of what
+        # is scored; the punchline edition takes stories without a brief, so
+        # it scores only what it can seat.
         try:
-            scored = _score_unbriefed(limit * 3)
+            scored = _score_unbriefed(limit if rapid else limit * 3)
             logger.info(f"digest: scored {scored} stories before rendering")
         except Exception as e:
             logger.warning(f"digest: pre-scoring failed (non-fatal): {e}")
@@ -2525,6 +2537,9 @@ def build_digest(
         limit=limit,
         since_hours=since_hours,
         skip=int(skip or 0),
+        # A punchline entry can be written from the scrape alone; the prose
+        # editions need the brief's verified facts.
+        require_brief=not rapid,
         # Dedup so consecutive editions do not re-tell the same stories. 0
         # disables, for a deliberate re-run of the same material.
         exclude_recent_days=int(exclude_recent_days) or None,
@@ -2541,12 +2556,22 @@ def build_digest(
     sections = None
     if os.getenv("DIGEST_COMPOSE", "true").lower() == "true":
         try:
-            sections = (
-                compose_narrative(digest) if shape == "narrative"
-                else compose(digest, deep_dives=spec["deep"])
-            ) or None
+            if shape == "narrative":
+                sections = compose_narrative(digest)
+            elif rapid:
+                sections = compose_punchline(digest)
+            else:
+                sections = compose(digest, deep_dives=spec["deep"])
+            sections = sections or None
         except Exception as e:
             logger.warning(f"digest: composition failed, using flat layout: {e}")
+
+    if rapid and not sections:
+        # The flat layout typesets briefs, and half of a punchline edition
+        # has none — it would come out as sixty headlines over nothing.
+        logger.warning("digest: punchline composition produced nothing — no edition")
+        return {"status": "empty", "stories": len(digest.stories),
+                "reason": "punchline composition failed"}
 
     # Illustrations. Off by default: they cost a flux call and an LLM call per
     # picture, and the plain digest is the one that goes out nightly.

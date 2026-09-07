@@ -63,6 +63,17 @@ figcaption .fc-meta { color: #777; }
               text-align: center; }
 .cover-date { font-size: .85em; text-transform: uppercase;
               letter-spacing: .12em; margin: 0 0 .2em; text-align: center; }
+/* Punchline edition: eighty stories on one scroll, so the per-story
+   furniture is minimal — a bold title, its bullets, one link line. */
+.group { font-size: .95em; text-transform: uppercase; letter-spacing: .1em;
+         margin: 2em 0 .6em; padding-bottom: .3em;
+         border-bottom: 1px solid #999; page-break-after: avoid; }
+.punch { margin: 0 0 1.3em; page-break-inside: avoid; }
+.punch h2 { font-size: 1.05em; margin: 0 0 .25em; }
+.punch h2 a { color: inherit; text-decoration: none; }
+.punch ul { margin: 0 0 .3em 1.1em; }
+.punch li { margin: 0 0 .25em; }
+.punch .footer { font-size: .75em; margin: 0; }
 """
 
 
@@ -185,6 +196,33 @@ def _section_body(sec, illos=None) -> str:
         out.append("</ul>")
         return "\n".join(out)
 
+    if sec.kind == "heading":
+        # A group label (Front page / New arrivals), not a story.
+        return f'<h3 class="group">{_esc(sec.title)}</h3>'
+
+    if sec.kind == "punchline":
+        # Title links to the source, so the reader who wants more is one tap
+        # away and the link line below can stay tiny.
+        href = sec.url or sec.hn_url
+        title = (
+            f'<a href="{_esc(href)}">{_esc(sec.title)}</a>' if href
+            else _esc(sec.title)
+        )
+        out.append(f'<div class="punch"><h2>{title}</h2><ul>')
+        for line in sec.body.splitlines():
+            if line.strip():
+                out.append(f"<li>{_esc(line.strip())}</li>")
+        out.append("</ul>")
+        links = []
+        if sec.hn_url:
+            links.append(f'<a href="{_esc(sec.hn_url)}">Discussion</a>')
+        if sec.url:
+            links.append(f'<a href="{_esc(sec.url)}">Source</a>')
+        if links:
+            out.append(f'<p class="footer">{" · ".join(links)}</p>')
+        out.append("</div>")
+        return "\n".join(out)
+
     # quick | deep. The kicker is what tells a commuter, at a glance, whether
     # this is a 30-second item or the one to settle into.
     out.append(
@@ -254,7 +292,9 @@ def render_html(digest: Digest, sections=None, illustrations=None,
         # Composed edition: teaser, quick hits, feature, bonus. No rule before
         # the teaser — it reads as part of the masthead.
         for sec in sections:
-            if sec.kind != "teaser":
+            # No rule before the teaser (it reads as part of the masthead),
+            # nor around punchline items — eighty rules would be a ladder.
+            if sec.kind not in ("teaser", "heading", "punchline"):
                 parts.append('<hr class="rule"/>')
             parts.append(_section_body(
                 sec, (illustrations or {}).get(sec.story_id)))
@@ -271,6 +311,24 @@ def render_html(digest: Digest, sections=None, illustrations=None,
         parts.append(_diag_html(diagnostics))
     parts.append("</body></html>")
     return "\n".join(parts)
+
+
+def _chapter_groups(sections) -> List[list]:
+    """Sections bundled into EPUB chapters.
+
+    Ordinary sections are one chapter each. A punchline edition would make a
+    hundred one-paragraph chapters and a table of contents nobody can use,
+    so its items ride under their group heading: one chapter per list.
+    """
+    groups: List[list] = []
+    for sec in sections:
+        if sec.kind == "punchline" and groups and groups[-1][0].kind in (
+            "heading", "punchline"
+        ):
+            groups[-1].append(sec)
+        else:
+            groups.append([sec])
+    return groups
 
 
 def _xhtml(title: str, body: str) -> str:
@@ -302,9 +360,13 @@ def write_epub(digest: Digest, out_path: str, sections=None,
         # own — a one-paragraph entry in the table of contents is noise.
         teaser = next((s for s in sections if s.kind == "teaser"), None)
         body_sections = [s for s in sections if s.kind != "teaser"]
-        for i, sec in enumerate(body_sections, start=1):
-            label = sec.title or ("Also worth knowing" if sec.kind == "bonus" else f"Item {i}")
-            chapters.append((f"s{i}.xhtml", label, _xhtml(label, _section_body(sec))))
+        for i, group in enumerate(_chapter_groups(body_sections), start=1):
+            head = group[0]
+            label = head.title or (
+                "Also worth knowing" if head.kind == "bonus" else f"Item {i}"
+            )
+            body = "\n".join(_section_body(sec) for sec in group)
+            chapters.append((f"s{i}.xhtml", label, _xhtml(label, body)))
     else:
         teaser = None
         for i, story in enumerate(digest.stories, start=1):
