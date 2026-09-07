@@ -26,6 +26,17 @@ export default defineNuxtConfig({
     }
   },
 
+  icon: {
+    // @nuxt/icon serves its bundled icon sets from `/api/_nuxt_icon` by
+    // default, and the devProxy above forwards everything under `/api` to
+    // FastAPI — which answers `{"detail":"Not found"}`. Every icon on every
+    // page was therefore falling through to the public Iconify CDN, so the
+    // UI made an external request per icon and a request that failed left a
+    // button rendered as an empty box. Moved off `/api` so the local set is
+    // actually used.
+    localApiEndpoint: '/_icons',
+  },
+
   css: ['~/assets/css/tailwind.css'],
 
   vite: {

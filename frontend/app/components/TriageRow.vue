@@ -384,7 +384,12 @@ export interface TriageItem {
             title="Add a note"
             @click="noteOpen = !noteOpen"
           >
-            <Icon name="lucide:sticky-note" class="h-3.5 w-3.5" />
+            <!-- Labelled like the three buttons beside it. Icon-only, it was
+                 the one control in the row that said nothing about itself —
+                 and when the icon failed to load there was nothing left at
+                 all, just an empty box. -->
+            <Icon name="lucide:sticky-note" class="mr-0.5 inline-block h-3.5 w-3.5 align-[-2px]" />
+            Note
           </button>
         </div>
         <span v-if="feedbackError" class="text-[10px] text-destructive">Feedback failed</span>
