@@ -23,6 +23,15 @@ say(){ printf '\n\033[1;36m==> %s\033[0m\n' "$*"; }
 jsonval(){ python3 -c 'import sys,json;print(json.load(sys.stdin)[sys.argv[1]])' "$1"; }
 
 say "1/6  Harbor robot (push+pull on the 'apps' project)"
+# Reuse an existing robot when its creds are in the environment (e.g. the
+# Vaultwarden item harbor-robot-apps-ci via home-lab scripts/vault-secret.sh);
+# otherwise mint a fresh one with the Harbor admin password.
+if [ -n "${HARBOR_ROBOT_USER:-}" ] && [ -n "${HARBOR_ROBOT_TOKEN:-}" ]; then
+  RUSER="$HARBOR_ROBOT_USER"; RTOKEN="$HARBOR_ROBOT_TOKEN"
+  CODE=$(curl -sk -u "${RUSER}:${RTOKEN}" "${HARBOR}/api/v2.0/projects/apps/repositories" -o /dev/null -w '%{http_code}')
+  [ "$CODE" = "200" ] || { echo "    ERROR: supplied robot creds rejected by Harbor (HTTP ${CODE})"; exit 1; }
+  echo "    using existing robot: ${RUSER}"
+else
 read -rsp "    Harbor admin password: " ADMIN_PW; echo
 CODE=$(curl -sk -u "admin:${ADMIN_PW}" "${HARBOR}/api/v2.0/users/current" -o /dev/null -w '%{http_code}')
 [ "$CODE" = "200" ] || { echo "    ERROR: Harbor admin auth failed (HTTP ${CODE})"; exit 1; }
@@ -45,6 +54,7 @@ RUSER=$(printf '%s' "$ROBOT" | jsonval name 2>/dev/null || true)
 RTOKEN=$(printf '%s' "$ROBOT" | jsonval secret 2>/dev/null || true)
 [ -n "$RUSER" ] && [ -n "$RTOKEN" ] || { echo "    ERROR creating robot: ${ROBOT}"; exit 1; }
 echo "    robot user: ${RUSER}"
+fi
 
 say "2/6  Forgejo access token"
 FJOUT=$(kubectl -n forgejo exec -i deploy/forgejo -- su git -c \
