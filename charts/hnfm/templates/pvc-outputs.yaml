@@ -1,0 +1,19 @@
+# Pipeline scratch + everything the API still serves from local disk
+# (thumbnails, digests, RSS enclosure sizes). Shared by web, all workers,
+# beat and the render sidecar at the identical path /app/outputs. MinIO holds
+# the durable copies of media; this is the working tree.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "hnfm.outputsClaim" . }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+  annotations:
+    # Datastores and this claim come up before the migrate Job and the app.
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.storage.className }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.outputs }}

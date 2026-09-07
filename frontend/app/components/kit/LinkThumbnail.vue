@@ -18,11 +18,21 @@ const props = withDefaults(defineProps<{
   url?: string | null
   /** Attempts after the first miss. Each one is a capture already in flight. */
   retries?: number
-}>(), { url: null, retries: 2 })
+  /**
+   * Ask the API to capture what it does not have. Off for long lists: the
+   * stories table shows everything ingested, and a page of fifty would queue
+   * fifty captures at eight seconds each for rows nobody looked at. Those
+   * show whatever is already cached and nothing more.
+   */
+  capture?: boolean
+  /** Too small for a caption. Below about 80px the domain does not fit. */
+  compact?: boolean
+}>(), { url: null, retries: 2, capture: true, compact: false })
 
 const config = useRuntimeConfig()
 const src = computed(() =>
-  `${config.public.apiBase}/api/hn/items/${props.itemId}/thumbnail`)
+  `${config.public.apiBase}/api/hn/items/${props.itemId}/thumbnail`
+  + (props.capture ? '' : '?cached=1'))
 
 const state = ref<'loading' | 'ready' | 'none'>('loading')
 const bust = ref(0)
@@ -39,7 +49,9 @@ const host = computed(() => {
 })
 
 function onError() {
-  if (attempts.value >= props.retries) {
+  // Nothing was queued, so waiting five seconds and asking again would get
+  // the same 404.
+  if (!props.capture || attempts.value >= props.retries) {
     state.value = 'none'
     return
   }
@@ -68,14 +80,19 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer) })
     :title="url"
     @click.stop
   >
+    <!-- The placeholder sits underneath rather than replacing the image, and
+         the image fades in over it. Hiding the image until it loads is a
+         deadlock with `loading="lazy"`: a display:none image never enters the
+         viewport, so it never loads, so the load event that would reveal it
+         never fires. Opacity keeps it in the layout and in the load path. -->
     <img
-      v-show="state === 'ready'"
       :key="bust"
-      :src="bust ? `${src}?r=${bust}` : src"
+      :src="bust ? `${src}${src.includes('?') ? '&' : '?'}r=${bust}` : src"
       alt=""
       loading="lazy"
       decoding="async"
-      class="h-full w-full object-cover object-top transition-transform group-hover:scale-[1.02]"
+      class="absolute inset-0 h-full w-full object-cover object-top transition-all duration-300 group-hover:scale-[1.02]"
+      :class="state === 'ready' ? 'opacity-100' : 'opacity-0'"
       @load="state = 'ready'"
       @error="onError"
     >
@@ -85,9 +102,13 @@ onBeforeUnmount(() => { if (timer) clearTimeout(timer) })
     >
       <Icon
         :name="state === 'loading' ? 'lucide:image' : 'lucide:link'"
-        class="h-4 w-4 text-muted-foreground/50"
+        class="text-muted-foreground/50"
+        :class="compact ? 'h-3.5 w-3.5' : 'h-4 w-4'"
       />
-      <span class="line-clamp-2 text-[10px] leading-tight text-muted-foreground">
+      <span
+        v-if="!compact"
+        class="line-clamp-2 text-[10px] leading-tight text-muted-foreground"
+      >
         {{ host }}
       </span>
     </div>

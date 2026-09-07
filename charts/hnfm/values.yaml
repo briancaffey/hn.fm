@@ -1,0 +1,232 @@
+# hn.fm Helm values.
+#
+# Defaults are tuned so that `helm install hnfm charts/hnfm` on a k3s cluster
+# brings up the whole app with in-chart Postgres/Redis/MinIO and dev secrets.
+# The home-lab overlay (home-lab repo, clusters/home/hnfm/values.yaml) flips
+# secrets to External Secrets and pins the image tag CI built.
+
+image:
+  registry: harbor.lan/apps
+  # One tag for all three images (hnfm-backend, hnfm-frontend, hnfm-hyperframes);
+  # CI builds them from the same commit and writes the 12-char SHA here.
+  tag: latest
+  pullPolicy: IfNotPresent
+  pullSecrets: []
+
+# Public hostname. Frontend, API, MinIO (path-style, /<bucket>) and Flower all
+# share this one origin, which is what keeps CORS and presigned URLs simple.
+host: hnfm.lan
+tls:
+  enabled: true
+  # Minted out-of-band (home-lab scripts/lan-certs.sh); the chart only refers to it.
+  secretName: hnfm-tls
+ingress:
+  enabled: true
+  className: traefik
+  annotations:
+    gethomepage.dev/enabled: "true"
+    gethomepage.dev/name: "hn.fm"
+    gethomepage.dev/description: "Hacker News, watchable"
+    gethomepage.dev/group: "Apps"
+    gethomepage.dev/icon: "mdi-podcast"
+
+# Every pod lands on one box: the outputs PVC is local-path (node-local) and is
+# shared by web, all workers, beat and the render sidecar at /app/outputs.
+# Images are built amd64-only by the Forgejo runner.
+nodeSelector:
+  kubernetes.io/arch: amd64
+  inference-club.com/box: a2
+tolerations: []
+
+# The backend image runs as user `app` (uid 1000); fsGroup makes the PVCs writable.
+podSecurityContext:
+  fsGroup: 1000
+
+storage:
+  className: local-path
+  outputs: 200Gi
+  postgres: 20Gi
+  redis: 2Gi
+  minio: 200Gi
+
+# --- Secrets -----------------------------------------------------------------
+# All sensitive env lives in one Secret named <release>-secrets. Either the
+# chart renders it from `secrets.values` (dev / first bring-up), or External
+# Secrets Operator materialises it from Vaultwarden (`externalSecret`).
+secrets:
+  create: true
+  values:
+    # DATABASE_URL is derived from POSTGRES_PASSWORD when postgres.enabled and
+    # not given explicitly.
+    POSTGRES_PASSWORD: hnfm
+    DATABASE_URL: ""
+    S3_ACCESS_KEY: hnfm
+    S3_SECRET_KEY: hnfm-minio-secret
+    # LiteLLM / OpenAI-compatible key for LLM_BASE_URL.
+    OPENAI_API_KEY: ""
+    FIRECRAWL_API_KEY: ""
+    # Kindle digest delivery (see plans/17); empty = digests render but don't send.
+    BREVO_API_KEY: ""
+    DIGEST_FROM_EMAIL: ""
+    KINDLE_EMAIL: ""
+externalSecret:
+  enabled: false
+  storeRef:
+    name: vaultwarden
+    kind: ClusterSecretStore
+  # Vaultwarden item; convention is <namespace>-<secretname>. Each key below is
+  # a custom field on that item.
+  remoteKey: hnfm-hnfm-secrets
+  refreshInterval: 1h
+  keys:
+    - POSTGRES_PASSWORD
+    - DATABASE_URL
+    - S3_ACCESS_KEY
+    - S3_SECRET_KEY
+    - OPENAI_API_KEY
+    - FIRECRAWL_API_KEY
+    - BREVO_API_KEY
+    - DIGEST_FROM_EMAIL
+    - KINDLE_EMAIL
+
+# --- Datastores --------------------------------------------------------------
+postgres:
+  enabled: true
+  image: postgres:17-alpine
+  user: hnfm
+  database: hnfm
+  # Used only when enabled=false (DATABASE_URL must then be in the Secret).
+  externalHost: ""
+  externalPort: 5432
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 2Gi }
+
+redis:
+  enabled: true
+  image: redis:7-alpine
+  db: "0"
+  externalHost: ""
+  externalPort: 6379
+  resources:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { memory: 512Mi }
+
+minio:
+  enabled: true
+  image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+  bucket: hnfm-media
+  # Used only when enabled=false.
+  externalEndpoint: ""
+  externalPublicUrl: ""
+  resources:
+    requests: { cpu: 100m, memory: 256Mi }
+    limits: { memory: 1Gi }
+
+# --- App workloads -----------------------------------------------------------
+web:
+  replicas: 1
+  resources:
+    requests: { cpu: 200m, memory: 512Mi }
+    limits: { memory: 2Gi }
+
+frontend:
+  replicas: 1
+  resources:
+    requests: { cpu: 50m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+# Celery lanes, one Deployment each (see celery_app.task_routes). The render
+# lane must stay serial: concurrent renders contend for the same GPU services
+# and ffmpeg and get slower, not faster.
+workers:
+  render:
+    queues: "hnfm_render,hnfm_tasks"
+    concurrency: 1
+    replicas: 1
+    resources:
+      requests: { cpu: "1", memory: 2Gi }
+      limits: { memory: 6Gi }
+  ingest:
+    queues: hnfm_ingest
+    concurrency: 4
+    replicas: 1
+    resources:
+      requests: { cpu: 250m, memory: 512Mi }
+      limits: { memory: 2Gi }
+  triage:
+    queues: hnfm_triage
+    concurrency: 2
+    replicas: 1
+    resources:
+      requests: { cpu: 100m, memory: 512Mi }
+      limits: { memory: 2Gi }
+  digest:
+    queues: hnfm_digest
+    concurrency: 1
+    replicas: 1
+    resources:
+      requests: { cpu: 250m, memory: 1Gi }
+      limits: { memory: 4Gi }
+
+beat:
+  resources:
+    requests: { cpu: 20m, memory: 128Mi }
+    limits: { memory: 512Mi }
+
+hyperframes:
+  enabled: true
+  # Concurrent headless-Chrome launches. Six at once produced twelve browsers
+  # and three crashes; two is the measured safe value.
+  shotConcurrency: 2
+  resources:
+    requests: { cpu: 500m, memory: 1Gi }
+    limits: { memory: 3Gi }
+
+flower:
+  enabled: false
+  image: mher/flower:2.0.1
+  resources:
+    requests: { cpu: 20m, memory: 64Mi }
+    limits: { memory: 256Mi }
+
+# --- Inference services ------------------------------------------------------
+# In-cluster DNS of the inference-club fleet. Override to point elsewhere
+# (e.g. LM Studio on the spark box directly: http://192.168.6.19:1234/v1).
+inference:
+  llm:
+    baseUrl: http://litellm.observability.svc.cluster.local:4000/v1
+    model: nvidia/nemotron-3-nano-omni
+    provider: local
+  tts:
+    baseUrl: http://magpie-tts.inference-club.svc.cluster.local:9000
+    backend: magpie
+    defaultVoice: notebooklm
+  asr:
+    baseUrl: http://nemotron-asr.inference-club.svc.cluster.local:8105
+  image:
+    baseUrl: http://flux2-klein.inference-club.svc.cluster.local:8000
+    backend: NIM
+  ltx:
+    baseUrl: http://ltx2.inference-club.svc.cluster.local:8023
+  acestep:
+    baseUrl: http://acestep.inference-club.svc.cluster.local:8015
+  firecrawl:
+    baseUrl: http://firecrawl.inference-club.svc.cluster.local:3002
+
+# Feature flags, mirroring the env switches the pipeline reads.
+features:
+  asr: true
+  video: true
+  music: false
+  hyperframes: true
+  metaSequencer: true
+  sourceImages: false
+  digestSchedule: false
+  digestScheduleHour: "10"     # UTC
+  digestScheduleMinute: "0"
+  triageOnIngest: true
+
+# Escape hatch: extra plain (non-secret) env merged into the app ConfigMap.
+# Takes precedence over derived values, so it can also override them.
+env: {}

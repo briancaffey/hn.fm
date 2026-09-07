@@ -1,0 +1,31 @@
+{{- $name := printf "%s-beat" (include "hnfm.fullname" .) -}}
+# Celery beat: exactly one, or the nightly digest fires twice. The schedule
+# file goes to /tmp so the root filesystem can stay untouched.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: beat
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hnfm.selectorLabels" (dict "root" . "name" "beat") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hnfm.selectorLabels" (dict "root" . "name" "beat") | nindent 8 }}
+      annotations:
+        {{- include "hnfm.configChecksum" . | nindent 8 }}
+    spec:
+      {{- include "hnfm.podScheduling" . | nindent 6 }}
+      containers:
+        {{- include "hnfm.backendContainer" (dict "root" . "name" "beat"
+              "command" (list "celery" "-A" "src.hnfm.web.celery_app:celery_app" "beat"
+                              "--loglevel=info" "--schedule=/tmp/celerybeat-schedule")
+              "resources" .Values.beat.resources) | nindent 8 }}
+      {{- include "hnfm.backendVolumes" . | nindent 6 }}

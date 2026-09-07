@@ -5,7 +5,7 @@
 # standard image, so it drops straight into k3s later (no host coupling).
 FROM node:22-bookworm-slim
 
-ARG HYPERFRAMES_VERSION=latest
+ARG HYPERFRAMES_VERSION=0.8.30
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl unzip ffmpeg chromium \

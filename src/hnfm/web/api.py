@@ -86,10 +86,20 @@ async def _init_db_schema():
 
     ensure_schema()
 
-# Add CORS middleware
+# CORS. The Nuxt dev server on the Mac is a different origin from the API, so
+# localhost:3000 stays allowed by default. In the cluster the frontend and API
+# share one origin behind the ingress, so CORS_ALLOW_ORIGINS carries that host
+# (comma-separated for more than one).
+_cors_origins = [
+    o.strip()
+    for o in os.getenv(
+        "CORS_ALLOW_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+    ).split(",")
+    if o.strip()
+]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=_cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -585,7 +595,7 @@ async def list_stories_endpoint(
 
 
 @app.get("/api/hn/items/{item_id}/thumbnail", tags=["stories"])
-async def get_link_thumbnail(item_id: int):
+async def get_link_thumbnail(item_id: int, cached: int = 0):
     """A photograph of the page this story links to.
 
     Serves the cached JPEG if there is one. If there is not, queues the
@@ -604,7 +614,10 @@ async def get_link_thumbnail(item_id: int):
             headers={"Cache-Control": "public, max-age=86400"},
         )
 
-    if not link_thumbs.recently_missed(item_id):
+    # `cached=1` means "show me one if you have it" — the stories table lists
+    # everything ingested, and a page of fifty would otherwise queue fifty
+    # captures for rows nobody looked at.
+    if not cached and not link_thumbs.recently_missed(item_id):
         from .tasks import capture_link_thumbnail
 
         capture_link_thumbnail.apply_async(args=[item_id])

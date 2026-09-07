@@ -1,0 +1,78 @@
+{{- $public := include "hnfm.publicUrl" . -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "hnfm.configMapName" . }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+data:
+  # --- Process ---------------------------------------------------------------
+  PYTHONPATH: /app/src
+  PYTHONUNBUFFERED: "1"
+  WEB_HOST: 0.0.0.0
+  WEB_PORT: "8000"
+  # The entrypoint defaults reload to true; a filewatcher is pointless with a
+  # baked image and doubles memory.
+  WEB_RELOAD: "false"
+  # Alembic owns the schema (see the migrate Job). create_all cannot ALTER, so
+  # leaving this on only hides drift until a query fails.
+  HNFM_DB_AUTO_CREATE: "false"
+  DEBUG: "false"
+  LOG_LEVEL: INFO
+  # Both, so the OUTPUTS_DIR/OUTPUTS_ROOT split in the code resolves the same.
+  OUTPUTS_DIR: /app/outputs
+  OUTPUTS_ROOT: /app/outputs
+  # Frontend, API and MinIO share this origin behind the ingress.
+  PUBLIC_API_BASE: {{ $public | quote }}
+  CORS_ALLOW_ORIGINS: {{ $public | quote }}
+  # --- Redis / Celery ----------------------------------------------------------
+  # celery_app builds the broker URL from these four; CELERY_BROKER_URL is
+  # only read by Flower.
+  REDIS_HOST: {{ include "hnfm.redisHost" . | quote }}
+  REDIS_PORT: {{ include "hnfm.redisPort" . | quote }}
+  REDIS_DB: {{ .Values.redis.db | quote }}
+  CELERY_ALWAYS_EAGER: "false"
+  # --- Object store -------------------------------------------------------------
+  MEDIA_UPLOAD_ENABLED: "true"
+  S3_BUCKET: {{ .Values.minio.bucket | quote }}
+  S3_ENDPOINT_URL: {{ include "hnfm.s3Endpoint" . | quote }}
+  # Presigned URLs are signed against this host (path-style, /<bucket>/<key>),
+  # so it must be what the browser can reach.
+  S3_PUBLIC_URL: {{ include "hnfm.s3PublicUrl" . | quote }}
+  # --- LLM ----------------------------------------------------------------------
+  LLM_BASE_URL: {{ .Values.inference.llm.baseUrl | quote }}
+  LLM_MODEL: {{ .Values.inference.llm.model | quote }}
+  LLM_PROVIDER: {{ .Values.inference.llm.provider | quote }}
+  # --- Inference services -------------------------------------------------------
+  TTS_BACKEND: {{ .Values.inference.tts.backend | quote }}
+  TTS_BASE_URL: {{ .Values.inference.tts.baseUrl | quote }}
+  TTS_DEFAULT_VOICE: {{ .Values.inference.tts.defaultVoice | quote }}
+  TTS_TIMEOUT_SECONDS: "120"
+  TTS_MAX_ATTEMPTS: "3"
+  ASR_BASE_URL: {{ .Values.inference.asr.baseUrl | quote }}
+  ASR_ENABLED: {{ .Values.features.asr | quote }}
+  ASR_TIMEOUT_SECONDS: "300"
+  ASR_MAX_ATTEMPTS: "1"
+  IMAGE_GENERATION_BACKEND: {{ .Values.inference.image.backend | quote }}
+  IMAGE_GENERATION_BASE_URL: {{ .Values.inference.image.baseUrl | quote }}
+  LTX_BASE_URL: {{ .Values.inference.ltx.baseUrl | quote }}
+  VIDEO_ENABLED: {{ .Values.features.video | quote }}
+  ACESTEP_BASE_URL: {{ .Values.inference.acestep.baseUrl | quote }}
+  MUSIC_ENABLED: {{ .Values.features.music | quote }}
+  FIRECRAWL_BASE_URL: {{ .Values.inference.firecrawl.baseUrl | quote }}
+  STUDIO_VOICE_ENABLED: "false"
+  HYPERFRAMES_BASE_URL: {{ printf "http://%s-hyperframes:8088" (include "hnfm.fullname" .) | quote }}
+  HYPERFRAMES_ENABLED: {{ and .Values.hyperframes.enabled .Values.features.hyperframes | quote }}
+  META_SEQUENCER_ENABLED: {{ .Values.features.metaSequencer | quote }}
+  SOURCE_IMAGES_ENABLED: {{ .Values.features.sourceImages | quote }}
+  # --- Ingest / digest ------------------------------------------------------------
+  TRIAGE_ON_INGEST: {{ .Values.features.triageOnIngest | quote }}
+  HN_USER_AGENT: "hn.fm/0.1.0 (briancaffey)"
+  EMAIL_PROVIDER: brevo
+  DIGEST_FORMAT: html
+  DIGEST_SCHEDULE_ENABLED: {{ .Values.features.digestSchedule | quote }}
+  DIGEST_SCHEDULE_HOUR: {{ .Values.features.digestScheduleHour | quote }}
+  DIGEST_SCHEDULE_MINUTE: {{ .Values.features.digestScheduleMinute | quote }}
+  {{- range $k, $v := .Values.env }}
+  {{ $k }}: {{ $v | quote }}
+  {{- end }}

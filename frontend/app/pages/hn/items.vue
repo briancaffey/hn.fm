@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { Button } from '~/components/ui/button'
+import LinkThumbnail from '~/components/kit/LinkThumbnail.vue'
 import { Input } from '~/components/ui/input'
 import { Icon } from '#components'
 import PaginationBar from '~/components/PaginationBar.vue'
@@ -421,7 +422,9 @@ function goToItem(id: number) {
                   v-if="story.url"
                   :item-id="story.id"
                   :url="story.url"
-                  class="hidden h-9 w-14 shrink-0 md:block"
+                  :capture="false"
+                  compact
+                  class="hidden h-10 w-16 shrink-0 md:block"
                 />
                 <div class="min-w-0 flex-1">
                   <div class="flex items-baseline gap-2">

@@ -2,6 +2,7 @@
 import { Button } from '~/components/ui/button'
 import { Input } from '~/components/ui/input'
 import { Icon } from '#components'
+import LinkThumbnail from '~/components/kit/LinkThumbnail.vue'
 
 const props = defineProps<{
   item: TriageItem

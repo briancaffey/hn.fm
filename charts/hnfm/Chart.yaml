@@ -1,0 +1,11 @@
+apiVersion: v2
+name: hnfm
+description: hn.fm — Hacker News, watchable. FastAPI + Celery lanes + Nuxt UI + HyperFrames render sidecar, with optional in-chart Postgres, Redis and MinIO.
+type: application
+version: 0.1.0
+# The image tag is what actually versions a deploy (CI writes it into the
+# environment values file); appVersion is informational.
+appVersion: "0.1.0"
+keywords: [hackernews, podcast, celery, fastapi, nuxt]
+sources:
+  - https://github.com/briancaffey/hn.fm

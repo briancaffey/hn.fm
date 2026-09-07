@@ -1,0 +1,63 @@
+{{- if .Values.ingress.enabled }}
+{{- $full := include "hnfm.fullname" . -}}
+# One host, path-routed. Traefik picks the longest matching prefix, so the API,
+# MinIO and Flower paths win over the frontend catch-all. Sharing the origin is
+# what makes CORS and presigned MinIO URLs a non-issue.
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ $full }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+  annotations:
+    gethomepage.dev/href: {{ include "hnfm.publicUrl" . | quote }}
+    gethomepage.dev/pod-selector: "app.kubernetes.io/name=hnfm,app.kubernetes.io/component=web"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.tls.enabled }}
+  tls:
+    - hosts: [{{ .Values.host | quote }}]
+      secretName: {{ .Values.tls.secretName }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.host | quote }}
+      http:
+        paths:
+          {{- range list "/api" "/docs" "/redoc" "/openapi.json" "/health" }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-web
+                port:
+                  number: 8000
+          {{- end }}
+          {{- if .Values.minio.enabled }}
+          - path: /{{ .Values.minio.bucket }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-minio
+                port:
+                  number: 9000
+          {{- end }}
+          {{- if .Values.flower.enabled }}
+          - path: /flower
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-flower
+                port:
+                  number: 5555
+          {{- end }}
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-frontend
+                port:
+                  number: 3000
+{{- end }}

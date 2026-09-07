@@ -1,0 +1,52 @@
+{{- /*
+One Deployment per Celery lane. Commands mirror docker-compose.yml exactly —
+the `-A src.hnfm.web.celery_app:celery_app` path is load-bearing (task names
+register as hnfm.web.tasks.*, which is what task_routes keys on).
+*/ -}}
+{{- range $lane, $w := .Values.workers }}
+{{- $name := printf "%s-worker-%s" (include "hnfm.fullname" $) $lane }}
+{{- $component := printf "worker-%s" $lane }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hnfm.labels" $ | nindent 4 }}
+    app.kubernetes.io/component: {{ $component }}
+spec:
+  replicas: {{ $w.replicas | default 1 }}
+  # Workers ack late, so a killed pod's task is redelivered; no need to keep
+  # two generations alive during a roll.
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hnfm.selectorLabels" (dict "root" $ "name" $component) | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hnfm.selectorLabels" (dict "root" $ "name" $component) | nindent 8 }}
+      annotations:
+        {{- include "hnfm.configChecksum" $ | nindent 8 }}
+    spec:
+      {{- include "hnfm.podScheduling" $ | nindent 6 }}
+      # Give in-flight renders a chance to finish before SIGKILL.
+      terminationGracePeriodSeconds: {{ if eq $lane "render" }}600{{ else }}60{{ end }}
+      containers:
+        {{- include "hnfm.backendContainer" (dict "root" $ "name" "worker"
+              "command" (list "celery" "-A" "src.hnfm.web.celery_app:celery_app" "worker"
+                              "--loglevel=info"
+                              (printf "--hostname=%s@%%h" $lane)
+                              (printf "--concurrency=%d" (int $w.concurrency))
+                              (printf "--queues=%s" $w.queues))
+              "resources" $w.resources) | nindent 8 }}
+          livenessProbe:
+            exec:
+              command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping", "-d", {{ printf "%s@$(HOSTNAME)" $lane | quote }}, "--timeout", "10"]
+            initialDelaySeconds: 60
+            periodSeconds: 120
+            timeoutSeconds: 20
+            failureThreshold: 3
+      {{- include "hnfm.backendVolumes" $ | nindent 6 }}
+{{- end }}

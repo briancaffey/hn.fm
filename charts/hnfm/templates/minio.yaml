@@ -1,0 +1,100 @@
+{{- if .Values.minio.enabled }}
+{{- $name := printf "%s-minio" (include "hnfm.fullname" .) -}}
+# Durable media store. The app creates the bucket on first publish, and the
+# ingress exposes /<bucket> on the public host so presigned (path-style) URLs
+# work from the browser. Console is on :9001, cluster-internal only.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: {{ .Values.storage.className }}
+  resources:
+    requests:
+      storage: {{ .Values.storage.minio }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hnfm.selectorLabels" (dict "root" . "name" "minio") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hnfm.selectorLabels" (dict "root" . "name" "minio") | nindent 8 }}
+    spec:
+      {{- include "hnfm.podScheduling" . | nindent 6 }}
+      containers:
+        - name: minio
+          image: {{ .Values.minio.image }}
+          args: ["server", "/data", "--console-address", ":9001"]
+          env:
+            - name: MINIO_ROOT_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hnfm.secretName" . }}
+                  key: S3_ACCESS_KEY
+            - name: MINIO_ROOT_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hnfm.secretName" . }}
+                  key: S3_SECRET_KEY
+          ports:
+            - name: s3
+              containerPort: 9000
+            - name: console
+              containerPort: 9001
+          readinessProbe:
+            httpGet: { path: /minio/health/ready, port: s3 }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /minio/health/live, port: s3 }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+          volumeMounts:
+            - name: data
+              mountPath: /data
+          resources:
+            {{- toYaml .Values.minio.resources | nindent 12 }}
+      volumes:
+        - name: data
+          persistentVolumeClaim:
+            claimName: {{ $name }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: minio
+  annotations:
+    argocd.argoproj.io/sync-wave: "-2"
+spec:
+  selector:
+    {{- include "hnfm.selectorLabels" (dict "root" . "name" "minio") | nindent 4 }}
+  ports:
+    - name: s3
+      port: 9000
+      targetPort: s3
+    - name: console
+      port: 9001
+      targetPort: console
+{{- end }}

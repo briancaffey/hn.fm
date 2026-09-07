@@ -1,0 +1,54 @@
+{{- $name := printf "%s-web" (include "hnfm.fullname" .) -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  replicas: {{ .Values.web.replicas }}
+  selector:
+    matchLabels:
+      {{- include "hnfm.selectorLabels" (dict "root" . "name" "web") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hnfm.selectorLabels" (dict "root" . "name" "web") | nindent 8 }}
+      annotations:
+        {{- include "hnfm.configChecksum" . | nindent 8 }}
+    spec:
+      {{- include "hnfm.podScheduling" . | nindent 6 }}
+      containers:
+        {{- include "hnfm.backendContainer" (dict "root" . "name" "web"
+              "command" (list "python" "src/hnfm/scripts/run_web_server.py")
+              "resources" .Values.web.resources) | nindent 8 }}
+          ports:
+            - name: http
+              containerPort: 8000
+          # /health is dependency-free; /api/health would evict the pod on a
+          # Postgres blip, and /api/services/status fans out to nine backends.
+          readinessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /health, port: http }
+            initialDelaySeconds: 20
+            periodSeconds: 30
+      {{- include "hnfm.backendVolumes" . | nindent 6 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $name }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: web
+spec:
+  selector:
+    {{- include "hnfm.selectorLabels" (dict "root" . "name" "web") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http

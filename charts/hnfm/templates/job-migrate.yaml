@@ -1,0 +1,38 @@
+# Schema migrations, run to completion before the app rolls.
+#
+# Under Argo CD this is a Sync-phase hook at wave -1: the datastores (wave -2)
+# are Healthy before it starts, and web/workers (wave 0) wait for it to
+# complete. Under plain `helm template | kubectl apply` the annotations are
+# inert, so the Job just retries until Postgres answers. The name carries the
+# image tag because a Job's template is immutable once created.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "hnfm.fullname" . }}-migrate-{{ .Values.image.tag | replace "." "-" | trunc 20 | trimSuffix "-" }}
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migrate
+  annotations:
+    argocd.argoproj.io/hook: Sync
+    argocd.argoproj.io/sync-wave: "-1"
+    argocd.argoproj.io/hook-delete-policy: BeforeHookCreation
+spec:
+  backoffLimit: 6
+  ttlSecondsAfterFinished: 3600
+  template:
+    metadata:
+      labels:
+        {{- include "hnfm.selectorLabels" (dict "root" . "name" "migrate") | nindent 8 }}
+    spec:
+      restartPolicy: OnFailure
+      {{- include "hnfm.podScheduling" . | nindent 6 }}
+      containers:
+        {{- include "hnfm.backendContainer" (dict "root" . "name" "migrate"
+              "command" (list "sh" "-c" "until python -c \"import socket,os; socket.create_connection((os.environ['HNFM_DB_HOST'], int(os.environ['HNFM_DB_PORT'])), 2)\"; do echo waiting for postgres; sleep 3; done; alembic upgrade head")
+              "resources" (dict "requests" (dict "cpu" "100m" "memory" "256Mi") "limits" (dict "memory" "1Gi"))) | nindent 8 }}
+          env:
+            - name: HNFM_DB_HOST
+              value: {{ include "hnfm.postgresHost" . | quote }}
+            - name: HNFM_DB_PORT
+              value: {{ include "hnfm.postgresPort" . | quote }}
+      {{- include "hnfm.backendVolumes" . | nindent 6 }}

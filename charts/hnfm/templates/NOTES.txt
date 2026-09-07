@@ -1,0 +1,22 @@
+hn.fm {{ .Chart.Version }} — release {{ .Release.Name }} in {{ .Release.Namespace }}
+
+  UI / API      {{ include "hnfm.publicUrl" . }}   (API under /api, docs at /docs)
+  Images        {{ include "hnfm.image.backend" . }}
+{{- if .Values.minio.enabled }}
+  Media (S3)    {{ include "hnfm.publicUrl" . }}/{{ .Values.minio.bucket }}
+{{- end }}
+{{- if .Values.flower.enabled }}
+  Flower        {{ include "hnfm.publicUrl" . }}/flower
+{{- end }}
+  Secrets       {{ include "hnfm.secretName" . }} ({{ if .Values.externalSecret.enabled }}External Secrets ← {{ .Values.externalSecret.remoteKey }}{{ else }}rendered from values{{ end }})
+  Node          {{ .Values.nodeSelector | toJson }}
+
+Watch it come up:
+  kubectl -n {{ .Release.Namespace }} get pods -w
+  kubectl -n {{ .Release.Namespace }} logs job/{{ include "hnfm.fullname" . }}-migrate-{{ .Values.image.tag | replace "." "-" | trunc 20 | trimSuffix "-" }}
+
+{{- if .Values.tls.enabled }}
+
+TLS secret {{ .Values.tls.secretName }} is NOT created by this chart; mint it
+out-of-band (home-lab: scripts/lan-certs.sh with {{ .Values.host }} added).
+{{- end }}
