@@ -24,6 +24,7 @@ faked: a short edition is honest, a padded one is not.
 
 import logging
 import os
+import re
 from dataclasses import dataclass, field
 from typing import List, Optional
 
@@ -402,6 +403,47 @@ def parse_bullets(text: str, limit: int = PUNCHLINE_MAX_BULLETS) -> List[str]:
     return out
 
 
+# A bullet whose whole content is that a slot is empty. The prompt says to
+# omit the slot; the model sometimes fills it with its absence anyway.
+_FILLER = re.compile(
+    r"^(?:no|none|not)\b.{0,40}\b(?:catch|caveat|limitation|discussion|"
+    r"identified|noted|applicable|available|established)\b"
+    r"|^the (?:material|article|page|source) (?:contains only|does not (?:mention|include|provide))",
+    re.I,
+)
+# An attribution to the thread. `\bcommenter` also matches "commenters".
+_ATTRIBUTION = re.compile(
+    r"\b(?:commenters?|the (?:thread|discussion)|hn users?|one (?:user|reader))\b",
+    re.I,
+)
+
+
+def scrub_bullets(bullets: List[str], authors) -> List[str]:
+    """Drop bullets the material cannot have supported.
+
+    Two failure modes from the first edition, both deterministic to catch:
+
+    * An attribution — "commenter A notes …" — on a story whose material had
+      no discussion, or naming someone who is not in it. A quote from nobody
+      is a fabrication, and it is the one kind of line a reader cannot
+      check. Kept only when the bullet names a username from the material.
+    * Filler that reports a slot as empty ("No catch identified"). The
+      reader was promised the absence of padding; this is padding about
+      the absence of content.
+    """
+    names = [a for a in (authors or []) if a]
+    out = []
+    for b in bullets:
+        if _FILLER.search(b):
+            continue
+        if _ATTRIBUTION.search(b) and not any(
+            n.lower() in b.lower() for n in names
+        ):
+            continue
+        out.append(b)
+    return out
+
+
 def _punchline_one(story) -> Optional[Section]:
     text = _write(
         "digest.punchline",
@@ -410,6 +452,10 @@ def _punchline_one(story) -> Optional[Section]:
         material=_punchline_material(story),
     )
     bullets = parse_bullets(text) if text else []
+    authors = [
+        c.get("author") for c in ((story.brief or {}).get("comment_insights") or [])
+    ]
+    bullets = scrub_bullets(bullets, authors)
     if not bullets:
         return None
     return Section(

@@ -1,11 +1,15 @@
 name: digest.punchline
-version: 1
+version: 2
 task: digest.punchline
 description: >
   One story reduced to its punchline: two to four dense bullets that answer
   the question the headline raises. Written for the rapid-fire edition that
   covers the whole front page and /new in one sitting, so it must land the
-  answer in the first line and never pad.
+  answer in the first line and never pad. v2: the first edition attributed
+  36 of 385 bullets to "commenter A" or a bare "commenter notes", mostly on
+  stories whose material carried no discussion, and wrote "No catch
+  identified" seven times. Optional slots must be omitted, never filled
+  with their absence, and a commenter is named only from the material.
 
 system: |
   You write one entry for a rapid-fire Hacker News brief. The reader sees
@@ -27,11 +31,16 @@ system: |
 
   Bullet 3 (optional) — THE CATCH. The caveat, limitation, disagreement, or
   the thing the article does not establish. Only if there is a real one.
+  If there is none, write two bullets. Never write a bullet saying there is
+  no catch, no caveat, or nothing to note.
 
   Bullet 4 (optional) — FROM THE THREAD. One sharp thing a commenter said
   that changes the reading of the story: a correction, an insider detail, a
-  strong counter-argument. Attribute it ("commenter X notes ..."). Only
-  when the material includes discussion and it earns the line.
+  strong counter-argument. Attribute it by the username given in the
+  discussion section of the material, verbatim. Only when the material has
+  a discussion section with something in it. If the material says there is
+  no discussion, there is no bullet 4 — do not write "commenter A",
+  "commenters note", or any attribution at all.
 
   Rules:
     - Every claim must come from the supplied material. Do not use outside
@@ -43,6 +52,8 @@ system: |
       does establish.
     - Plain words. No "delves", no "game-changer", no rhetorical questions,
       no emoji, no markdown other than the leading "- ".
+    - The reader never sees this material. Say "the article", "the post" or
+      "the thread" — never "the material", "the brief" or "the summary".
     - Do not mention Hacker News points, comment counts, or popularity.
 
 template: |

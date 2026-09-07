@@ -11,7 +11,7 @@ from unittest import mock
 
 from ..digest import compose as _compose
 from ..digest import render as _render
-from ..digest.compose import Section, compose_punchline, parse_bullets
+from ..digest.compose import Section, compose_punchline, parse_bullets, scrub_bullets
 from ..digest.select import Digest, DigestStory
 
 
@@ -185,3 +185,42 @@ class TestSelectWithoutBrief:
         assert st.summary == "a summary"
         assert len(st.excerpt) == _select.EXCERPT_CHARS
         assert not st.has_brief
+
+
+class TestScrubBullets:
+    """The first live edition: 36 of 385 bullets cited "commenter A" or a
+    bare "commenter notes", mostly on stories with no discussion; seven
+    said "No catch identified"."""
+
+    def test_anonymous_attribution_without_discussion_is_dropped(self):
+        bullets = ["the answer", "commenter A notes: NVD summaries are incomplete"]
+        assert scrub_bullets(bullets, []) == ["the answer"]
+
+    def test_bare_commenter_notes_is_dropped_even_with_discussion(self):
+        bullets = ["the answer", "commenter notes that each engine differs"]
+        assert scrub_bullets(bullets, ["tptacek"]) == ["the answer"]
+
+    def test_attribution_to_a_real_username_is_kept(self):
+        bullets = ["the answer", "Commenter KomoD notes undisclosed promotion."]
+        assert scrub_bullets(bullets, ["KomoD"]) == bullets
+
+    def test_attribution_to_an_unknown_name_is_dropped(self):
+        bullets = ["the answer", "commenter Zed says it is fine"]
+        assert scrub_bullets(bullets, ["KomoD"]) == ["the answer"]
+
+    def test_filler_is_dropped(self):
+        for f in ("No catch identified; the page has only footers.",
+                  "None noted.",
+                  "Not applicable — the material contains only navigation.",
+                  "The article does not mention pricing."):
+            assert scrub_bullets(["real", f], ["x"]) == ["real"], f
+
+    def test_ordinary_negatives_survive(self):
+        keep = ["No benchmark beat the baseline by more than 2%.",
+                "Not all topics include equations; depth varies by subject."]
+        assert scrub_bullets(keep, []) == keep
+
+    def test_compose_drops_a_story_left_with_nothing(self):
+        s = _story(1, "Thin", source="top", excerpt="t")
+        with mock.patch.object(_compose, "_write", return_value="- commenter A notes X"):
+            assert compose_punchline(_digest(s), workers=1) == []
