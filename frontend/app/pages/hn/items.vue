@@ -413,24 +413,37 @@ function goToItem(id: number) {
 
             <!-- Title + domain -->
             <td class="max-w-0 px-3 py-2">
-              <div class="flex items-baseline gap-2">
-                <NuxtLink
-                  :to="`/hn/item/${story.id}`"
-                  class="truncate font-semibold text-foreground hover:text-primary"
-                  @click.stop
-                >
-                  {{ story.title || `Item ${story.id}` }}
-                </NuxtLink>
-                <a
+              <div class="flex items-center gap-2.5">
+                <!-- Small here, unlike the triage card: this is a table and a
+                     row should stay a row. Enough to tell a paper from a repo
+                     from a product page at a glance. -->
+                <LinkThumbnail
                   v-if="story.url"
-                  :href="story.url"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  class="shrink-0 truncate text-xs text-muted-foreground hover:text-primary"
-                  @click.stop
-                >
-                  {{ domain(story.url) }}
-                </a>
+                  :item-id="story.id"
+                  :url="story.url"
+                  class="hidden h-9 w-14 shrink-0 md:block"
+                />
+                <div class="min-w-0 flex-1">
+                  <div class="flex items-baseline gap-2">
+                    <NuxtLink
+                      :to="`/hn/item/${story.id}`"
+                      class="truncate font-semibold text-foreground hover:text-primary"
+                      @click.stop
+                    >
+                      {{ story.title || `Item ${story.id}` }}
+                    </NuxtLink>
+                    <a
+                      v-if="story.url"
+                      :href="story.url"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      class="shrink-0 truncate text-xs text-muted-foreground hover:text-primary"
+                      @click.stop
+                    >
+                      {{ domain(story.url) }}
+                    </a>
+                  </div>
+                </div>
               </div>
             </td>
 

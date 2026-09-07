@@ -584,6 +584,35 @@ async def list_stories_endpoint(
         raise HTTPException(status_code=500, detail="Failed to list stories")
 
 
+@app.get("/api/hn/items/{item_id}/thumbnail", tags=["stories"])
+async def get_link_thumbnail(item_id: int):
+    """A photograph of the page this story links to.
+
+    Serves the cached JPEG if there is one. If there is not, queues the
+    capture and answers 404 — the card shows its placeholder and the picture
+    is there on the next look. Capturing inline would hold a request thread
+    for a couple of seconds per card, and a page of twenty cards would hold
+    twenty.
+    """
+    from ..scraper import link_thumbs
+
+    if link_thumbs.has_thumb(item_id):
+        return FileResponse(
+            link_thumbs.thumb_path(item_id), media_type="image/jpeg",
+            # Cheap to re-fetch and rarely changes; a day keeps a scroll
+            # through the triage list from re-requesting every card.
+            headers={"Cache-Control": "public, max-age=86400"},
+        )
+
+    if not link_thumbs.recently_missed(item_id):
+        from .tasks import capture_link_thumbnail
+
+        capture_link_thumbnail.apply_async(args=[item_id])
+        raise HTTPException(status_code=404, detail="Capturing")
+
+    raise HTTPException(status_code=404, detail="No thumbnail")
+
+
 @app.get("/api/hn/items/{item_id}/generations", tags=["stories"])
 async def list_generations_endpoint(item_id: int):
     """Every generation (segment) for a story across all runs, newest first,

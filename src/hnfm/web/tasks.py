@@ -2444,6 +2444,32 @@ def rerun_step(step_id: int, overrides: dict = None) -> Dict:
 
 
 @celery_app.task(
+    name="hnfm.web.tasks.capture_link_thumbnail",
+    time_limit=180, soft_time_limit=180,
+)
+def capture_link_thumbnail(item_id: int, force: bool = False) -> Dict[str, any]:
+    """Photograph the page a story links to, for the card.
+
+    Queued rather than captured in the request: two chromium launches is a
+    couple of seconds, and twenty cards asking at once would hold twenty
+    request threads. The card shows a placeholder and the picture appears on
+    the next look.
+    """
+    from ..scraper import link_thumbs
+
+    item = get_item(item_id)
+    if not item or not item.url:
+        # A self-post has no external page. Recorded as a miss so the card
+        # stops asking rather than queueing this on every render.
+        link_thumbs.note_no_url(item_id)
+        return {"status": "no_url", "item_id": item_id}
+
+    path = link_thumbs.capture(item_id, item.url, force=force)
+    return {"status": "ok" if path else "failed", "item_id": item_id,
+            "path": path or None}
+
+
+@celery_app.task(
     name="hnfm.web.tasks.build_digest", time_limit=3600, soft_time_limit=3600
 )
 def build_digest(

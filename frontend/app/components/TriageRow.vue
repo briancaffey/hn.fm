@@ -89,7 +89,10 @@ function meterClass(value: number): string {
 
 // ── expandable "why" ────────────────────────────────────────────────────────
 
-const expanded = ref(false)
+// The "why" is the scorer's reasoning, and it is the thing you actually read
+// when deciding whether the rank is right — so it is open, and collapsible for
+// when you are scanning ranks rather than judging them.
+const expanded = ref(true)
 
 // ── human feedback ──────────────────────────────────────────────────────────
 
@@ -338,7 +341,7 @@ export interface TriageItem {
             @click="expanded = !expanded"
           >
             <Icon :name="expanded ? 'lucide:chevron-down' : 'lucide:chevron-right'" class="h-3 w-3" />
-            why
+            {{ expanded ? 'hide why' : 'why' }}
           </button>
         </div>
 
@@ -434,6 +437,16 @@ export interface TriageItem {
           <span v-if="genError" class="text-[10px] text-destructive">Queue failed</span>
         </div>
       </div>
+
+      <!-- What is actually on the other end of the link. The card otherwise
+           tells you a score, some tags and a domain, and nothing about
+           whether this is a paper, a repo or a product page. -->
+      <LinkThumbnail
+        v-if="item.url"
+        :item-id="item.item_id"
+        :url="item.url"
+        class="hidden h-24 w-40 shrink-0 sm:block"
+      />
     </div>
   </div>
 </template>

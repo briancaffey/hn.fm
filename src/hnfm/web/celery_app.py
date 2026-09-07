@@ -125,6 +125,8 @@ celery_app.conf.task_routes = {
     "hnfm.web.tasks.enrich_run": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.build_story_brief": {"queue": QUEUE_TRIAGE},
     "hnfm.web.tasks.build_digest": {"queue": QUEUE_DIGEST},
+    # Network and a headless browser, no GPU — the ingest lane, not render.
+    "hnfm.web.tasks.capture_link_thumbnail": {"queue": QUEUE_INGEST},
     # Everything below contends for the GPU or ffmpeg and must stay serial.
     "hnfm.web.tasks.full_pipeline": {"queue": QUEUE_RENDER},
     "hnfm.web.tasks.generate_segment": {"queue": QUEUE_RENDER},

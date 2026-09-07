@@ -23,6 +23,14 @@ ENV CONTAINER=true
 
 RUN npm install -g hyperframes@${HYPERFRAMES_VERSION}
 
+# puppeteer-core drives the chromium already installed above — no second
+# browser download. The screenshot endpoint uses it to load a page once
+# instead of launching chromium twice (title, then picture), and to reach into
+# the page for the two things the CLI cannot do: report what it actually
+# landed on, and take consent overlays off the shot.
+WORKDIR /app
+RUN npm install puppeteer-core@23
+
 # Use the system (arch-native) chromium. We deliberately do NOT install
 # chrome-headless-shell: Google ships it x86-64 only, which fails under Rosetta in
 # an arm64 container. System chromium = portable across arm64/amd64.
