@@ -36,8 +36,14 @@ jobs:
         run: echo "$HARBOR_TOKEN" | docker login harbor.lan -u "$HARBOR_USER" --password-stdin
 
       - name: Lint the chart
-        # The runner image has no helm; borrow one.
-        run: docker run --rm -v "$PWD/charts:/charts" alpine/helm:3.16.4 lint /charts/hnfm
+        # The runner image has no helm, and `docker run -v $PWD` is no use here:
+        # the daemon is a dind sidecar with its own filesystem, so the mount
+        # comes up empty. Fetch the binary instead.
+        run: |
+          set -euo pipefail
+          HELM_VERSION=v3.16.4
+          curl -sSL "https://get.helm.sh/helm-${HELM_VERSION}-linux-amd64.tar.gz" | tar xz -C /tmp
+          /tmp/linux-amd64/helm lint charts/hnfm
 
       - name: Build and push images
         run: |
