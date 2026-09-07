@@ -9,8 +9,11 @@ metadata:
   labels:
     {{- include "hnfm.labels" . | nindent 4 }}
   annotations:
-    # Datastores and this claim come up before the migrate Job and the app.
-    argocd.argoproj.io/sync-wave: "-2"
+    # Same wave as the migrate Job, which is this claim's first consumer.
+    # local-path binds on first use (WaitForFirstConsumer), and Argo treats a
+    # Pending claim as not-yet-healthy, so a claim in an earlier wave than any
+    # pod that mounts it stalls the sync forever.
+    argocd.argoproj.io/sync-wave: "-1"
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: {{ .Values.storage.className }}
