@@ -88,3 +88,17 @@ logs/
 # Temporary files
 tmp/
 temp/
+
+# Not part of the backend image; keeps the build context small on the CI
+# runner (frontend/node_modules alone is hundreds of MB).
+frontend/
+charts/
+deploy/
+.forgejo/
+services/
+plans/
+evals/
+htmlcov/
+documentation/
+pipeline-guide/
+mcp/

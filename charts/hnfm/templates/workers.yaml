@@ -43,7 +43,7 @@ spec:
               "resources" $w.resources) | nindent 8 }}
           livenessProbe:
             exec:
-              command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping", "-d", {{ printf "%s@$(HOSTNAME)" $lane | quote }}, "--timeout", "10"]
+              command: ["sh", "-c", {{ printf "celery -A src.hnfm.web.celery_app:celery_app inspect ping -d %s@$(hostname) --timeout 10" $lane | quote }}]
             initialDelaySeconds: 60
             periodSeconds: 120
             timeoutSeconds: 20

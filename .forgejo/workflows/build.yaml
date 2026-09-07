@@ -1,0 +1,69 @@
+# CI half of the GitOps loop. Inert on GitHub (which only reads .github/); the
+# in-cluster Forgejo Actions runner picks it up on push to the Forgejo copy.
+#
+#   push main → build backend/frontend/hyperframes → push to harbor.lan/apps
+#             → bump image.tag in home-lab clusters/home/hnfm/values.yaml
+#   Argo CD watches that file (multi-source app: chart from this repo, values
+#   from home-lab) and rolls the release. Nobody runs kubectl apply.
+#
+# Repo Actions secrets (deploy/bootstrap-forgejo.sh sets them):
+#   HARBOR_ROBOT_USER / HARBOR_ROBOT_TOKEN  push+pull on the Harbor `apps` project
+#   DEPLOY_REPO_TOKEN                        Forgejo token with write:repository on home-lab
+name: build-and-deploy
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'plans/**'
+      - 'docs/**'
+      - 'documentation/**'
+      - 'pipeline-guide/**'
+      - 'evals/**'
+      - '**.md'
+
+jobs:
+  build:
+    runs-on: docker
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Log in to Harbor
+        # Secrets go through env, not inline ${{ }} in the script: the robot
+        # username contains `$`, which bash would expand away.
+        env:
+          HARBOR_USER: ${{ secrets.HARBOR_ROBOT_USER }}
+          HARBOR_TOKEN: ${{ secrets.HARBOR_ROBOT_TOKEN }}
+        run: echo "$HARBOR_TOKEN" | docker login harbor.lan -u "$HARBOR_USER" --password-stdin
+
+      - name: Lint the chart
+        # The runner image has no helm; borrow one.
+        run: docker run --rm -v "$PWD/charts:/charts" alpine/helm:3.16.4 lint /charts/hnfm
+
+      - name: Build and push images
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_SHA::12}"
+          build() {  # name context
+            IMAGE="harbor.lan/apps/hnfm-$1"
+            docker build -t "$IMAGE:$TAG" "$2"
+            docker push "$IMAGE:$TAG"
+          }
+          build backend .
+          build frontend ./frontend
+          build hyperframes ./services/hyperframes
+
+      - name: Bump image tag in home-lab
+        env:
+          DEPLOY_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
+        run: |
+          set -euo pipefail
+          TAG="${GITHUB_SHA::12}"
+          git clone --depth 1 "https://forgejo-actions:${DEPLOY_TOKEN}@forgejo.lan/brian/home-lab.git" home-lab
+          cd home-lab
+          # The tag line is the only thing CI owns in that file.
+          sed -i "s|^  tag: .*|  tag: ${TAG}|" clusters/home/hnfm/values.yaml
+          git config user.name "forgejo-actions"
+          git config user.email "actions@forgejo.lan"
+          git add clusters/home/hnfm/values.yaml
+          git commit -m "deploy(hnfm): image ${TAG} [skip ci]" || { echo "no changes"; exit 0; }
+          git push origin main
