@@ -4,6 +4,7 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
+import re
 from typing import Optional
 from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.responses import (
@@ -727,6 +728,37 @@ async def cost_endpoint(limit: int = 200):
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+def _image_link(it: dict) -> Optional[dict]:
+    """Where the picture was used: the segment page or the edition's HTML.
+
+    Digest rows recorded `digest-YYYY-MM-DD` (the Digest object's slug) while
+    the files on disk are `hnfm-digest-YYYY-MM-DD-<source>-<shape>-illustrated`
+    — so old rows are matched to the illustrated edition of that day by
+    prefix, and new rows carry the file slug directly.
+    """
+    import glob as _glob
+
+    kind = it.get("kind")
+    if kind in ("segment", "restyle") and it.get("item_id") and it.get("seg"):
+        return {"href": f"/hn/item/{it['item_id']}/run/{it['run']}/segment/{it['seg']}",
+                "label": "Open segment", "external": False}
+    if kind == "restyle":
+        return {"href": "/source-images", "label": "Source images", "external": False}
+    if kind in ("digest", "cover"):
+        slug = it.get("slug") or ""
+        out_dir = os.path.join(os.getenv("OUTPUTS_ROOT", "/app/outputs"), "digests")
+        if slug.startswith("hnfm-digest-") and os.path.exists(os.path.join(out_dir, f"{slug}.html")):
+            return {"href": f"/api/digests/{slug}.html", "label": "Open edition", "external": True}
+        m = re.match(r"^(?:hnfm-)?digest-(\d{4}-\d{2}-\d{2})", slug)
+        if m:
+            hits = sorted(_glob.glob(os.path.join(out_dir, f"hnfm-digest-{m.group(1)}*illustrated.html")))
+            if hits:
+                name = os.path.basename(hits[-1])[:-5]
+                return {"href": f"/api/digests/{name}.html", "label": "Open edition", "external": True}
+        return {"href": "/digests", "label": "Digests", "external": False}
+    return None
+
+
 @app.get("/api/images/catalog", tags=["images"])
 async def image_catalog(
     kind: str = None, style: str = None, item_id: int = None,
@@ -745,6 +777,8 @@ async def image_catalog(
             kind=kind, style_key=style, item_id=item_id,
             sort=sort, offset=offset, limit=min(int(limit), 200),
         )
+        for it in items:
+            it["link"] = _image_link(it)
         return {
             "images": items,
             "facets": facets,

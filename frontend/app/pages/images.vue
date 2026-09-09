@@ -1,12 +1,11 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Icon } from '#components'
 import { Button } from '~/components/ui/button'
 import PageShell from '~/components/kit/PageShell.vue'
 import PageHeader from '~/components/kit/PageHeader.vue'
 import EmptyState from '~/components/kit/EmptyState.vue'
 import LoadingRows from '~/components/kit/LoadingRows.vue'
-import InfoHint from '~/components/kit/InfoHint.vue'
 
 /**
  * Every image the pipeline has produced, with the prompt that produced it.
@@ -40,6 +39,8 @@ interface Img {
   /** Server-derived; the page must not rebuild this from item/run/seg. */
   url: string | null
   source_image_id: number | null
+  /** Where the picture was used — the segment page or the edition's HTML. */
+  link: { href: string, label: string, external: boolean } | null
 }
 
 const config = useRuntimeConfig()
@@ -54,6 +55,30 @@ const sort = ref('recent')
 const offset = ref(0)
 const LIMIT = 48
 const open = ref<Img | null>(null)
+const promptOpen = ref(false)
+
+/** Lightbox navigation across the loaded page: ← → keys and the arrows. */
+const openIndex = computed(() => open.value ? images.value.findIndex(i => i.id === open.value!.id) : -1)
+function show(i: Img | null) {
+  open.value = i
+  promptOpen.value = false
+}
+function step(delta: number) {
+  if (openIndex.value < 0) return
+  const next = images.value[openIndex.value + delta]
+  if (next) show(next)
+}
+function onKey(e: KeyboardEvent) {
+  if (!open.value) return
+  if (e.key === 'Escape') show(null)
+  else if (e.key === 'ArrowRight') step(1)
+  else if (e.key === 'ArrowLeft') step(-1)
+}
+onMounted(() => window.addEventListener('keydown', onKey))
+onUnmounted(() => window.removeEventListener('keydown', onKey))
+function linkHref(l: NonNullable<Img['link']>) {
+  return l.external ? `${apiBase}${l.href}` : l.href
+}
 
 const SORTS = [
   { key: 'recent', label: 'Newest' },
@@ -170,12 +195,12 @@ function copyPrompt(text: string) {
         <button
           v-for="i in images" :key="i.id" type="button"
           class="group overflow-hidden rounded-lg border bg-card text-left transition-colors hover:border-primary/50"
-          @click="open = i"
+          @click="show(i)"
         >
           <img
             v-if="src(i)" :src="src(i)" :alt="i.style_label || i.kind" loading="lazy"
             class="aspect-[3/2] w-full bg-muted object-cover"
-          />
+          >
           <div v-else class="flex aspect-[3/2] items-center justify-center bg-muted">
             <Icon name="lucide:image-off" class="h-6 w-6 text-muted-foreground/50" />
           </div>
@@ -202,52 +227,74 @@ function copyPrompt(text: string) {
       </div>
     </template>
 
-    <!-- Detail -->
+    <!-- Lightbox: the picture large on a dark ground, one compact strip of
+         facts beneath it. Nothing scrolls — a long prompt folds behind a
+         toggle rather than pushing the image off the screen. -->
     <div
       v-if="open"
-      class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-black/85 p-4 sm:p-8"
       role="dialog" aria-modal="true"
-      @click.self="open = null"
-      @keydown.esc="open = null"
+      @click.self="show(null)"
     >
-      <div class="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-lg border bg-card shadow-xl">
-        <div class="flex items-start justify-between gap-3 border-b p-4">
-          <div class="min-w-0">
-            <h2 class="text-base font-semibold">{{ open.style_label || open.kind }}</h2>
-            <p class="mt-0.5 text-xs text-muted-foreground">{{ open.technique }}</p>
-          </div>
-          <button
-            type="button" class="rounded p-1 text-muted-foreground hover:bg-muted"
-            aria-label="Close" @click="open = null"
-          ><Icon name="lucide:x" class="h-4 w-4" /></button>
+      <button
+        type="button" class="absolute right-4 top-4 rounded-full bg-black/40 p-2 text-white/80 hover:bg-black/60 hover:text-white"
+        aria-label="Close" @click="show(null)"
+      ><Icon name="lucide:x" class="h-5 w-5" /></button>
+      <button
+        v-if="openIndex > 0" type="button"
+        class="absolute left-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white/80 hover:bg-black/60 hover:text-white sm:left-4"
+        aria-label="Previous image" @click.stop="step(-1)"
+      ><Icon name="lucide:chevron-left" class="h-6 w-6" /></button>
+      <button
+        v-if="openIndex >= 0 && openIndex < images.length - 1" type="button"
+        class="absolute right-2 top-1/2 -translate-y-1/2 rounded-full bg-black/40 p-2 text-white/80 hover:bg-black/60 hover:text-white sm:right-4"
+        aria-label="Next image" @click.stop="step(1)"
+      ><Icon name="lucide:chevron-right" class="h-6 w-6" /></button>
+
+      <img
+        v-if="src(open)" :src="src(open)" :alt="open.style_label || open.kind"
+        class="max-h-[68vh] max-w-full rounded-md object-contain shadow-[0_30px_80px_-20px_rgba(0,0,0,0.9)] ring-1 ring-white/10"
+        @click.stop
+      >
+
+      <div class="mt-4 w-full max-w-3xl rounded-lg border border-white/10 bg-card/95 p-3 text-xs shadow-xl backdrop-blur" @click.stop>
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1.5">
+          <span class="rounded border px-1.5 py-0.5 text-[10px] capitalize text-muted-foreground">{{ open.kind }}</span>
+          <span class="font-medium">{{ open.style_label || '—' }}</span>
+          <span v-if="open.technique" class="text-muted-foreground">{{ open.technique }}</span>
+          <span class="font-mono text-muted-foreground">{{ open.width }}&times;{{ open.height }}</span>
+          <span v-if="open.model" class="font-mono text-muted-foreground">{{ open.model }}</span>
+          <span v-if="open.seconds" class="font-mono text-muted-foreground">{{ open.seconds }}s</span>
+          <span v-if="open.ink != null" class="font-mono text-muted-foreground">ink {{ open.ink }}</span>
+          <span class="text-muted-foreground">{{ new Date(open.created_at).toLocaleString() }}</span>
+          <span class="ml-auto flex items-center gap-2">
+            <NuxtLink
+              v-if="open.item_id" :to="`/hn/item/${open.item_id}`"
+              class="text-primary hover:underline"
+            >Story {{ open.item_id }}</NuxtLink>
+            <NuxtLink
+              v-if="open.link && !open.link.external" :to="open.link.href"
+              class="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-primary-foreground hover:bg-primary/90"
+            ><Icon name="lucide:arrow-up-right" class="h-3.5 w-3.5" />{{ open.link.label }}</NuxtLink>
+            <a
+              v-else-if="open.link" :href="linkHref(open.link)" target="_blank" rel="noopener"
+              class="inline-flex items-center gap-1 rounded-md bg-primary px-2 py-1 text-primary-foreground hover:bg-primary/90"
+            ><Icon name="lucide:arrow-up-right" class="h-3.5 w-3.5" />{{ open.link.label }}</a>
+          </span>
         </div>
-        <img v-if="src(open)" :src="src(open)" :alt="open.style_label || ''" class="w-full bg-muted" />
-        <div class="space-y-4 p-4">
-          <div>
-            <div class="mb-1 flex items-center gap-1.5">
-              <p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Prompt as sent</p>
-              <InfoHint text="The exact string given to the image model. Copy it to reuse a look you liked." />
-              <button
-                type="button" class="ml-auto text-xs text-primary hover:underline"
-                @click="copyPrompt(open.prompt)"
-              >Copy</button>
-            </div>
-            <p class="rounded border-l-2 border-primary bg-muted/60 p-2.5 font-mono text-xs leading-relaxed">{{ open.prompt }}</p>
-          </div>
-          <dl class="grid grid-cols-2 gap-x-4 gap-y-2 text-xs sm:grid-cols-4">
-            <div><dt class="text-muted-foreground">Model</dt><dd class="font-mono">{{ open.model || '—' }}</dd></div>
-            <div><dt class="text-muted-foreground">Dimensions</dt><dd class="font-mono">{{ open.width }}&times;{{ open.height }}</dd></div>
-            <div><dt class="text-muted-foreground">Ink</dt><dd class="font-mono">{{ open.ink ?? '—' }}</dd></div>
-            <div><dt class="text-muted-foreground">Render</dt><dd class="font-mono">{{ open.seconds ? `${open.seconds}s` : '—' }}</dd></div>
-            <div><dt class="text-muted-foreground">Kind</dt><dd class="capitalize">{{ open.kind }}</dd></div>
-            <div><dt class="text-muted-foreground">Created</dt><dd>{{ new Date(open.created_at).toLocaleString() }}</dd></div>
-            <div v-if="open.item_id"><dt class="text-muted-foreground">Story</dt>
-              <dd><NuxtLink :to="`/hn/item/${open.item_id}`" class="text-primary hover:underline">{{ open.item_id }}</NuxtLink></dd></div>
-            <div v-if="open.slug"><dt class="text-muted-foreground">Edition</dt><dd class="truncate">{{ open.slug }}</dd></div>
-          </dl>
-          <p v-if="open.title" class="text-xs text-muted-foreground">
-            <span class="font-medium text-foreground">Subject line:</span> {{ open.title }}
-          </p>
+        <p v-if="open.title" class="mt-1.5 truncate text-muted-foreground">{{ open.title }}</p>
+        <div class="mt-2 flex items-start gap-2">
+          <p
+            class="min-w-0 flex-1 cursor-pointer font-mono text-[11px] leading-relaxed text-muted-foreground"
+            :class="promptOpen ? '' : 'line-clamp-2'"
+            :title="promptOpen ? 'Collapse' : 'Show the whole prompt'"
+            @click="promptOpen = !promptOpen"
+          >{{ open.prompt }}</p>
+          <button
+            type="button" class="shrink-0 text-primary hover:underline"
+            title="Copy the exact string given to the image model"
+            @click="copyPrompt(open.prompt)"
+          >Copy</button>
         </div>
       </div>
     </div>

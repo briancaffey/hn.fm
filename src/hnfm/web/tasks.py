@@ -2685,6 +2685,26 @@ def build_digest(
         logger.warning("digest: nothing to send — no stories have a Story Brief")
         return {"status": "empty", "stories": 0}
 
+    # The file slug, decided now so the pictures drawn for this edition can
+    # record it — the catalogue links each one back to the edition it is in.
+    base = f"hnfm-digest-{digest.generated_at:%Y-%m-%d}"
+    if source:
+        # A `top` edition and a `new` edition are different products drawn
+        # from different populations, so they need different slugs — without
+        # this, building both in the same shape on the same day silently
+        # overwrote the first with the second.
+        base = f"{base}-{source}"
+    if shape != "daily":
+        # Distinct slug per shape so several editions can coexist on one day
+        # instead of overwriting each other.
+        base = f"{base}-{shape}"
+    if edition:
+        base = f"{base}-{edition.strip().lower()}"
+    if illustrate_n:
+        # Keep the illustrated edition beside the plain one rather than
+        # replacing it, so the two can be compared.
+        base = f"{base}-illustrated"
+
     # Compose the edition — teaser, quick hits, feature, bonus. Falls back to
     # the flat per-story layout if composition yields nothing, so a model
     # outage degrades the reading experience rather than producing no digest.
@@ -2717,7 +2737,7 @@ def build_digest(
         from ..digest import illustrate as _ill
 
         edition_name = _ill.edition_name(digest.stories)
-        cover = _ill.cover_for(digest.stories, edition_name, slug=digest.slug)
+        cover = _ill.cover_for(digest.stories, edition_name, slug=base)
         logger.info(
             f"digest: edition name {edition_name!r}, "
             f"cover {'ok' if cover else 'none'}"
@@ -2782,7 +2802,7 @@ def build_digest(
                                   # where the prompt had genuinely changed.
                                   seed=int(illustrate_seed or 7) + i,
                                   kind="digest", item_id=story.item_id,
-                                  slug=digest.slug)
+                                  slug=base)
                 if got:
                     made.append(got)
             if made:
@@ -2815,23 +2835,6 @@ def build_digest(
         diagnostics = None
 
     out_dir = os.path.join(outputs_root, "digests")
-    base = f"hnfm-digest-{digest.generated_at:%Y-%m-%d}"
-    if source:
-        # A `top` edition and a `new` edition are different products drawn
-        # from different populations, so they need different slugs — without
-        # this, building both in the same shape on the same day silently
-        # overwrote the first with the second.
-        base = f"{base}-{source}"
-    if shape != "daily":
-        # Distinct slug per shape so several editions can coexist on one day
-        # instead of overwriting each other.
-        base = f"{base}-{shape}"
-    if edition:
-        base = f"{base}-{edition.strip().lower()}"
-    if illustrate_n:
-        # Keep the illustrated edition beside the plain one rather than
-        # replacing it, so the two can be compared.
-        base = f"{base}-illustrated"
 
     # Always write the HTML: it is the browser view regardless of what gets
     # emailed, so the UI has something to link to even when fmt is epub.
