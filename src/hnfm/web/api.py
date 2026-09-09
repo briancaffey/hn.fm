@@ -445,6 +445,17 @@ async def set_story_feedback(item_id: int, request: dict = Body(...)):
     return repo.save_story_feedback(item_id, verdict, request.get("note"))
 
 
+@app.get("/api/hn/items/{item_id}/triage", tags=["triage"])
+async def get_item_triage(item_id: int):
+    """The story's latest triage score — verdict, reasons, topics."""
+    from ..db import repo as _repo
+
+    score = _repo.get_latest_triage_score(item_id)
+    if not score:
+        raise HTTPException(status_code=404, detail="Not scored yet")
+    return score
+
+
 @app.post("/api/hn/items/{item_id}/triage", tags=["triage"])
 async def triage_single_item(item_id: int):
     """Score one story on demand. If it already has a processed run, score the

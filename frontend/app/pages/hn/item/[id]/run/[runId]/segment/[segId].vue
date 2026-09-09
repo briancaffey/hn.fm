@@ -51,6 +51,26 @@
                 <span class="truncate">{{ sourceHost }}</span>
                 <Icon name="lucide:arrow-up-right" class="h-3.5 w-3.5 shrink-0 opacity-60" />
               </a>
+              <!-- Fast facts: the triage verdict and why. -->
+              <div v-if="triage" class="mt-4 rounded-md border bg-muted/40 px-3.5 py-3 text-sm">
+                <div class="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                  <span
+                    class="inline-flex rounded-full border px-2 py-0.5 text-[11px] font-medium capitalize"
+                    :class="verdictClass"
+                  >{{ triage.verdict }}</span>
+                  <span class="text-muted-foreground">
+                    interest <span class="font-mono text-foreground">{{ triage.interest }}</span>
+                    · producibility <span class="font-mono text-foreground">{{ triage.producibility ?? '—' }}</span>
+                  </span>
+                  <span v-if="triage.topics?.length" class="flex flex-wrap gap-1">
+                    <span v-for="t in triage.topics.slice(0, 5)" :key="t" class="rounded-full border px-2 py-0.5 text-[11px] text-muted-foreground">{{ t }}</span>
+                  </span>
+                </div>
+                <ul v-if="triage.reasons?.length" class="mt-2 list-disc space-y-1 pl-4 text-foreground/90">
+                  <li v-for="(reason, i) in triage.reasons" :key="i">{{ reason }}</li>
+                </ul>
+              </div>
+
               <dl class="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
                 <div>
                   <dt class="text-muted-foreground">Story</dt>
@@ -637,6 +657,23 @@ const { data: itemData, pending: itemLoading, error: itemError } = await useAsyn
   `item-${itemId.value}`,
   () => $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}`)
 )
+
+// The triage verdict and its reasons — the same bullets the triage card
+// shows. Optional: a story made by hand may never have been scored.
+const { data: triageData } = await useAsyncData(
+  `triage-${itemId.value}`,
+  () => $fetch(`${config.public.apiBase}/api/hn/items/${itemId.value}/triage`).catch(() => null)
+)
+const triage = computed(() => triageData.value)
+/** Same colours as the triage card, so a verdict reads the same everywhere. */
+const verdictClass = computed(() => {
+  switch (triage.value?.verdict) {
+    case 'great': return 'bg-ok-bg text-ok border-ok-border'
+    case 'good': return 'bg-running-bg text-running border-running-border'
+    case 'marginal': return 'bg-warn-bg text-warn border-warn-border'
+    default: return 'bg-danger-bg text-danger border-danger-border'
+  }
+})
 
 const { data: segmentData, pending: segmentLoading, error: segmentError, refresh: refreshSegment } = await useAsyncData(
   `segment-${itemId.value}-${runId.value}-${segId.value}`,

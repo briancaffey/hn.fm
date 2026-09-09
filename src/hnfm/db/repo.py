@@ -717,6 +717,18 @@ def get_triage_score(item_id: int, run: int) -> Optional[dict]:
         return _triage_to_dict(row) if row else None
 
 
+def get_latest_triage_score(item_id: int) -> Optional[dict]:
+    """The newest run's score — what the triage page shows for the story."""
+    with db_session() as s:
+        row = (
+            s.query(TriageScoreRow)
+            .filter(TriageScoreRow.item_id == item_id)
+            .order_by(TriageScoreRow.run.desc())
+            .first()
+        )
+        return _triage_to_dict(row) if row else None
+
+
 def save_story_feedback(item_id: int, verdict: Optional[str], note: Optional[str]) -> dict:
     from datetime import datetime as _dt
 
