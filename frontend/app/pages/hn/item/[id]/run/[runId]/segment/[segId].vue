@@ -28,7 +28,8 @@
       <!-- Main Content -->
       <div v-else-if="!!item && !!segment" class="space-y-6">
         <!-- Item Info -->
-        <div class="bg-card border rounded-lg p-6">
+        <div class="bg-card border rounded-lg p-6 flex flex-col gap-5 lg:flex-row lg:items-start">
+          <div class="min-w-0 flex-1">
           <h1 class="text-xl font-semibold mb-4">{{ item.title || 'No Title' }}</h1>
 
           <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
@@ -73,53 +74,48 @@
               🔗 {{ item.url }}
             </a>
           </div>
-        </div>
-
-        <!-- The finished piece, first: it is what the page is for. Everything
-             that made it (script, audio, images, the audit trail) is below. -->
-        <div class="bg-card border rounded-lg p-4 sm:p-6">
-          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <h2 class="text-xl font-semibold">Video</h2>
-              <Badge v-if="segment.video_ready" class="bg-ok-bg text-ok border-ok-border text-xs">
-                Ready
-              </Badge>
-              <Badge v-else class="bg-warn-bg text-warn border-warn-border text-xs">
-                Not made yet
-              </Badge>
-            </div>
-            <Button
-              v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
-              size="sm"
-              class="bg-stale hover:bg-stale text-white border-stale-border"
-              @click="generateVideo"
-            >
-              <span v-if="isGeneratingVideo">Generating...</span>
-              <span v-else>🎬 Generate Video</span>
-            </Button>
           </div>
-
-          <video
-            v-if="segment.video_ready && segment.video_path"
-            controls
-            class="aspect-video w-full rounded-lg border bg-black"
-            :src="getVideoUrl(segment.video_path)"
-          >
-            <track
-              v-if="segment.subtitles_path"
-              kind="subtitles"
-              srclang="en"
-              label="English"
-              :src="getVideoUrl(segment.subtitles_path)"
-              default
+          <!-- The finished piece, beside the title rather than above the
+               page: a small player in the corner, never a wall of video. -->
+          <div class="w-full lg:w-[22rem] lg:shrink-0">
+            <div class="mb-1.5 flex items-center justify-between gap-2">
+              <div class="flex items-center gap-2">
+                <span class="text-sm font-semibold">Video</span>
+                <Badge v-if="segment.video_ready" class="bg-ok-bg text-ok border-ok-border text-xs">Ready</Badge>
+                <Badge v-else class="bg-warn-bg text-warn border-warn-border text-xs">Not made yet</Badge>
+              </div>
+              <Button
+                v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
+                size="sm"
+                class="bg-stale hover:bg-stale text-white border-stale-border"
+                @click="generateVideo"
+              >
+                <span v-if="isGeneratingVideo">Generating...</span>
+                <span v-else>🎬 Generate</span>
+              </Button>
+            </div>
+            <video
+              v-if="segment.video_ready && segment.video_path"
+              controls
+              class="aspect-video w-full rounded-lg border bg-black"
+              :src="getVideoUrl(segment.video_path)"
             >
-            Your browser does not support the video tag.
-          </video>
-          <div v-else class="py-8 text-center text-muted-foreground">
-            <p v-if="!segment.script">Generate script first to create video.</p>
-            <p v-else-if="!segment.audio_ready">Generate audio first to create video.</p>
-            <p v-else-if="!segment.images_ready">Generate images first to create video.</p>
-            <p v-else>Video not generated yet. Click 'Generate Video' to create it.</p>
+              <track
+                v-if="segment.subtitles_path"
+                kind="subtitles"
+                srclang="en"
+                label="English"
+                :src="getVideoUrl(segment.subtitles_path)"
+                default
+              >
+              Your browser does not support the video tag.
+            </video>
+            <div v-else class="flex aspect-video items-center justify-center rounded-lg border bg-muted/40 px-3 text-center text-xs text-muted-foreground">
+              <p v-if="!segment.script">Generate script first to create video.</p>
+              <p v-else-if="!segment.audio_ready">Generate audio first to create video.</p>
+              <p v-else-if="!segment.images_ready">Generate images first to create video.</p>
+              <p v-else>Not generated yet.</p>
+            </div>
           </div>
         </div>
 
