@@ -2917,10 +2917,9 @@ def build_digest(
         except Exception as e:
             logger.warning(f"digest: narration failed (non-fatal): {e}")
 
-    subject_line = (
-        f"{edition_name} · {digest.generated_at:%-m/%-d}" if edition_name
-        else f"hn.fm Digest {digest.generated_at:%-m/%-d}"
-    )
+    from ..digest.render import kindle_title
+
+    subject_line = kindle_title(edition_name or "hn.fm Digest", digest.generated_at)
     result["edition_name"] = edition_name
 
     if send:

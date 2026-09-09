@@ -77,13 +77,31 @@ figcaption .fc-meta { color: #777; }
 """
 
 
-def _kindle_title(name: str, when) -> str:
+def title_prefix() -> str:
+    """A marker in front of every edition title, from DIGEST_TITLE_PREFIX.
+
+    The Mac compose stack and the cluster both email the same Kindle, and
+    on the shelf their editions are indistinguishable. Development sets
+    this to "[dev]" (the compose default); production leaves it unset, so a
+    bare title means it came from the cluster. The marker rides on every
+    surface Amazon might take the title from — HTML <title>, EPUB and DOCX
+    metadata, the attachment filename, and the email subject — because
+    which one wins depends on the format sent.
+    """
+    prefix = (os.getenv("DIGEST_TITLE_PREFIX") or "").strip()
+    return f"{prefix} " if prefix else ""
+
+
+def kindle_title(name: str, when) -> str:
     """What shows on the Kindle shelf.
 
     Short name first so editions are distinguishable at a glance, then a
     condensed date — the year is noise on a device holding a week of them.
     """
-    return f"{name} · {when:%-m/%-d}"
+    return f"{title_prefix()}{name} · {when:%-m/%-d}"
+
+
+_kindle_title = kindle_title
 
 
 def _esc(text) -> str:

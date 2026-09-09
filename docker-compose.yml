@@ -146,6 +146,9 @@ x-common-env: &common-env
   KINDLE_EMAIL: ${KINDLE_EMAIL:-}
   DIGEST_STORY_COUNT: ${DIGEST_STORY_COUNT:-5}
   DIGEST_FORMAT: ${DIGEST_FORMAT:-html}
+  # Marks editions from this laptop on the Kindle shelf. The cluster does not
+  # set it, so a bare title means production.
+  DIGEST_TITLE_PREFIX: ${DIGEST_TITLE_PREFIX:-[dev]}
   # Beat runs the table in config.yaml `schedule:` (fetch /new and /top, the
   # churn probe, digests, one video a few times a day). The two pause
   # switches are on the /schedule page; this only turns the whole table off.
