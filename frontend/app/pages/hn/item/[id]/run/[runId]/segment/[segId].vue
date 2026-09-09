@@ -75,9 +75,56 @@
           </div>
         </div>
 
-        <!-- Work area: tabs on the left, the finished video pinned right. -->
-        <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem] lg:items-start">
-          <div class="min-w-0">
+        <!-- The finished piece, first: it is what the page is for. Everything
+             that made it (script, audio, images, the audit trail) is below. -->
+        <div class="bg-card border rounded-lg p-4 sm:p-6">
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-2">
+            <div class="flex items-center gap-2">
+              <h2 class="text-xl font-semibold">Video</h2>
+              <Badge v-if="segment.video_ready" class="bg-ok-bg text-ok border-ok-border text-xs">
+                Ready
+              </Badge>
+              <Badge v-else class="bg-warn-bg text-warn border-warn-border text-xs">
+                Not made yet
+              </Badge>
+            </div>
+            <Button
+              v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
+              size="sm"
+              class="bg-stale hover:bg-stale text-white border-stale-border"
+              @click="generateVideo"
+            >
+              <span v-if="isGeneratingVideo">Generating...</span>
+              <span v-else>🎬 Generate Video</span>
+            </Button>
+          </div>
+
+          <video
+            v-if="segment.video_ready && segment.video_path"
+            controls
+            class="aspect-video w-full rounded-lg border bg-black"
+            :src="getVideoUrl(segment.video_path)"
+          >
+            <track
+              v-if="segment.subtitles_path"
+              kind="subtitles"
+              srclang="en"
+              label="English"
+              :src="getVideoUrl(segment.subtitles_path)"
+              default
+            >
+            Your browser does not support the video tag.
+          </video>
+          <div v-else class="py-8 text-center text-muted-foreground">
+            <p v-if="!segment.script">Generate script first to create video.</p>
+            <p v-else-if="!segment.audio_ready">Generate audio first to create video.</p>
+            <p v-else-if="!segment.images_ready">Generate images first to create video.</p>
+            <p v-else>Video not generated yet. Click 'Generate Video' to create it.</p>
+          </div>
+        </div>
+
+        <!-- The work that made it. -->
+        <div class="min-w-0">
             <div role="tablist" class="mb-3 flex flex-wrap gap-1 border-b">
               <button
                 v-for="t in TABS" :key="t.key" type="button" role="tab"
@@ -456,67 +503,6 @@
             </div>
           </div>
 
-          <!-- The finished piece. Small by default, expandable, and no longer
-               at the bottom of a very long page. -->
-          <aside class="lg:sticky lg:top-4">
-        <!-- Video Section -->
-        <div class="bg-card border rounded-lg p-6">
-          <h2 class="text-2xl font-bold mb-4">Video</h2>
-          <div class="flex items-center justify-between mb-4">
-            <div class="flex items-center gap-2">
-              <Badge v-if="segment.video_ready" class="bg-ok-bg text-ok border-ok-border text-xs">
-                Video Ready
-              </Badge>
-              <Badge v-else class="bg-warn-bg text-warn border-warn-border text-xs">
-                No Video
-              </Badge>
-            </div>
-            <Button
-              v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
-              size="sm"
-              class="bg-stale hover:bg-stale text-white border-stale-border"
-              @click="generateVideo"
-            >
-              <span v-if="isGeneratingVideo">Generating...</span>
-              <span v-else>🎬 Generate Video</span>
-            </Button>
-          </div>
-
-          <div v-if="segment.video_ready && segment.video_path">
-            <button
-              type="button"
-              class="mb-2 flex w-full items-center justify-between rounded border px-2 py-1 text-xs text-muted-foreground hover:bg-muted"
-              @click="videoBig = !videoBig"
-            >
-              <span>{{ videoBig ? 'Shrink' : 'Expand' }} player</span>
-              <Icon :name="videoBig ? 'lucide:minimize-2' : 'lucide:maximize-2'" class="h-3.5 w-3.5" />
-            </button>
-            <video
-              controls
-              class="w-full rounded-lg border bg-black transition-all"
-              :class="videoBig ? 'fixed inset-4 z-50 m-auto max-h-[90vh] w-auto max-w-[92vw]' : ''"
-              :src="getVideoUrl(segment.video_path)"
-            >
-              <track
-                v-if="segment.subtitles_path"
-                kind="subtitles"
-                srclang="en"
-                label="English"
-                :src="getVideoUrl(segment.subtitles_path)"
-                default
-              >
-              Your browser does not support the video tag.
-            </video>
-          </div>
-          <div v-else class="text-center py-8 text-muted-foreground">
-            <p v-if="!segment.script">Generate script first to create video.</p>
-            <p v-else-if="!segment.audio_ready">Generate audio first to create video.</p>
-            <p v-else-if="!segment.images_ready">Generate images first to create video.</p>
-            <p v-else>Video not generated yet. Click 'Generate Video' to create it.</p>
-          </div>
-        </div>
-          </aside>
-      </div>
 
       <!-- Not Found -->
       <div v-else class="text-center py-8 text-muted-foreground">
@@ -532,11 +518,6 @@ import Breadcrumbs from '~/components/kit/Breadcrumbs.vue'
 import AudioPlayer from '~/components/kit/AudioPlayer.vue'
 import { Button } from '~/components/ui/button'
 import { Icon } from '#components'
-
-// Define page meta
-definePageMeta({
-  layout: false
-})
 
 const route = useRoute()
 const config = useRuntimeConfig()
@@ -633,7 +614,6 @@ async function loadVoices() {
 onMounted(loadVoices)
 // The finished video is the thing you most often want and it used to be at the
 // very bottom. Pinned top-right, small, expandable.
-const videoBig = ref(false)
 
 const isGeneratingVideo = ref(false)
 
