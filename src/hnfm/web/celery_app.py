@@ -124,9 +124,14 @@ celery_app.conf.task_routes = {
     "hnfm.web.tasks.score_run": {"queue": QUEUE_TRIAGE},
     "hnfm.web.tasks.enrich_run": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.build_story_brief": {"queue": QUEUE_TRIAGE},
+    "hnfm.web.tasks.score_backlog": {"queue": QUEUE_TRIAGE},
     "hnfm.web.tasks.build_digest": {"queue": QUEUE_DIGEST},
     # Network and a headless browser, no GPU — the ingest lane, not render.
     "hnfm.web.tasks.capture_link_thumbnail": {"queue": QUEUE_INGEST},
+    "hnfm.web.tasks.scheduled_job": {"queue": QUEUE_INGEST},
+    "hnfm.web.tasks.fetch_hn_list": {"queue": QUEUE_INGEST},
+    "hnfm.web.tasks.probe_hn_churn": {"queue": QUEUE_INGEST},
+    "hnfm.web.tasks.produce_top_story": {"queue": QUEUE_INGEST},
     # Everything below contends for the GPU or ffmpeg and must stay serial.
     "hnfm.web.tasks.full_pipeline": {"queue": QUEUE_RENDER},
     "hnfm.web.tasks.generate_segment": {"queue": QUEUE_RENDER},
@@ -159,34 +164,21 @@ def _reap_abandoned_steps(**_kwargs):
     except Exception as e:  # never block worker startup on bookkeeping
         logger.warning(f"abandoned-step reap failed at startup: {e}")
 
-# Optional: Configure Celery Beat for periodic tasks
-# Removed cleanup task - simplified task system
-#
-# The nightly Kindle digest. Off unless DIGEST_SCHEDULE_ENABLED is true, so a
-# checkout without mail credentials does not attempt a send every morning.
-# DIGEST_SCHEDULE_HOUR/MINUTE are UTC (the app runs enable_utc) — set them for
-# when you want it waiting on the device, not when you wake up.
-celery_app.conf.beat_schedule = {}
+# Celery beat. The table is data in config.yaml (`schedule:`), built by
+# hnfm.schedule.beat_schedule(); every entry fires `scheduled_job(name)`, which
+# does the gating against the pause switches and dispatches the real task to
+# its own lane. SCHEDULE_ENABLED=false empties the table.
+try:
+    from ..schedule import beat_schedule as _beat_schedule
 
-if os.getenv("DIGEST_SCHEDULE_ENABLED", "false").lower() == "true":
-    from celery.schedules import crontab
-
-    celery_app.conf.beat_schedule["nightly-kindle-digest"] = {
-        "task": "hnfm.web.tasks.build_digest",
-        "schedule": crontab(
-            hour=int(os.getenv("DIGEST_SCHEDULE_HOUR", "10")),
-            minute=int(os.getenv("DIGEST_SCHEDULE_MINUTE", "0")),
-        ),
-        # send=True is the whole point of the schedule; score_first keeps the
-        # digest from shrinking to whatever happened to be triaged by hand.
-        "kwargs": {"send": True, "score_first": True},
-        "options": {"queue": QUEUE_DIGEST},
-    }
-    logger.info(
-        "Nightly digest scheduled at "
-        f"{os.getenv('DIGEST_SCHEDULE_HOUR', '10')}:"
-        f"{os.getenv('DIGEST_SCHEDULE_MINUTE', '0'):0>2} UTC"
-    )
+    celery_app.conf.beat_schedule = _beat_schedule()
+    for _name, _entry in celery_app.conf.beat_schedule.items():
+        logger.info(f"schedule: {_name} {_entry['schedule']}")
+    if not celery_app.conf.beat_schedule:
+        logger.info("schedule: nothing scheduled (SCHEDULE_ENABLED=false or no jobs)")
+except Exception as _e:  # a broken schedule must not take the workers down
+    logger.error(f"schedule: could not build beat table: {_e}")
+    celery_app.conf.beat_schedule = {}
 
 
 if __name__ == "__main__":

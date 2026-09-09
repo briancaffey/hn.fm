@@ -3,7 +3,7 @@
 import json
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from fastapi import FastAPI, HTTPException, Body
 from fastapi.responses import (
     JSONResponse,
@@ -1693,6 +1693,132 @@ async def serve_video_file(item_id: int, run: int, seg: int, filename: str):
 
 
 # Kindle digest endpoints
+# ---------------------------------------------------------------------------
+# Schedule: what runs on a timer, and the two pause switches
+# ---------------------------------------------------------------------------
+
+
+def _churn_stats(hours: int = 24) -> dict:
+    """Per-list movement over the window, and the fetch interval it implies.
+
+    new: submissions per hour. A fetch of `limit` ids every N minutes sees
+    everything as long as limit >= rate * N / 60; the suggestion is the N at
+    which a 60-id fetch is half full, clamped to [5, 60] minutes.
+    top: front-30 changes per hour; suggestion targets about one change per
+    fetch, clamped to [15, 120] minutes.
+    """
+    from ..db import repo
+    from datetime import timedelta as _td
+
+    since = datetime.utcnow() - _td(hours=hours)
+    out = {}
+    for list_name, key, lo, hi, target in (
+        ("new", "new_count", 5, 60, 30),
+        ("top", "front_changed", 15, 120, 1),
+    ):
+        rows = [r for r in repo.list_samples(list_name, since) if r.get(key) is not None
+                and r.get("seconds_since_prev")]
+        total = sum(r[key] for r in rows)
+        seconds = sum(r["seconds_since_prev"] for r in rows)
+        per_hour = (total / seconds * 3600) if seconds else None
+        suggested = None
+        if seconds >= 3600:  # an hour of samples before offering a number
+            if per_hour:
+                suggested = int(min(hi, max(lo, round(target / per_hour * 60))))
+            else:
+                suggested = hi  # it did not move at all in the window
+        out[list_name] = {
+            "samples": len(rows),
+            "hours_observed": round(seconds / 3600, 1) if seconds else 0,
+            "per_hour": round(per_hour, 1) if per_hour is not None else None,
+            "suggested_every_minutes": suggested,
+            "last": rows[-1] if rows else None,
+        }
+    return out
+
+
+@app.get("/api/schedule", tags=["schedule"])
+async def get_schedule():
+    """The job table beat runs from, the pause switches, and what the churn
+    probe has measured. Same source of truth as beat (config.yaml)."""
+    from .. import schedule as sched
+    from ..db import repo
+    from ..digest.deliver import delivery_config
+
+    last_runs = repo.list_settings(sched.SETTING_LAST_RUN_PREFIX)
+    now = datetime.utcnow()
+    jobs = []
+    for job in sched.load_jobs():
+        last = last_runs.get(sched.SETTING_LAST_RUN_PREFIX + job.name) or None
+        last_at = None
+        if last and last.get("started_at"):
+            try:
+                last_at = datetime.fromisoformat(last["started_at"])
+            except ValueError:
+                last_at = None
+        nxt = job.next_run(last_at, now.replace(tzinfo=timezone.utc)) if job.enabled else None
+        jobs.append({
+            "name": job.name,
+            "task": job.task,
+            "gate": job.gate,
+            "cadence": job.cadence,
+            "every_seconds": job.every,
+            "cron": job.cron,
+            "kwargs": job.kwargs,
+            "enabled": job.enabled,
+            "why": job.why,
+            "last_run": last,
+            "next_run": nxt.isoformat() if nxt else None,
+        })
+    ready, reason = delivery_config()
+    return {
+        "enabled": sched.schedule_enabled(),
+        "timezone": "UTC",
+        "now": now.isoformat(),
+        "controls": {
+            "scraping_paused": bool(repo.get_setting(sched.SETTING_SCRAPING_PAUSED, False)),
+            "generation_paused": bool(repo.get_setting(sched.SETTING_GENERATION_PAUSED, False)),
+        },
+        "delivery": {"ready": ready, "detail": reason},
+        "jobs": jobs,
+        "churn": _churn_stats(24),
+    }
+
+
+@app.post("/api/schedule/controls", tags=["schedule"])
+async def set_schedule_controls(request: dict = Body(default={})):
+    """Flip the pause switches. Only the keys present are changed."""
+    from .. import schedule as sched
+    from ..db import repo
+
+    changed = {}
+    for key, setting in (
+        ("scraping_paused", sched.SETTING_SCRAPING_PAUSED),
+        ("generation_paused", sched.SETTING_GENERATION_PAUSED),
+    ):
+        if key in request:
+            value = bool(request[key])
+            repo.set_setting(setting, value)
+            changed[key] = value
+    return {
+        "scraping_paused": bool(repo.get_setting(sched.SETTING_SCRAPING_PAUSED, False)),
+        "generation_paused": bool(repo.get_setting(sched.SETTING_GENERATION_PAUSED, False)),
+        "changed": changed,
+    }
+
+
+@app.post("/api/schedule/jobs/{name}/run", tags=["schedule"])
+async def run_schedule_job(name: str):
+    """Fire one job now, ignoring the pause switches (a person asked)."""
+    from .. import schedule as sched
+    from .tasks import scheduled_job
+
+    if sched.get_job(name) is None:
+        raise HTTPException(status_code=404, detail=f"no job named {name!r}")
+    task = scheduled_job.apply_async(args=[name], kwargs={"force": True})
+    return {"status": "queued", "job": name, "task_id": task.id}
+
+
 @app.post("/api/digests", tags=["digest"])
 async def create_digest(request: dict = Body(default={})):
     """Build a digest (and optionally email it to the Kindle)."""

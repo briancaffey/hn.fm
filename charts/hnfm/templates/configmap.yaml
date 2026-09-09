@@ -76,9 +76,7 @@ data:
   HN_USER_AGENT: "hn.fm/0.1.0 (briancaffey)"
   EMAIL_PROVIDER: brevo
   DIGEST_FORMAT: html
-  DIGEST_SCHEDULE_ENABLED: {{ .Values.features.digestSchedule | quote }}
-  DIGEST_SCHEDULE_HOUR: {{ .Values.features.digestScheduleHour | quote }}
-  DIGEST_SCHEDULE_MINUTE: {{ .Values.features.digestScheduleMinute | quote }}
+  SCHEDULE_ENABLED: {{ .Values.features.schedule | quote }}
   {{- range $k, $v := .Values.env }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}

@@ -230,9 +230,10 @@ features:
   hyperframes: true
   metaSequencer: true
   sourceImages: false
-  digestSchedule: false
-  digestScheduleHour: "10"     # UTC
-  digestScheduleMinute: "0"
+  # Celery beat runs config.yaml `schedule:` (fetch /new and /top, churn probe,
+  # digests + Kindle sends, one video a few times a day). Pause switches are
+  # on the /schedule page; this turns the whole table off.
+  schedule: true
   triageOnIngest: true
 
 # Escape hatch: extra plain (non-secret) env merged into the app ConfigMap.

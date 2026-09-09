@@ -7,7 +7,8 @@ shapes identical.
 """
 
 import logging
-from typing import List, Optional, Tuple
+from datetime import datetime
+from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import Integer, case, delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -1182,3 +1183,78 @@ def recently_published_item_ids(days: int = 7) -> set:
             .all()
         )
     return {r[0] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Runtime settings and HN list samples (alembic 0009)
+# ---------------------------------------------------------------------------
+
+from .orm import AppSettingRow, HNListSampleRow  # noqa: E402
+
+
+def get_setting(key: str, default=None):
+    with db_session() as s:
+        row = s.get(AppSettingRow, key)
+        return default if row is None or row.value is None else row.value
+
+
+def set_setting(key: str, value) -> None:
+    """Upsert. The value is stored as JSON, so pass something JSON-able."""
+    with db_session() as s:
+        row = s.get(AppSettingRow, key)
+        if row is None:
+            s.add(AppSettingRow(key=key, value=value, updated_at=datetime.utcnow()))
+        else:
+            row.value = value
+            row.updated_at = datetime.utcnow()
+        s.commit()
+
+
+def list_settings(prefix: str) -> Dict[str, Any]:
+    with db_session() as s:
+        rows = s.execute(
+            select(AppSettingRow).where(AppSettingRow.key.like(prefix + "%"))
+        ).scalars()
+        return {r.key: r.value for r in rows}
+
+
+def add_list_sample(
+    list_name: str,
+    sampled_at: datetime,
+    size: int,
+    new_count: Optional[int],
+    front_changed: Optional[int],
+    seconds_since_prev: Optional[int],
+) -> None:
+    with db_session() as s:
+        s.add(
+            HNListSampleRow(
+                list_name=list_name,
+                sampled_at=sampled_at,
+                size=size,
+                new_count=new_count,
+                front_changed=front_changed,
+                seconds_since_prev=seconds_since_prev,
+            )
+        )
+        s.commit()
+
+
+def list_samples(list_name: str, since: datetime) -> List[dict]:
+    with db_session() as s:
+        rows = s.execute(
+            select(HNListSampleRow)
+            .where(HNListSampleRow.list_name == list_name)
+            .where(HNListSampleRow.sampled_at >= since)
+            .order_by(HNListSampleRow.sampled_at.asc())
+        ).scalars()
+        return [
+            {
+                "sampled_at": r.sampled_at,
+                "size": r.size,
+                "new_count": r.new_count,
+                "front_changed": r.front_changed,
+                "seconds_since_prev": r.seconds_since_prev,
+            }
+            for r in rows
+        ]

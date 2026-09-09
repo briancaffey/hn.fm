@@ -2879,3 +2879,146 @@ def _score_unbriefed(limit: int) -> int:
         except Exception as e:
             logger.warning(f"digest: scoring {item_id} failed (non-fatal): {e}")
     return scored
+
+
+# ---------------------------------------------------------------------------
+# Scheduled work (see hnfm.schedule and config.yaml `schedule:`)
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(name="hnfm.web.tasks.scheduled_job", time_limit=120, soft_time_limit=90)
+def scheduled_job(name: str, force: bool = False) -> Dict[str, any]:
+    """The one task beat fires. Looks the job up, checks its gate against the
+    two pause switches, dispatches the real task to its own lane, and records
+    what happened so the /schedule page can show it.
+
+    `force` is the UI's "run now": it ignores the pause switches, because a
+    person pressing the button is the override.
+    """
+    from .. import schedule as sched
+    from ..db import repo
+    from ..digest.deliver import delivery_config
+
+    started = datetime.utcnow()
+    job = sched.get_job(name)
+    record = {"started_at": started.isoformat(), "status": "dispatched", "note": None,
+              "task_id": None, "forced": bool(force)}
+    if job is None:
+        record.update(status="error", note=f"no job named {name!r} in config.yaml schedule.jobs")
+        repo.set_setting(sched.SETTING_LAST_RUN_PREFIX + name, record)
+        return record
+
+    paused = None
+    if not force:
+        if job.gate == sched.GATE_SCRAPING and repo.get_setting(sched.SETTING_SCRAPING_PAUSED, False):
+            paused = "scraping is paused"
+        elif job.gate == sched.GATE_GENERATION and repo.get_setting(sched.SETTING_GENERATION_PAUSED, False):
+            paused = "generation is paused"
+    if paused:
+        record.update(status="skipped", note=paused)
+        repo.set_setting(sched.SETTING_LAST_RUN_PREFIX + name, record)
+        logger.info(f"schedule: {name} skipped — {paused}")
+        return record
+
+    kwargs = dict(job.kwargs)
+    if kwargs.get("send"):
+        # A digest job still renders when mail is not configured; it just
+        # cannot send. Say so rather than failing every morning.
+        ready, reason = delivery_config()
+        if not ready:
+            kwargs["send"] = False
+            record["note"] = f"rendered without sending: {reason}"
+
+    task = celery_app.send_task(job.task, kwargs=kwargs)
+    record["task_id"] = task.id
+    repo.set_setting(sched.SETTING_LAST_RUN_PREFIX + name, record)
+    logger.info(f"schedule: {name} → {job.task}[{task.id}] {kwargs}")
+    return record
+
+
+@celery_app.task(name="hnfm.web.tasks.fetch_hn_list", time_limit=300, soft_time_limit=240)
+def fetch_hn_list(list_name: str = "new", limit: int = 60) -> Dict[str, any]:
+    """Queue every id on an HN list that we have not seen. One GET for the
+    id list; each unseen story is then one item fetch on the ingest lane,
+    which chains into triage as usual."""
+    from ..db.repo import exists_item
+    from ..utils.hn_utils import get_new_story_ids, get_top_story_ids
+
+    getter = {"new": get_new_story_ids, "top": get_top_story_ids}.get(list_name)
+    if getter is None:
+        raise ValueError(f"list_name must be new|top, got {list_name!r}")
+    ids = (getter() or [])[: int(limit)]
+    triage_on_ingest = os.getenv("TRIAGE_ON_INGEST", "true").lower() == "true"
+    queued, skipped = [], 0
+    for item_id in ids:
+        if exists_item(item_id):
+            skipped += 1
+            continue
+        hn_fetch_item.apply_async(
+            args=[item_id],
+            kwargs={"continue_to_triage": triage_on_ingest, "source": list_name},
+        )
+        queued.append(item_id)
+    logger.info(f"schedule: /{list_name} → {len(queued)} queued, {skipped} already known")
+    return {"status": "ok", "list": list_name, "seen": len(ids), "queued": len(queued),
+            "skipped": skipped, "queued_ids": queued}
+
+
+@celery_app.task(name="hnfm.web.tasks.probe_hn_churn", time_limit=120, soft_time_limit=90)
+def probe_hn_churn() -> Dict[str, any]:
+    """Sample /new and /top and record how much each moved since the last
+    sample. Two GETs of id lists, nothing else — this is the experiment that
+    tells us how often fetching is worth it."""
+    from ..db import repo
+    from ..utils.hn_utils import get_new_story_ids, get_top_story_ids
+
+    now = datetime.utcnow()
+    out = {}
+    for list_name, getter in (("new", get_new_story_ids), ("top", get_top_story_ids)):
+        ids = list(getter() or [])
+        if not ids:
+            out[list_name] = {"status": "empty"}
+            continue
+        prev = repo.get_setting(f"probe.last.{list_name}") or {}
+        prev_ids = prev.get("ids") or []
+        prev_at = prev.get("at")
+        new_count = front_changed = since = None
+        if prev_ids:
+            new_count = len(set(ids) - set(prev_ids))
+            front_changed = len(set(ids[:30]) - set(prev_ids[:30]))
+            if prev_at:
+                since = int((now - datetime.fromisoformat(prev_at)).total_seconds())
+        repo.add_list_sample(list_name, now, len(ids), new_count, front_changed, since)
+        repo.set_setting(f"probe.last.{list_name}", {"ids": ids, "at": now.isoformat()})
+        out[list_name] = {"size": len(ids), "new": new_count, "front_changed": front_changed,
+                          "seconds_since_prev": since}
+    return {"status": "ok", "sampled_at": now.isoformat(), **out}
+
+
+@celery_app.task(name="hnfm.web.tasks.score_backlog", time_limit=3600, soft_time_limit=3300)
+def score_backlog(limit: int = 10) -> Dict[str, any]:
+    """Triage stories that have a run but no Story Brief."""
+    scored = _score_unbriefed(int(limit))
+    return {"status": "ok", "scored": scored}
+
+
+@celery_app.task(name="hnfm.web.tasks.produce_top_story", time_limit=300, soft_time_limit=240)
+def produce_top_story(limit: int = 1, mode: str = "video") -> Dict[str, any]:
+    """Send the top-ranked story that has no generation yet through the full
+    pipeline. Picks from the triage queue exactly as the Triage page ranks it
+    (score plus human boost, rejected stories excluded)."""
+    from ..db import repo
+
+    rows, _ = repo.list_triage(offset=0, limit=50, include_generated=False)
+    picked = []
+    for row in rows:
+        if row.get("verdict") not in ("great", "good"):
+            continue
+        if (row.get("generation_count") or row.get("generations") or 0):
+            continue
+        task = full_pipeline.apply_async(args=[row["item_id"]], kwargs={"mode": mode})
+        picked.append({"item_id": row["item_id"], "title": row.get("title"), "task_id": task.id})
+        if len(picked) >= int(limit):
+            break
+    logger.info(f"schedule: produce_top_story → {[p['item_id'] for p in picked]}")
+    return {"status": "ok" if picked else "empty", "mode": mode, "queued": picked}

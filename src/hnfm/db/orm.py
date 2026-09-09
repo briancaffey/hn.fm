@@ -386,3 +386,30 @@ class DigestEditionStoryRow(Base):
     item_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     role: Mapped[str] = mapped_column(Text, nullable=True)
+
+
+class AppSettingRow(Base):
+    """Key/value runtime settings (alembic 0009): the schedule overrides and
+    per-job last-run records. Values are JSON so a record can carry a dict."""
+
+    __tablename__ = "app_settings"
+
+    key: Mapped[str] = mapped_column(Text, primary_key=True)
+    value: Mapped[dict] = mapped_column(JSONVariant, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=datetime.utcnow
+    )
+
+
+class HNListSampleRow(Base):
+    """One look at an HN list (alembic 0009): how much /new or /top moved
+    since the previous look. The data behind the fetch cadence."""
+
+    __tablename__ = "hn_list_samples"
+
+    list_name: Mapped[str] = mapped_column(Text, primary_key=True)
+    sampled_at: Mapped[datetime] = mapped_column(DateTime, primary_key=True)
+    size: Mapped[int] = mapped_column(Integer, nullable=False)
+    new_count: Mapped[int] = mapped_column(Integer, nullable=True)
+    front_changed: Mapped[int] = mapped_column(Integer, nullable=True)
+    seconds_since_prev: Mapped[int] = mapped_column(Integer, nullable=True)

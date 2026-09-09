@@ -326,6 +326,80 @@ image_generation:
     board_id: "${INVOKEAI_BOARD_ID}"
 
 # Development Configuration
+# ---------------------------------------------------------------------------
+# Schedule — what runs on a timer. Read by Celery beat AND by the /schedule
+# page, so what you see is what fires. Times are UTC (the app runs enable_utc);
+# 10:00 UTC is 06:00 US Eastern in summer, 05:00 in winter.
+#
+# Each job: task, one of `every` (10m / 6h / 1d) or `cron` (five fields),
+# `gate` (scraping | generation | none — which pause switch stops it), kwargs,
+# and `why`. The two pause switches live in the database and are flipped from
+# the UI; SCHEDULE_ENABLED=false turns the whole table off.
+#
+# Cadence rationale (2026-09-08, before the churn probe had data): /new turns
+# over roughly one to two submissions a minute, so 60 ids every 10 minutes
+# sees everything with margin; /top is the same 30 stories for hours, so
+# every 30 minutes is plenty. The probe-churn job measures both, and the
+# /schedule page shows what it found next to these numbers — tune from that.
+# Firebase has no rate limit; the whole table below is under 30 requests an
+# hour plus one per new story, which is well inside "respectful".
+schedule:
+  enabled: true
+  jobs:
+    fetch-new:
+      task: hnfm.web.tasks.fetch_hn_list
+      every: 10m
+      gate: scraping
+      kwargs: { list_name: new, limit: 60 }
+      why: "New submissions, before they are ranked. Most are noise; the scrape gate stops those at zero LLM cost."
+    fetch-top:
+      task: hnfm.web.tasks.fetch_hn_list
+      every: 30m
+      gate: scraping
+      kwargs: { list_name: top, limit: 60 }
+      why: "The front page and the second page. Changes slowly; anything that climbs in gets picked up within the half hour."
+    probe-churn:
+      task: hnfm.web.tasks.probe_hn_churn
+      every: 5m
+      gate: none
+      why: "Two id-list GETs, no item fetches. Measures how fast /new and /top actually move, so the two cadences above are set from data."
+    score-backlog:
+      task: hnfm.web.tasks.score_backlog
+      every: 1h
+      gate: scraping
+      kwargs: { limit: 10 }
+      why: "Scores stories that were fetched but never triaged (a worker died, or scraping ran while the LLM was down)."
+    digest-punchline:
+      task: hnfm.web.tasks.build_digest
+      cron: "0 10 * * *"
+      gate: generation
+      kwargs: { shape: punchline, send: true, score_first: true }
+      why: "The whole front page and /new, every story cut to its answer. On the Kindle before the morning commute."
+    digest-daily:
+      task: hnfm.web.tasks.build_digest
+      cron: "30 10 * * *"
+      gate: generation
+      kwargs: { shape: daily, send: true, score_first: true }
+      why: "Five stories with a teaser and two deep dives, written from Story Briefs. The longer morning read."
+    digest-deep-weekend:
+      task: hnfm.web.tasks.build_digest
+      cron: "0 11 * * 6"
+      gate: generation
+      kwargs: { shape: deep, send: true, score_first: true, exclude_recent_days: 3 }
+      why: "Saturday: three stories at full depth. Re-uses the week's best rather than waiting for new ones."
+    digest-narrative-audio:
+      task: hnfm.web.tasks.build_digest
+      cron: "0 13 * * *"
+      gate: generation
+      kwargs: { shape: narrative, send: false, narrate: true, score_first: true }
+      why: "The day's stories voiced as one continuous episode for the podcast feed. Not sent — the Kindle cannot play it."
+    produce-top-story:
+      task: hnfm.web.tasks.produce_top_story
+      every: 6h
+      gate: generation
+      kwargs: { limit: 1, mode: video }
+      why: "One video for the top-ranked story that has none. The render lane is serial and a segment takes about an hour, so four a day is the ceiling anyway."
+
 development:
   debug: false
   log_level: "INFO"

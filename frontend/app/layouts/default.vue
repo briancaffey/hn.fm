@@ -55,6 +55,8 @@ const navGroups: Array<{ label: string, items: NavItem[] }> = [
         hint: 'How the prompts got here — what was measured, changed, and what moved.' },
       { label: 'Services', to: '/services', icon: 'lucide:server', match: '/services',
         hint: 'Inference backend health, and what breaks without each one.' },
+      { label: 'Schedule', to: '/schedule', icon: 'lucide:calendar-clock', match: '/schedule',
+        hint: 'What runs on a timer, when it fires next, and the switches to pause scraping or generation.' },
     ],
   },
 ]

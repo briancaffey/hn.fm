@@ -19,6 +19,10 @@ if __name__ == "__main__":
     print(f"Starting hn.fm web server on {host}:{port}")
     print(f"Open http://localhost:{port} in your browser")
 
+    # A long-lived SSE client (/api/activity/stream, held open by any dashboard
+    # tab) kept the reloader waiting "for connections to close" forever, so
+    # every code change in dev looked like a hung server. Cap the wait.
     uvicorn.run(
-        "hnfm.web.api:app", host=host, port=port, reload=reload, log_level="info"
+        "hnfm.web.api:app", host=host, port=port, reload=reload, log_level="info",
+        timeout_graceful_shutdown=int(os.getenv("WEB_GRACEFUL_SHUTDOWN_SECONDS", "5"))
     )
