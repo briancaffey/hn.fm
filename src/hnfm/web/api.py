@@ -4,7 +4,8 @@ import json
 import logging
 import os
 from datetime import datetime, timezone
-from fastapi import FastAPI, HTTPException, Body
+from typing import Optional
+from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.responses import (
     JSONResponse,
     FileResponse,
@@ -177,13 +178,50 @@ async def get_services_status():
 
 
 # Helper functions
-def _serve_media(local_path: str, media_type: str, filename: str, proxy: bool = False):
+def _request_public_base(request: Request) -> Optional[str]:
+    """The origin the browser used for this request, when MinIO shares it.
+
+    In the cluster the frontend, the API and MinIO (path-style, /<bucket>) are
+    all path-routed behind ONE hostname — but that hostname can be more than
+    one name (hnfm.lan on the LAN, hnfm.<tailnet>.ts.net over Tailscale).
+    Presigned URLs embed the host in their signature, so a URL signed for
+    hnfm.lan is rejected when the browser fetches it via the tailnet name.
+    Signing for whichever host the request came in on keeps media working on
+    every name the ingress answers to. Returns None when MinIO has its own
+    public URL (S3_PUBLIC_URL host != PUBLIC_API_BASE host): then the
+    configured value is the only right answer.
+    """
+    from urllib.parse import urlparse
+
+    s3_host = urlparse(os.getenv("S3_PUBLIC_URL", "")).netloc
+    api_host = urlparse(os.getenv("PUBLIC_API_BASE", "")).netloc
+    if not s3_host or s3_host != api_host:
+        return None
+    # Traefik and the Tailscale operator proxy both set X-Forwarded-*; fall
+    # back to what the ASGI server saw for direct hits.
+    host = request.headers.get("x-forwarded-host") or request.headers.get("host")
+    if not host:
+        return None
+    host = host.split(",")[0].strip()
+    proto = (request.headers.get("x-forwarded-proto") or request.url.scheme or "http")
+    proto = proto.split(",")[0].strip()
+    return f"{proto}://{host}"
+
+
+def _serve_media(
+    local_path: str,
+    media_type: str,
+    filename: str,
+    proxy: bool = False,
+    public_base: Optional[str] = None,
+):
     """Serve a media artifact, preferring the object store.
 
     Redirects to a presigned MinIO URL when the object exists (MinIO handles
     Range requests for video scrubbing). `proxy=True` streams through the API
     instead — needed for subtitles, where <track> requires same-origin/CORS.
-    Falls back to the local outputs/ file during transition.
+    `public_base` (see _request_public_base) picks the host the presigned URL
+    is signed for. Falls back to the local outputs/ file during transition.
     """
     from ..storage import object_store
 
@@ -192,7 +230,9 @@ def _serve_media(local_path: str, media_type: str, filename: str, proxy: bool = 
         if proxy:
             body, ctype = object_store.get_object_stream(key)
             return StreamingResponse(body.iter_chunks(), media_type=ctype)
-        return RedirectResponse(object_store.presigned_url(key), status_code=307)
+        return RedirectResponse(
+            object_store.presigned_url(key, public_base=public_base), status_code=307
+        )
 
     if not os.path.exists(local_path):
         raise HTTPException(status_code=404, detail="File not found")
@@ -499,13 +539,14 @@ async def podcast_episodes(offset: int = 0, limit: int = 100):
 
 
 @app.get("/api/podcast/episodes/{item_id}/{run}/{seg}.mp3", tags=["podcast"])
-async def podcast_episode_mp3(item_id: int, run: int, seg: int):
+async def podcast_episode_mp3(item_id: int, run: int, seg: int, request: Request):
     """Serve an episode MP3 (MinIO-first with local fallback)."""
     segment = get_segment(item_id, run, seg)
     if not segment or not segment.episode_path:
         raise HTTPException(status_code=404, detail="Episode not found")
     return _serve_media(segment.episode_path, "audio/mpeg",
-                        f"hnfm-{item_id}-{run}-{seg}.mp3")
+                        f"hnfm-{item_id}-{run}-{seg}.mp3",
+                        public_base=_request_public_base(request))
 
 
 @app.get("/api/podcast/feed.xml", tags=["podcast"])
@@ -1463,7 +1504,7 @@ async def get_segment_asr(item_id: int, run: int, seg: int):
 
 
 @app.get("/api/audio/{item_id}/{run}/{seg}/{filename}")
-async def serve_audio_file(item_id: int, run: int, seg: int, filename: str):
+async def serve_audio_file(item_id: int, run: int, seg: int, filename: str, request: Request):
     """Serve audio files for segments and sections"""
     try:
         from fastapi.responses import FileResponse
@@ -1507,7 +1548,8 @@ async def serve_audio_file(item_id: int, run: int, seg: int, filename: str):
             raise HTTPException(status_code=400, detail="Invalid filename")
 
         # Object store first, local outputs/ fallback
-        return _serve_media(audio_path, "audio/wav", filename)
+        return _serve_media(audio_path, "audio/wav", filename,
+                            public_base=_request_public_base(request))
 
     except HTTPException:
         raise
@@ -1519,7 +1561,9 @@ async def serve_audio_file(item_id: int, run: int, seg: int, filename: str):
 
 
 @app.get("/api/images/{item_id}/{run}/{seg}/{index}/{filename}")
-async def serve_image_file(item_id: int, run: int, seg: int, index: int, filename: str):
+async def serve_image_file(
+    item_id: int, run: int, seg: int, index: int, filename: str, request: Request
+):
     """Serve image files for segments"""
     try:
         from fastapi.responses import FileResponse
@@ -1547,7 +1591,8 @@ async def serve_image_file(item_id: int, run: int, seg: int, index: int, filenam
             raise HTTPException(status_code=400, detail="Invalid filename")
 
         # Object store first, local outputs/ fallback
-        return _serve_media(image_path, "image/png", filename)
+        return _serve_media(image_path, "image/png", filename,
+                            public_base=_request_public_base(request))
 
     except HTTPException:
         raise
@@ -1743,7 +1788,7 @@ async def generate_segment_video_endpoint(item_id: int, run: int, seg: int):
 
 
 @app.get("/api/video/{item_id}/{run}/{seg}/{filename}")
-async def serve_video_file(item_id: int, run: int, seg: int, filename: str):
+async def serve_video_file(item_id: int, run: int, seg: int, filename: str, request: Request):
     """Serve video files for segments"""
     try:
         from fastapi.responses import FileResponse
@@ -1789,7 +1834,8 @@ async def serve_video_file(item_id: int, run: int, seg: int, filename: str):
             return _serve_media(file_path, "text/vtt", filename, proxy=True)
         if filename.endswith(".ass"):
             return _serve_media(file_path, "text/plain", filename, proxy=True)
-        return _serve_media(file_path, "video/mp4", filename)
+        return _serve_media(file_path, "video/mp4", filename,
+                            public_base=_request_public_base(request))
 
     except HTTPException:
         raise

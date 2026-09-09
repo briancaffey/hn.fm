@@ -81,7 +81,13 @@ export default defineNuxtConfig({
   },
 
   runtimeConfig: {
+    // Server-only: where SSR forwards /api when apiBase is relative
+    // (server/api/[...].ts). Env: NUXT_API_UPSTREAM.
+    apiUpstream: 'http://localhost:8000',
     public: {
+      // Origin the browser calls the API on. Empty = same origin as the page
+      // (the cluster ingress); the dev default is the FastAPI dev server.
+      // Env: NUXT_PUBLIC_API_BASE.
       apiBase: 'http://localhost:8000',
     }
   },

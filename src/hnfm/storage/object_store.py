@@ -19,6 +19,8 @@ logger = logging.getLogger(__name__)
 _lock = threading.Lock()
 _client = None
 _public_client = None
+# Presigning clients keyed by public origin (see presigned_url); bounded.
+_public_clients: dict = {}
 _bucket_ready = False
 
 # mimetypes misses some of ours
@@ -97,6 +99,7 @@ def reset() -> None:
     with _lock:
         _client = None
         _public_client = None
+        _public_clients.clear()
         _bucket_ready = False
 
 
@@ -174,8 +177,28 @@ def object_exists(key: str) -> bool:
         return False
 
 
-def presigned_url(key: str, expires_seconds: int = 3600) -> str:
-    return get_public_client().generate_presigned_url(
+def _client_for_public_base(public_base: str):
+    """A presigning client for one browser-facing origin (cached per origin)."""
+    with _lock:
+        client = _public_clients.get(public_base)
+        if client is None:
+            if len(_public_clients) >= 16:  # a handful of ingress names, not a cache
+                _public_clients.clear()
+            client = _public_clients[public_base] = _make_client(public_base)
+    return client
+
+
+def presigned_url(
+    key: str, expires_seconds: int = 3600, public_base: Optional[str] = None
+) -> str:
+    """Presigned GET for `key`, signed for the host the browser will use.
+
+    Defaults to S3_PUBLIC_URL; `public_base` overrides it for deployments
+    where MinIO is path-routed behind the same origin as the app and that
+    origin answers to several hostnames (the signature covers the Host).
+    """
+    client = _client_for_public_base(public_base) if public_base else get_public_client()
+    return client.generate_presigned_url(
         "get_object",
         Params={"Bucket": bucket_name(), "Key": key},
         ExpiresIn=expires_seconds,

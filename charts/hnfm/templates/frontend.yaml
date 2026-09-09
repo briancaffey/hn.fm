@@ -26,10 +26,16 @@ spec:
               value: "0.0.0.0"
             - name: NITRO_PORT
               value: "3000"
-            # Same origin as the API (path-routed by the ingress), so the
-            # browser never makes a cross-origin call.
+            # Empty = the browser calls the API on the same origin it loaded
+            # the page from (the ingress path-routes /api), so the app works
+            # on every hostname that reaches the ingress — hnfm.lan and a
+            # Tailscale Ingress alike — with no cross-origin calls. SSR
+            # can't use a relative URL, so it forwards /api to the web
+            # Service directly (frontend server/api/[...].ts).
             - name: NUXT_PUBLIC_API_BASE
-              value: {{ include "hnfm.publicUrl" . | quote }}
+              value: ""
+            - name: NUXT_API_UPSTREAM
+              value: "http://{{ include "hnfm.fullname" . }}-web:8000"
           ports:
             - name: http
               containerPort: 3000

@@ -20,7 +20,7 @@ Mac ── git push forgejo main ──▶ Forgejo Actions (dind on a2)
 | Deployment | Image | Notes |
 |---|---|---|
 | `hnfm-web` | backend | FastAPI on :8000, `/health` probes |
-| `hnfm-frontend` | frontend | Nuxt node server on :3000, `NUXT_PUBLIC_API_BASE=https://hnfm.lan` |
+| `hnfm-frontend` | frontend | Nuxt node server on :3000, same-origin API (`NUXT_PUBLIC_API_BASE=""`, SSR forwards `/api` to `NUXT_API_UPSTREAM`) |
 | `hnfm-worker-{render,ingest,triage,digest}` | backend | one Celery lane each, commands identical to compose |
 | `hnfm-beat` | backend | 1 replica, schedule file in /tmp |
 | `hnfm-hyperframes` | hyperframes | Chromium + ffmpeg sidecar, shares `/app/outputs` |
