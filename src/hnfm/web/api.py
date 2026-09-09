@@ -714,6 +714,112 @@ async def image_catalog(
         raise HTTPException(status_code=500, detail="Internal server error")
 
 
+# ---------------------------------------------------------------------------
+# Source images (plans/18)
+# ---------------------------------------------------------------------------
+
+
+@app.get("/api/source-images", tags=["images"])
+async def source_images_list(
+    item_id: int = None, kind: str = None, usable: bool = None,
+    sort: str = "recent", offset: int = 0, limit: int = 48,
+):
+    """Every picture lifted from an article: sizes, analysis, cost, restyles."""
+    try:
+        from ..db import repo as _repo
+
+        items, total, facets = _repo.list_source_images(
+            item_id=item_id, kind=kind, usable=usable, sort=sort,
+            offset=offset, limit=min(int(limit), 200),
+        )
+        return {
+            "images": items, "facets": facets,
+            "enabled": os.getenv("SOURCE_IMAGES_ENABLED", "true").lower() == "true",
+            "pagination": {"offset": offset, "limit": limit, "total": total},
+        }
+    except Exception as e:
+        logger.error(f"source images list failed: {e}")
+        raise HTTPException(status_code=500, detail="Internal server error")
+
+
+@app.get("/api/source-images/{image_id}/file", tags=["images"])
+async def source_image_file(image_id: int):
+    """The stored (downscaled) copy."""
+    from fastapi.responses import FileResponse
+    from ..db import repo as _repo
+
+    row = _repo.get_source_image(image_id)
+    if not row or not row.get("path") or not os.path.exists(row["path"]):
+        raise HTTPException(status_code=404, detail="Source image not found")
+    return FileResponse(row["path"], media_type="image/jpeg")
+
+
+@app.post("/api/hn/items/{item_id}/runs/{run}/source-images", tags=["images"])
+async def source_images_collect(item_id: int, run: int, request: dict = Body(default={})):
+    """(Re)collect and analyse the article's pictures for a run."""
+    from .tasks import collect_source_images
+
+    task = collect_source_images.apply_async(
+        args=[item_id, run],
+        kwargs={"force": bool(request.get("force", True)),
+                "analyze": bool(request.get("analyze", True))},
+    )
+    return {"status": "queued", "task_id": task.id}
+
+
+@app.post("/api/source-images/{image_id}/restyle", tags=["images"])
+async def source_image_restyle(image_id: int, request: dict = Body(default={})):
+    """Try a theme on one source image, synchronously, for the catalogue.
+
+    Deliberately in the request rather than queued: it is one flux edit,
+    the caller is a person looking at the page, and they want to see it.
+    """
+    from ..content.art_direction import get_theme, pick_theme, format_dims
+    from ..content import source_casting as _cast
+    from ..db import repo as _repo
+    import time as _t
+
+    row = _repo.get_source_image(image_id)
+    if not row or not row.get("path") or not os.path.exists(row["path"]):
+        raise HTTPException(status_code=404, detail="Source image not found")
+    theme = get_theme(request.get("theme")) or pick_theme(seed=image_id)
+    w, h = format_dims(request.get("format") or "16:9")
+    out_dir = os.path.join(os.path.dirname(row["path"]), "restyles")
+    filename = f"src_{row['index']}_{theme.key}_{int(_t.time())}.png"
+    t0 = _t.time()
+    try:
+        made = _cast.restyle(row, theme, out_dir, filename, w, h, seed=image_id)
+    except Exception as e:
+        logger.error(f"restyle failed for source image {image_id}: {e}")
+        raise HTTPException(status_code=502, detail=f"restyle failed: {e}")
+    if not made:
+        raise HTTPException(status_code=502, detail="image backend has no edit endpoint")
+    prompt = _cast.restyle_prompt(row, theme)
+    _repo.record_generated_image(
+        kind="restyle", item_id=row["item_id"], run=row["run"],
+        title=f"Source image #{image_id}", prompt=prompt,
+        style_key=theme.key, style_label=theme.name,
+        technique="flux edit of a source image", width=w, height=h,
+        seconds=round(_t.time() - t0, 2), path=made, source_image_id=image_id,
+    )
+    return {"status": "ok", "path": made, "theme": theme.key,
+            "seconds": round(_t.time() - t0, 2), "prompt": prompt}
+
+
+@app.get("/api/source-images/{image_id}/restyles/{filename}", tags=["images"])
+async def source_image_restyle_file(image_id: int, filename: str):
+    from fastapi.responses import FileResponse
+    from ..db import repo as _repo
+
+    row = _repo.get_source_image(image_id)
+    if not row or not row.get("path") or "/" in filename or ".." in filename:
+        raise HTTPException(status_code=404, detail="Not found")
+    path = os.path.join(os.path.dirname(row["path"]), "restyles", filename)
+    if not os.path.exists(path):
+        raise HTTPException(status_code=404, detail="Not found")
+    return FileResponse(path, media_type="image/png")
+
+
 @app.get("/api/evolution", tags=["activity"])
 async def evolution_endpoint():
     """Prompt-evolution rounds: what was measured, changed, and what moved.

@@ -16,6 +16,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from ..web.models import HNItem, ProcessedRun, Segment, SegmentImage, SegmentSection
 from .engine import db_session
 from .orm import (
+    GeneratedImageRow,
     StoryBriefRow,
     DigestEditionRow,
     DigestEditionStoryRow,
@@ -1083,10 +1084,182 @@ def list_generated_images(kind: str = None, style_key: str = None,
                 "width": r.width, "height": r.height,
                 "ink": r.ink, "seconds": r.seconds,
                 "path": r.path, "thumb": r.thumb,
+                "source_image_id": r.source_image_id,
             }
             for r in rows
         ]
     return items, total, {"kinds": kinds, "styles": styles}
+
+
+# --- source images (plans/18) ---------------------------------------------
+
+
+def _source_image_to_dict(r) -> dict:
+    return {
+        "id": r.id, "item_id": r.item_id, "run": r.run, "index": r.index,
+        "created_at": r.created_at.isoformat() if r.created_at else None,
+        "url": r.url, "alt": r.alt, "origin": r.origin, "sha1": r.sha1,
+        "content_type": r.content_type,
+        "width": r.width, "height": r.height, "bytes": r.bytes,
+        "stored_width": r.stored_width, "stored_height": r.stored_height,
+        "stored_bytes": r.stored_bytes, "resized": bool(r.resized),
+        "path": r.path,
+        "description": r.description, "kind": r.kind,
+        "subjects": r.subjects or [], "text_in_image": r.text_in_image,
+        "interest": r.interest, "usable": r.usable, "use_hint": r.use_hint,
+        "caveat": r.caveat, "analysis_model": r.analysis_model,
+        "tokens_in": r.tokens_in, "tokens_out": r.tokens_out,
+        "analysis_seconds": r.analysis_seconds,
+        "analyzed_at": r.analyzed_at.isoformat() if r.analyzed_at else None,
+        "analysis_error": r.analysis_error,
+    }
+
+
+def replace_source_images(item_id: int, run: int, images: List[dict]) -> List[dict]:
+    """Store a fresh collection for the run, replacing any earlier one.
+
+    Replacement rather than merge: a re-collect is asked for when the first
+    pass was wrong (page changed, scrape failed), and keeping stale rows next
+    to new ones would make the catalogue lie about what the page has.
+    Returns the stored rows with their ids.
+    """
+    from .orm import SourceImageRow
+
+    with db_session() as s:
+        s.execute(
+            delete(SourceImageRow).where(
+                SourceImageRow.item_id == item_id, SourceImageRow.run == run
+            )
+        )
+        rows = []
+        for im in images:
+            row = SourceImageRow(
+                item_id=item_id, run=run,
+                created_at=datetime.utcnow(),
+                **{k: v for k, v in im.items() if k in SourceImageRow.__table__.columns},
+            )
+            s.add(row)
+            rows.append(row)
+        s.commit()
+        out = [_source_image_to_dict(r) for r in rows]
+    # The legacy column the media planner still reads. Kept in step so the
+    # planner's listing and the catalogue never disagree.
+    set_run_source_images(item_id, run, [
+        {"id": o["id"], "url": o["url"], "alt": o["alt"], "local_path": o["path"],
+         "width": o["stored_width"], "height": o["stored_height"],
+         "description": o["description"]}
+        for o in out
+    ])
+    return out
+
+
+def update_source_image(image_id: int, **fields) -> Optional[dict]:
+    """Write analysis (or anything else) onto one row. Returns the row."""
+    from .orm import SourceImageRow
+
+    with db_session() as s:
+        row = s.get(SourceImageRow, image_id)
+        if row is None:
+            return None
+        for k, v in fields.items():
+            if k in SourceImageRow.__table__.columns:
+                setattr(row, k, v)
+        s.commit()
+        out = _source_image_to_dict(row)
+    # Mirror the description into the legacy column.
+    if "description" in fields:
+        try:
+            legacy = get_run_source_images(out["item_id"], out["run"])
+            for im in legacy:
+                if im.get("id") == image_id:
+                    im["description"] = fields["description"]
+            set_run_source_images(out["item_id"], out["run"], legacy)
+        except Exception as e:
+            logger.debug(f"legacy source_images mirror failed (non-fatal): {e}")
+    return out
+
+
+def get_source_image(image_id: int) -> Optional[dict]:
+    from .orm import SourceImageRow
+
+    with db_session() as s:
+        row = s.get(SourceImageRow, image_id)
+        return _source_image_to_dict(row) if row else None
+
+
+def source_images_for_run(item_id: int, run: int) -> List[dict]:
+    from .orm import SourceImageRow
+
+    with db_session() as s:
+        rows = (
+            s.query(SourceImageRow)
+            .filter(SourceImageRow.item_id == item_id, SourceImageRow.run == run)
+            .order_by(SourceImageRow.index.asc())
+            .all()
+        )
+        return [_source_image_to_dict(r) for r in rows]
+
+
+def list_source_images(item_id: int = None, kind: str = None,
+                       usable: Optional[bool] = None, sort: str = "recent",
+                       offset: int = 0, limit: int = 48) -> tuple:
+    """Catalogue page, total, facets — the shape `list_generated_images` has."""
+    from .orm import SourceImageRow as S
+
+    with db_session() as s:
+        q = s.query(S, HNItemRow.title).outerjoin(HNItemRow, HNItemRow.id == S.item_id)
+        if item_id:
+            q = q.filter(S.item_id == item_id)
+        if kind:
+            q = q.filter(S.kind == kind)
+        if usable is not None:
+            q = q.filter(S.usable.is_(usable))
+        total = q.count()
+        order = {
+            "recent": (S.created_at.desc(), S.index.asc()),
+            "oldest": (S.created_at.asc(), S.index.asc()),
+            "interest": (S.interest.desc().nullslast(), S.created_at.desc()),
+            "largest": (S.bytes.desc().nullslast(),),
+            "tokens": ((S.tokens_in + S.tokens_out).desc().nullslast(),),
+        }.get(sort, (S.created_at.desc(), S.index.asc()))
+        rows = q.order_by(*order).offset(offset).limit(limit).all()
+
+        kinds = dict(
+            s.query(S.kind, func.count()).filter(S.kind.isnot(None))
+            .group_by(S.kind).all()
+        )
+        usable_n = s.query(func.count()).select_from(S).filter(S.usable.is_(True)).scalar()
+        tokens = s.query(
+            func.coalesce(func.sum(S.tokens_in), 0),
+            func.coalesce(func.sum(S.tokens_out), 0),
+        ).one()
+
+        # Restyles made from these pictures, so the card can show them.
+        ids = [r.id for r, _t in rows]
+        restyles: Dict[int, list] = {}
+        if ids:
+            for g in (
+                s.query(GeneratedImageRow)
+                .filter(GeneratedImageRow.source_image_id.in_(ids))
+                .order_by(GeneratedImageRow.created_at.desc()).all()
+            ):
+                restyles.setdefault(g.source_image_id, []).append({
+                    "id": g.id, "item_id": g.item_id, "run": g.run, "seg": g.seg,
+                    "style_key": g.style_key, "style_label": g.style_label,
+                    "prompt": g.prompt, "path": g.path, "seconds": g.seconds,
+                    "created_at": g.created_at.isoformat() if g.created_at else None,
+                })
+
+        items = []
+        for r, title in rows:
+            d = _source_image_to_dict(r)
+            d["title"] = title
+            d["restyles"] = restyles.get(r.id, [])
+            items.append(d)
+    return items, total, {
+        "kinds": kinds, "usable": int(usable_n or 0),
+        "tokens_in": int(tokens[0] or 0), "tokens_out": int(tokens[1] or 0),
+    }
 
 
 # --- digest editions -------------------------------------------------------

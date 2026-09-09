@@ -941,42 +941,107 @@ def build_segment_images(
             "dynamic dutch-angle composition",
         ]
 
+        # The article's own pictures (plans/18): which sections, if any,
+        # should show one instead of a generated scene, and how. One text
+        # call over the analyses; nothing if the run has no usable images.
+        from ..content import source_casting as _cast
+
+        casting = {}
+        if os.getenv("SOURCE_IMAGES_ENABLED", "true").lower() == "true":
+            _src_rows = repo.source_images_for_run(item_id, run)
+            if _cast.eligible(_src_rows):
+                with steps.step(
+                    item_id, run, seg, "images", "images/cast",
+                    {"eligible": len(_cast.eligible(_src_rows)), "theme": theme.key},
+                ) as st:
+                    casting = _cast.cast(sections, _src_rows, theme.name)
+                    st.set(cast={k: {"image_id": v["image"]["id"],
+                                     "treatment": v["treatment"], "why": v["why"]}
+                                 for k, v in casting.items()})
+
         # 5) Loop through sections and generate images
         # Scenes written so far in this take, fed to the next prompt.
         prior_scenes: list = []
         for i, text in enumerate(sections, start=1):
             logger.info(f"Processing section {i}/{len(sections)}: {text[:50]}...")
 
-            # Generate prompt (varied scene + the take's theme)
-            shot_hint = SHOTS[(i - 1) % len(SHOTS)]
-            visual_intent = intents[i - 1] if i <= len(intents) else ""
-            with steps.step(
-                item_id, run, seg, "images", f"images/{i}/prompt",
-                {"line_text": text, "shot_hint": shot_hint, "theme": theme.key,
-                 "visual_intent": visual_intent},
-            ) as st:
-                prompt = generate_image_prompt_v1(
-                    text, run_summary, theme=theme, shot_hint=shot_hint,
-                    visual_intent=visual_intent,
-                    prior_scenes=prior_scenes,
-                    section_index=i,
-                )
-                st.set(prompt=prompt)
-            # Carried forward so the next shot knows what this take has already
-            # shown. Without it each prompt was invented in isolation and only
-            # the theme held the take together.
-            prior_scenes.append(prompt)
-            logger.info(f"Generated prompt: {prompt[:100]}...")
-
-            # Generate the root frame (text-to-image) at the take's format
             out = img_path(outputs_root, item_id, run, seg, i)
-            with steps.step(
-                item_id, run, seg, "images", f"images/{i}/root",
-                {"prompt": prompt, "width": _w, "height": _h},
-            ) as st:
-                generate_image_from_prompt(prompt, out, width=_w, height=_h)
-                st.set(image_path=out)
-            logger.info(f"Generated image: {out}")
+            cast_entry = casting.get(i)
+            if cast_entry:
+                # A real image for this section. The prompt field carries
+                # what was done so the catalogue and the segment page can
+                # say why this frame looks unlike the others.
+                src_im = cast_entry["image"]
+                treatment = cast_entry["treatment"]
+                prompt = (
+                    _cast.restyle_prompt(src_im, theme) if treatment == "restyle"
+                    else f"Source image #{src_im['id']} as-is: {src_im.get('description') or ''}"
+                )
+                with steps.step(
+                    item_id, run, seg, "images", f"images/{i}/root",
+                    {"source_image_id": src_im["id"], "treatment": treatment,
+                     "why": cast_entry.get("why"), "width": _w, "height": _h},
+                ) as st:
+                    made = None
+                    _t0 = time.time()
+                    if treatment == "restyle":
+                        try:
+                            made = _cast.restyle(
+                                src_im, theme, os.path.dirname(out),
+                                os.path.basename(out), _w, _h,
+                                seed=item_id * 131 + i * 977,
+                            )
+                        except Exception as re_err:
+                            logger.warning(
+                                f"restyle of source image {src_im['id']} failed, "
+                                f"placing as-is: {re_err}"
+                            )
+                        if made:
+                            repo.record_generated_image(
+                                kind="restyle", item_id=item_id, run=run, seg=seg,
+                                title=f"Section {i}", prompt=prompt,
+                                style_key=theme.key, style_label=theme.name,
+                                technique="flux edit of a source image",
+                                width=_w, height=_h,
+                                seconds=round(time.time() - _t0, 2),
+                                path=made, source_image_id=src_im["id"],
+                            )
+                    if not made:
+                        made = _cast.place(src_im["path"], out, _w, _h)
+                        treatment = "as_is"
+                    st.set(image_path=made, treatment=treatment)
+                prior_scenes.append(prompt)
+                logger.info(f"Section {i}: source image #{src_im['id']} ({treatment})")
+            else:
+                # Generate prompt (varied scene + the take's theme)
+                shot_hint = SHOTS[(i - 1) % len(SHOTS)]
+                visual_intent = intents[i - 1] if i <= len(intents) else ""
+                with steps.step(
+                    item_id, run, seg, "images", f"images/{i}/prompt",
+                    {"line_text": text, "shot_hint": shot_hint, "theme": theme.key,
+                     "visual_intent": visual_intent},
+                ) as st:
+                    prompt = generate_image_prompt_v1(
+                        text, run_summary, theme=theme, shot_hint=shot_hint,
+                        visual_intent=visual_intent,
+                        prior_scenes=prior_scenes,
+                        section_index=i,
+                    )
+                    st.set(prompt=prompt)
+                # Carried forward so the next shot knows what this take has
+                # already shown. Without it each prompt was invented in
+                # isolation and only the theme held the take together.
+                prior_scenes.append(prompt)
+                logger.info(f"Generated prompt: {prompt[:100]}...")
+
+                # Generate the root frame (text-to-image) at the take's format
+                with steps.step(
+                    item_id, run, seg, "images", f"images/{i}/root",
+                    {"prompt": prompt, "width": _w, "height": _h},
+                ) as st:
+                    generate_image_from_prompt(prompt, out, width=_w, height=_h)
+                    st.set(image_path=out)
+                logger.info(f"Generated image: {out}")
 
             # Alignment (start/duration) — drives sequence length + timeline
             start_ms, duration_ms = (
@@ -1257,38 +1322,88 @@ def rebuild_single_image(
         raise
 
 
-def ingest_source_images(item_id: int, run: int) -> Dict[str, any]:
-    """Pull, rank, describe and store the best real images from the article.
+@celery_app.task(
+    name="hnfm.web.tasks.collect_source_images", time_limit=900, soft_time_limit=900
+)
+def collect_source_images(item_id: int, run: int, force: bool = False,
+                          analyze: bool = True) -> Dict[str, any]:
+    """The article's own pictures: collected, downscaled, stored, analysed.
 
-    Stored on the run row (runs.source_images) + a JSON on disk.
-    Gated on SOURCE_IMAGES_ENABLED; always non-fatal.
+    Plans/18. Dispatched from triage alongside the Story Brief so the images
+    are ready before a video is made, and callable on demand from the
+    catalogue. Idempotent unless `force`: a run that already has rows keeps
+    them, so `full_pipeline` re-entering this costs nothing.
+
+    Gated on SOURCE_IMAGES_ENABLED; always non-fatal per image.
     """
-    if os.getenv("SOURCE_IMAGES_ENABLED", "false").lower() != "true":
+    if os.getenv("SOURCE_IMAGES_ENABLED", "true").lower() != "true":
         return {"status": "skipped", "reason": "SOURCE_IMAGES_ENABLED!=true"}
 
-    import json as _json
-    from ..scraper.source_images import ingest
+    from ..scraper import source_images as _src
+    from ..content import source_image_analysis as _analysis
 
-    outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
     pr = get_run(item_id, run)
     if not pr or not getattr(pr, "source_url", None):
         return {"status": "skipped", "reason": "no run/url"}
+    if not force and repo.source_images_for_run(item_id, run):
+        return {"status": "exists", "item_id": item_id, "run": run,
+                "count": len(repo.source_images_for_run(item_id, run))}
 
+    item = get_item(item_id)
+    title = (item.title if item else "") or ""
+    outputs_root = os.getenv("OUTPUTS_DIR", "/app/outputs")
     out_dir = os.path.join(
         outputs_root, "hn", "item", str(item_id), "runs", str(run), "source_images"
     )
-    results = ingest(
-        pr.source_url, pr.summary or "", out_dir,
-        top_n=int(os.getenv("SOURCE_IMAGES_TOP_N", "4")),
+
+    with steps.step(
+        item_id, run, None, "source_images", "source_images/collect",
+        {"url": pr.source_url, "max_dim": _src.MAX_DIM,
+         "max_candidates": _src.MAX_CANDIDATES},
+    ) as st:
+        stored = _src.ingest(pr.source_url, out_dir)
+        rows = repo.replace_source_images(item_id, run, stored)
+        st.set(
+            stored=len(rows),
+            bytes_served=sum(r.get("bytes") or 0 for r in rows),
+            bytes_kept=sum(r.get("stored_bytes") or 0 for r in rows),
+            resized=sum(1 for r in rows if r.get("resized")),
+        )
+
+    analysed, usable = 0, 0
+    if analyze and rows:
+        for row in rows[:_src.ANALYZE_N]:
+            with steps.step(
+                item_id, run, None, "source_images",
+                f"source_images/{row['index']}/analyze",
+                {"url": row["url"], "stored": f"{row['stored_width']}x{row['stored_height']}"},
+            ) as st:
+                fields = _analysis.analyze(
+                    row["path"], title=title, summary=pr.summary or "",
+                    alt=row.get("alt") or "", origin=row.get("origin") or "",
+                )
+                fields["analyzed_at"] = datetime.utcnow()
+                repo.update_source_image(row["id"], **fields)
+                st.set(**{k: v for k, v in fields.items()
+                          if k in ("kind", "interest", "usable", "analysis_error",
+                                   "tokens_in", "tokens_out")})
+                if fields.get("analysis_error"):
+                    st.soft_fail(fields["analysis_error"])
+                else:
+                    analysed += 1
+                    usable += 1 if fields.get("usable") else 0
+
+    logger.info(
+        f"📸 Source images {item_id}:{run}: {len(rows)} stored, "
+        f"{analysed} analysed, {usable} usable"
     )
-    repo.set_run_source_images(item_id, run, results)
-    try:
-        os.makedirs(out_dir, exist_ok=True)
-        with open(os.path.join(out_dir, "source_images.json"), "w") as f:
-            f.write(_json.dumps(results, indent=2))
-    except Exception:
-        pass
-    return {"status": "ok", "count": len(results)}
+    return {"status": "ok", "item_id": item_id, "run": run,
+            "count": len(rows), "analysed": analysed, "usable": usable}
+
+
+def ingest_source_images(item_id: int, run: int) -> Dict[str, any]:
+    """`full_pipeline`'s inline entry: reuses what triage already collected."""
+    return collect_source_images(item_id, run)
 
 
 def build_segment_motion_clips(item_id: int, run: int, seg: int) -> Dict[str, any]:
@@ -2104,6 +2219,9 @@ def score_run(item_id: int, run: int) -> Dict[str, any]:
         # The cosmetic metadata is worth its four LLM calls for the same
         # stories a brief is worth two for — the ones we might actually make.
         enrich_run.apply_async(args=[item_id, run])
+        # And the article's own pictures (plans/18), so they are analysed by
+        # the time the image builder asks which sections could show one.
+        collect_source_images.apply_async(args=[item_id, run])
     else:
         logger.info(
             f"story brief skipped for {item_id}:{run} "

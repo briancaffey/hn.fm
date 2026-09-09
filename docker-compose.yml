@@ -130,8 +130,8 @@ x-common-env: &common-env
   # Firecrawl Configuration
   FIRECRAWL_BASE_URL: ${FIRECRAWL_BASE_URL:-http://localhost:3002}
   # Source images (real images from the scraped article)
-  SOURCE_IMAGES_ENABLED: ${SOURCE_IMAGES_ENABLED:-false}
-  SOURCE_IMAGES_TOP_N: ${SOURCE_IMAGES_TOP_N:-4}
+  SOURCE_IMAGES_ENABLED: ${SOURCE_IMAGES_ENABLED:-true}
+  SOURCE_IMAGES_TOP_N: ${SOURCE_IMAGES_TOP_N:-6}
   # Kindle digest delivery. Empty by default — the digest still renders and is
   # viewable in the browser without any of these; only emailing needs them.
   EMAIL_PROVIDER: ${EMAIL_PROVIDER:-brevo}

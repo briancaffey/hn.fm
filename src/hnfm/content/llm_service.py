@@ -88,6 +88,11 @@ class LLMService:
         """
         self.task = task
         self.profile = _profile_for(task)
+        # What this instance has spent so far, across retries and fallbacks.
+        # The step audit attributes tokens to the current pipeline step; a
+        # caller that wants the cost of ONE thing it made — a source image's
+        # analysis, say — reads this instead of re-deriving it from steps.
+        self.usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "model": None}
         self.base_url = base_url or os.getenv("LLM_BASE_URL")
         self.model = (
             model
@@ -215,6 +220,13 @@ class LLMService:
                 return
             tokens_in = getattr(usage, "prompt_tokens", 0)
             tokens_out = getattr(usage, "completion_tokens", 0)
+
+            acc = getattr(self, "usage", None)
+            if acc is not None:
+                acc["calls"] += 1
+                acc["tokens_in"] += int(tokens_in or 0)
+                acc["tokens_out"] += int(tokens_out or 0)
+                acc["model"] = getattr(response, "model", None) or model
 
             from ..utils.metrics import record_tokens
 

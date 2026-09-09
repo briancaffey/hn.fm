@@ -124,6 +124,8 @@ celery_app.conf.task_routes = {
     "hnfm.web.tasks.score_run": {"queue": QUEUE_TRIAGE},
     "hnfm.web.tasks.enrich_run": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.build_story_brief": {"queue": QUEUE_TRIAGE},
+    # Downloads and one vision call per picture — network-bound, no GPU.
+    "hnfm.web.tasks.collect_source_images": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.score_backlog": {"queue": QUEUE_TRIAGE},
     "hnfm.web.tasks.build_digest": {"queue": QUEUE_DIGEST},
     # Network and a headless browser, no GPU — the ingest lane, not render.

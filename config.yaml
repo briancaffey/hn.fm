@@ -120,6 +120,16 @@ llm:
       model_env: LLM_VISION_MODEL
       temperature: 0.85
       max_tokens: 500
+    source_image.analyze:
+      # Vision, so the same omni route and the same env override as
+      # sequence.plan — see that profile for why a text route fails closed.
+      model: "nvidia/nemotron-3-nano-omni"
+      model_env: LLM_VISION_MODEL
+      temperature: 0.2      # a description should not vary between runs
+      max_tokens: 400
+    source_image.cast:
+      temperature: 0.4
+      max_tokens: 800
     # The two halves of the Story Brief run at deliberately different
     # temperatures — that difference is the main reason they are separate
     # calls (see content/story_brief.py).

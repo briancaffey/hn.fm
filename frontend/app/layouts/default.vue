@@ -40,6 +40,8 @@ const navGroups: Array<{ label: string, items: NavItem[] }> = [
         hint: 'Reading editions built from Story Briefs, sent to Kindle.' },
       { label: 'Images', to: '/images', icon: 'lucide:image', match: '/images',
         hint: 'Every image drawn, with the prompt that drew it.' },
+      { label: 'Source images', to: '/source-images', icon: 'lucide:images', match: '/source-images',
+        hint: 'The pictures on the page each story links to: sizes, what the vision model saw, and what it cost.' },
     ],
   },
   {

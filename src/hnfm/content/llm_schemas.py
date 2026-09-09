@@ -175,6 +175,50 @@ class CriticVerdict(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Source images (scraper/source_images.py, content/source_casting.py) — plans/18
+# ---------------------------------------------------------------------------
+
+
+class SourceImageAnalysis(BaseModel):
+    description: str = Field(
+        description="One or two plain sentences: what the image shows, concretely."
+    )
+    kind: Literal[
+        "photo", "screenshot", "diagram", "chart", "illustration", "logo",
+        "product", "code", "map", "other",
+    ]
+    subjects: List[str] = Field(description="Two to five nouns naming what is in it.")
+    text_in_image: str = Field(
+        description="Any legible text, verbatim, or an empty string."
+    )
+    interest: int = Field(
+        ge=0, le=100,
+        description="How much this picture would add to a video about the story.",
+    )
+    usable: bool = Field(
+        description="Whether it could appear on screen: clear, relevant, not a "
+                    "logo, banner, avatar or page furniture."
+    )
+    use_hint: str = Field(
+        description="One sentence on how a video could use it, or why not."
+    )
+    caveat: str = Field(
+        description="Anything a viewer would be misled by, or an empty string."
+    )
+
+
+class SourceImageCastEntry(BaseModel):
+    section: int = Field(ge=1)
+    image_id: int
+    treatment: Literal["as_is", "restyle"]
+    why: str
+
+
+class SourceImageCast(BaseModel):
+    cast: List[SourceImageCastEntry]
+
+
+# ---------------------------------------------------------------------------
 # Sequence planner (content/sequence_planner.py)
 # ---------------------------------------------------------------------------
 

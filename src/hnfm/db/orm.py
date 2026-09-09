@@ -192,6 +192,64 @@ class GeneratedImageRow(Base):
     # embedded in the document, so they keep a thumbnail here instead.
     path: Mapped[str] = mapped_column(Text, nullable=True)
     thumb: Mapped[str] = mapped_column(Text, nullable=True)
+    # For kind="restyle": the source image flux re-rendered (plans/18).
+    source_image_id: Mapped[int] = mapped_column(BigInteger, nullable=True, index=True)
+
+
+class SourceImageRow(Base):
+    """One picture lifted from the article a story links to (plans/18).
+
+    Two sizes are recorded — what the page served and what we kept — because
+    the whole point of downscaling is to never hand a 6 MB photograph to a
+    vision model or a video renderer, and the reader of the catalogue wants
+    to see that it happened.
+    """
+
+    __tablename__ = "source_images"
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["item_id", "run"], ["runs.item_id", "runs.run"], ondelete="CASCADE"
+        ),
+        Index("ix_source_images_item_run", "item_id", "run"),
+    )
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"),
+        primary_key=True, autoincrement=True,
+    )
+    item_id: Mapped[int] = mapped_column(BigInteger, nullable=False)
+    run: Mapped[int] = mapped_column(Integer, nullable=False)
+    index: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+
+    url: Mapped[str] = mapped_column(Text, nullable=False)
+    alt: Mapped[str] = mapped_column(Text, nullable=True)
+    origin: Mapped[str] = mapped_column(Text, nullable=True)
+    sha1: Mapped[str] = mapped_column(Text, nullable=True)
+    content_type: Mapped[str] = mapped_column(Text, nullable=True)
+    width: Mapped[int] = mapped_column(Integer, nullable=True)
+    height: Mapped[int] = mapped_column(Integer, nullable=True)
+    bytes: Mapped[int] = mapped_column(Integer, nullable=True)
+    stored_width: Mapped[int] = mapped_column(Integer, nullable=True)
+    stored_height: Mapped[int] = mapped_column(Integer, nullable=True)
+    stored_bytes: Mapped[int] = mapped_column(Integer, nullable=True)
+    resized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
+    path: Mapped[str] = mapped_column(Text, nullable=True)
+
+    description: Mapped[str] = mapped_column(Text, nullable=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=True, index=True)
+    subjects: Mapped[list] = mapped_column(JSONVariant, nullable=True)
+    text_in_image: Mapped[str] = mapped_column(Text, nullable=True)
+    interest: Mapped[int] = mapped_column(Integer, nullable=True)
+    usable: Mapped[bool] = mapped_column(Boolean, nullable=True)
+    use_hint: Mapped[str] = mapped_column(Text, nullable=True)
+    caveat: Mapped[str] = mapped_column(Text, nullable=True)
+    analysis_model: Mapped[str] = mapped_column(Text, nullable=True)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=True)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=True)
+    analysis_seconds: Mapped[float] = mapped_column(Float, nullable=True)
+    analyzed_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
+    analysis_error: Mapped[str] = mapped_column(Text, nullable=True)
 
 
 class SegmentImageRow(Base):
