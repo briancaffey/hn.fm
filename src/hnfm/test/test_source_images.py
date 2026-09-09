@@ -247,6 +247,10 @@ class TestRepo:
         assert legacy[0]["description"] == "a chart"
         assert legacy[0]["id"] == rows[0]["id"]
 
+        # A later run of the same story sees the page's pictures.
+        assert [i["id"] for i in repo.source_images_for_item(7)] == [r["id"] for r in rows]
+
         # A re-collect replaces rather than accumulates.
         again = repo.replace_source_images(7, 1, [])
         assert again == [] and repo.list_source_images()[1] == 0
+        assert repo.source_images_for_item(7) == []

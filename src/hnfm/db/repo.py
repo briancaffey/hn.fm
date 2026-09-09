@@ -1200,6 +1200,25 @@ def source_images_for_run(item_id: int, run: int) -> List[dict]:
         return [_source_image_to_dict(r) for r in rows]
 
 
+def source_images_for_item(item_id: int) -> List[dict]:
+    """The most recent run's collection for this story, whatever run asks.
+
+    Pictures belong to the page, not the run: `full_pipeline` opens a new
+    run each time it is asked for a video, and re-collecting and re-analysing
+    the same twelve images on every run was six vision calls for nothing.
+    """
+    from .orm import SourceImageRow
+
+    with db_session() as s:
+        latest = (
+            s.query(SourceImageRow.run)
+            .filter(SourceImageRow.item_id == item_id)
+            .order_by(SourceImageRow.run.desc())
+            .first()
+        )
+    return source_images_for_run(item_id, latest[0]) if latest else []
+
+
 def list_source_images(item_id: int = None, kind: str = None,
                        usable: Optional[bool] = None, sort: str = "recent",
                        offset: int = 0, limit: int = 48) -> tuple:

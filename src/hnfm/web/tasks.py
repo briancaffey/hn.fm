@@ -948,7 +948,7 @@ def build_segment_images(
 
         casting = {}
         if os.getenv("SOURCE_IMAGES_ENABLED", "true").lower() == "true":
-            _src_rows = repo.source_images_for_run(item_id, run)
+            _src_rows = repo.source_images_for_item(item_id)
             if _cast.eligible(_src_rows):
                 with steps.step(
                     item_id, run, seg, "images", "images/cast",
@@ -1345,9 +1345,21 @@ def collect_source_images(item_id: int, run: int, force: bool = False,
     pr = get_run(item_id, run)
     if not pr or not getattr(pr, "source_url", None):
         return {"status": "skipped", "reason": "no run/url"}
-    if not force and repo.source_images_for_run(item_id, run):
-        return {"status": "exists", "item_id": item_id, "run": run,
-                "count": len(repo.source_images_for_run(item_id, run))}
+    if not force:
+        # Any run of this story will do: the page has not changed because
+        # we opened a new run to make another video from it.
+        have = repo.source_images_for_item(item_id)
+        if have:
+            if have[0]["run"] != run:
+                # Give the media planner's legacy listing to this run too.
+                repo.set_run_source_images(item_id, run, [
+                    {"id": o["id"], "url": o["url"], "alt": o["alt"],
+                     "local_path": o["path"], "width": o["stored_width"],
+                     "height": o["stored_height"], "description": o["description"]}
+                    for o in have
+                ])
+            return {"status": "exists", "item_id": item_id, "run": have[0]["run"],
+                    "count": len(have)}
 
     item = get_item(item_id)
     title = (item.title if item else "") or ""
