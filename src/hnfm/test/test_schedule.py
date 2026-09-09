@@ -39,8 +39,10 @@ class TestConfig:
         jobs = sched.load_jobs(SAMPLE)
         assert [j.name for j in jobs] == ["fetch-new", "digest", "off"]
         assert jobs[0].cadence == "every 10 min"
-        assert jobs[1].cadence == "daily at 10:00 UTC"
-        assert sched.describe_cron("0 11 * * 6") == "Sat at 11:00 UTC"
+        assert jobs[1].cadence == "daily at 10:00"
+        assert sched.describe_cron("0 11 * * 6") == "Sat at 11:00"
+        assert sched.describe_cron("0 8 * * 6,0") == "Sat, Sun at 08:00"
+        assert sched.describe_cron("30 12 * * 1-5") == "Mon–Fri at 12:30"
 
     def test_cron_fields_map_to_the_right_celery_slots(self):
         """crontab() takes day_of_week THIRD, unlike cron. The Saturday job
@@ -77,6 +79,14 @@ class TestConfig:
         jobs = {j.name: j for j in sched.load_jobs(SAMPLE)}
         now = datetime(2026, 9, 8, 9, 0, tzinfo=timezone.utc)
         assert jobs["digest"].next_run(None, now) == datetime(2026, 9, 8, 10, 0, tzinfo=timezone.utc)
+        # Written in New York time, 03:30 local is 07:30 UTC in September
+        # (EDT) and 08:30 UTC in January (EST): the morning does not move.
+        ny = sched.load_jobs({"timezone": "America/New_York",
+                              "jobs": {"m": {"task": "t", "cron": "30 3 * * *"}}})[0]
+        assert ny.next_run(None, datetime(2026, 9, 9, 7, 0, tzinfo=timezone.utc)) == datetime(2026, 9, 9, 7, 30, tzinfo=timezone.utc)
+        assert ny.next_run(None, datetime(2027, 1, 12, 7, 0, tzinfo=timezone.utc)) == datetime(2027, 1, 12, 8, 30, tzinfo=timezone.utc)
+        with pytest.raises(Exception):
+            sched.schedule_timezone({"timezone": "Mars/Olympus"})
         assert jobs["fetch-new"].next_run(None, now) is None
         assert jobs["fetch-new"].next_run(now - timedelta(minutes=4), now) == now + timedelta(minutes=6)
         assert jobs["fetch-new"].next_run(now - timedelta(hours=1), now) == now

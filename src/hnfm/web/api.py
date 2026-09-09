@@ -1947,6 +1947,8 @@ async def create_digest(request: dict = Body(default={})):
             "source": request.get("source") or None,
             # Voice the edition as one continuous episode.
             "narrate": bool(request.get("narrate", False)),
+            # Second run of a shape on one day ("midday"): own slug and title.
+            "edition": request.get("edition") or None,
         }
     )
     return {"status": "queued", "task_id": task.id}

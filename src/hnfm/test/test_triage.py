@@ -111,6 +111,9 @@ class TestScoreRunTask:
             patch("hnfm.content.triage.score_content", return_value=dict(fake)),
             patch.object(tasks.build_story_brief, "apply_async") as brief,
             patch.object(tasks.enrich_run, "apply_async") as enrich,
+            # Same trap, newer task: source-image collection is dispatched
+            # from score_run too, and was reaching the live broker.
+            patch.object(tasks.collect_source_images, "apply_async"),
         ):
             result = tasks.score_run(11, 1)
 

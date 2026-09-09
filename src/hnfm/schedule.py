@@ -28,7 +28,11 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
+from zoneinfo import ZoneInfo
+
 from celery.schedules import crontab, schedule as interval_schedule
+
+DEFAULT_TIMEZONE = "UTC"
 
 GATE_SCRAPING = "scraping"
 GATE_GENERATION = "generation"
@@ -53,6 +57,10 @@ class Job:
     kwargs: Dict = field(default_factory=dict)
     enabled: bool = True
     why: str = ""
+    # IANA zone the cron fields are written in (schedule.timezone). Beat is
+    # configured with the same zone, so "30 3 * * *" is 03:30 local all year,
+    # DST included — the whole point of not writing the table in UTC.
+    timezone: str = DEFAULT_TIMEZONE
 
     @property
     def cadence(self) -> str:
@@ -79,17 +87,38 @@ class Job:
         unknown until the first dispatch."""
         now = now or datetime.now(timezone.utc)
         if self.cron:
-            # remaining_estimate() measures from the real clock, so build the
-            # next occurrence from remaining_delta(), which is relative to
-            # the instant passed in — testable, and honest about "now".
-            start, delta, _to_local = self.celery_schedule().remaining_delta(now)
-            return start + delta
+            # Not Celery's remaining_estimate(): it reads the current app's
+            # timezone and the real clock, so the answer changed with which
+            # app happened to be current in the process. Walk the parsed
+            # field sets in the schedule's own zone instead.
+            nxt = _next_cron_occurrence(self.celery_schedule(), now, ZoneInfo(self.timezone))
+            return nxt.astimezone(timezone.utc) if nxt else None
         if self.every and last_dispatch:
             if last_dispatch.tzinfo is None:
                 last_dispatch = last_dispatch.replace(tzinfo=timezone.utc)
             due = last_dispatch + timedelta(seconds=self.every)
             return due if due > now else now
         return None
+
+
+def _next_cron_occurrence(c: crontab, now: datetime, tz: ZoneInfo) -> Optional[datetime]:
+    """First minute strictly after `now` that matches the crontab, in `tz`.
+    Celery's day_of_week is 0=Sunday, which is isoweekday() % 7. Aware
+    arithmetic in the zone, so a 03:30 job is 03:30 on both sides of a DST
+    change."""
+    local = now.astimezone(tz).replace(second=0, microsecond=0) + timedelta(minutes=1)
+    hours, minutes = sorted(c.hour), sorted(c.minute)
+    for d in range(0, 400):
+        day = local + timedelta(days=d)
+        if (day.month not in c.month_of_year or day.day not in c.day_of_month
+                or (day.isoweekday() % 7) not in c.day_of_week):
+            continue
+        for h in hours:
+            for m in minutes:
+                cand = day.replace(hour=h, minute=m)
+                if cand >= local:
+                    return cand
+    return None
 
 
 def parse_every(text) -> int:
@@ -121,19 +150,27 @@ def describe_seconds(seconds: int) -> str:
 
 
 def describe_cron(text: str) -> str:
+    """Wording without a zone: the page says which zone the table is in."""
     minute, hour, dom, month, dow = _cron_fields(text)
     if minute.isdigit() and hour.isdigit() and dom == "*" and month == "*":
-        at = f"{int(hour):02d}:{int(minute):02d} UTC"
+        at = f"{int(hour):02d}:{int(minute):02d}"
         if dow == "*":
             return f"daily at {at}"
-        days = {"0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat"}
-        if dow in days:
-            return f"{days[dow]} at {at}"
+        days = {"0": "Sun", "1": "Mon", "2": "Tue", "3": "Wed", "4": "Thu", "5": "Fri", "6": "Sat", "7": "Sun"}
+        names = []
+        for part in dow.split(","):
+            lo, _, hi = part.partition("-")
+            if hi and lo in days and hi in days:
+                names.append(f"{days[lo]}–{days[hi]}")
+            else:
+                names.append(days.get(part))
+        if all(names):
+            return f"{', '.join(names)} at {at}"
         return f"{at} on dow {dow}"
     return f"cron {text}"
 
 
-def _job_from_config(name: str, raw: dict) -> Job:
+def _job_from_config(name: str, raw: dict, tz: str = DEFAULT_TIMEZONE) -> Job:
     raw = raw or {}
     gate = str(raw.get("gate") or GATE_NONE)
     if gate not in GATES:
@@ -153,7 +190,20 @@ def _job_from_config(name: str, raw: dict) -> Job:
         kwargs=dict(raw.get("kwargs") or {}),
         enabled=bool(raw.get("enabled", True)),
         why=str(raw.get("why") or ""),
+        timezone=tz,
     )
+
+
+def schedule_timezone(config: Optional[dict] = None) -> str:
+    """IANA zone the cron fields are written in. Validated, because a typo
+    here would silently fall back to UTC in beat and move every morning."""
+    if config is None:
+        from .utils.config import config_manager
+
+        config = config_manager.get("schedule", {}) or {}
+    tz = str(config.get("timezone") or DEFAULT_TIMEZONE)
+    ZoneInfo(tz)  # raises for an unknown zone
+    return tz
 
 
 def load_jobs(config: Optional[dict] = None) -> List[Job]:
@@ -165,7 +215,8 @@ def load_jobs(config: Optional[dict] = None) -> List[Job]:
 
         config = config_manager.get("schedule", {}) or {}
     jobs = config.get("jobs") or {}
-    return [_job_from_config(name, raw) for name, raw in jobs.items()]
+    tz = schedule_timezone(config)
+    return [_job_from_config(name, raw, tz) for name, raw in jobs.items()]
 
 
 def get_job(name: str) -> Optional[Job]:

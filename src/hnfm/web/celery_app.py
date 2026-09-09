@@ -173,7 +173,13 @@ def _reap_abandoned_steps(**_kwargs):
 try:
     from ..schedule import beat_schedule as _beat_schedule
 
+    from ..schedule import schedule_timezone as _schedule_timezone
+
     celery_app.conf.beat_schedule = _beat_schedule()
+    # Cron fields are written in this zone; beat must evaluate them in it.
+    # enable_utc stays on — Celery converts internally.
+    celery_app.conf.timezone = _schedule_timezone()
+    logger.info(f"schedule: timezone {celery_app.conf.timezone}")
     for _name, _entry in celery_app.conf.beat_schedule.items():
         logger.info(f"schedule: {_name} {_entry['schedule']}")
     if not celery_app.conf.beat_schedule:

@@ -338,8 +338,17 @@ image_generation:
 # Development Configuration
 # ---------------------------------------------------------------------------
 # Schedule — what runs on a timer. Read by Celery beat AND by the /schedule
-# page, so what you see is what fires. Times are UTC (the app runs enable_utc);
-# 10:00 UTC is 06:00 US Eastern in summer, 05:00 in winter.
+# page, so what you see is what fires.
+#
+# Times are written in `timezone` (Brian's local zone), and beat evaluates
+# them there, so 03:30 is 03:30 all year — DST does not move the mornings.
+#
+# The day it is built around: up at 05:30, out the door soon after, Kindle in
+# hand. So the two morning editions are finished and sent by about 04:15,
+# with the audio edition ready for the commute; a midday Punchline of what
+# arrived since; an evening Scan for the ride home; a Deep read at the
+# weekend. Scraping runs all day regardless, so each edition only carries
+# what the previous one did not (exclude_recent_days).
 #
 # Each job: task, one of `every` (10m / 6h / 1d) or `cron` (five fields),
 # `gate` (scraping | generation | none — which pause switch stops it), kwargs,
@@ -355,7 +364,9 @@ image_generation:
 # hour plus one per new story, which is well inside "respectful".
 schedule:
   enabled: true
+  timezone: America/New_York
   jobs:
+    # --- all day: keep the pool full -------------------------------------
     fetch-new:
       task: hnfm.web.tasks.fetch_hn_list
       every: 10m
@@ -379,30 +390,52 @@ schedule:
       gate: scraping
       kwargs: { limit: 10 }
       why: "Scores stories that were fetched but never triaged (a worker died, or scraping ran while the LLM was down)."
+    # --- overnight: the morning editions, done before 05:30 ---------------
+    morning-score:
+      task: hnfm.web.tasks.score_backlog
+      cron: "0 3 * * *"
+      gate: scraping
+      kwargs: { limit: 40 }
+      why: "Half an hour before the first edition: make sure everything that arrived overnight is scored, so the Punchline is the full picture, not whatever happened to be triaged."
     digest-punchline:
       task: hnfm.web.tasks.build_digest
-      cron: "0 10 * * *"
+      cron: "30 3 * * *"
       gate: generation
-      kwargs: { shape: punchline, send: true, score_first: true }
-      why: "The whole front page and /new, every story cut to its answer. On the Kindle before the morning commute."
+      kwargs: { shape: punchline, send: true, score_first: true, edition: morning }
+      why: "The whole front page and /new, every story cut to its answer. Takes about five minutes; on the Kindle by 03:40."
     digest-daily:
       task: hnfm.web.tasks.build_digest
-      cron: "30 10 * * *"
+      cron: "0 4 * * *"
       gate: generation
       kwargs: { shape: daily, send: true, score_first: true }
-      why: "Five stories with a teaser and two deep dives, written from Story Briefs. The longer morning read."
-    digest-deep-weekend:
-      task: hnfm.web.tasks.build_digest
-      cron: "0 11 * * 6"
-      gate: generation
-      kwargs: { shape: deep, send: true, score_first: true, exclude_recent_days: 3 }
-      why: "Saturday: three stories at full depth. Re-uses the week's best rather than waiting for new ones."
+      why: "Five stories with a teaser and two deep dives, written from Story Briefs. The longer morning read; done by about 04:15."
     digest-narrative-audio:
       task: hnfm.web.tasks.build_digest
-      cron: "0 13 * * *"
+      cron: "30 4 * * *"
       gate: generation
-      kwargs: { shape: narrative, send: false, narrate: true, score_first: true }
-      why: "The day's stories voiced as one continuous episode for the podcast feed. Not sent — the Kindle cannot play it."
+      kwargs: { shape: narrative, send: false, narrate: true, score_first: true, exclude_recent_days: 0 }
+      why: "The morning's stories voiced as one continuous episode, in the podcast feed before the commute. Not sent — the Kindle cannot play it. exclude_recent_days 0 so it covers the same stories the Kindle got."
+    # --- daytime: what arrived since --------------------------------------
+    digest-midday:
+      task: hnfm.web.tasks.build_digest
+      cron: "30 12 * * 1-5"
+      gate: generation
+      kwargs: { shape: punchline, send: true, score_first: true, edition: midday }
+      why: "Weekday lunch: a Punchline of only what arrived since the morning edition (the 7-day dedup keeps the morning's stories out)."
+    digest-evening:
+      task: hnfm.web.tasks.build_digest
+      cron: "0 18 * * 1-5"
+      gate: generation
+      kwargs: { shape: scan, send: true, score_first: true, edition: evening }
+      why: "The ride home: eight quick hits from the afternoon. Short on purpose — the Deep and Daily reads are for mornings and weekends."
+    # --- weekend --------------------------------------------------------
+    digest-deep-weekend:
+      task: hnfm.web.tasks.build_digest
+      cron: "0 8 * * 6,0"
+      gate: generation
+      kwargs: { shape: deep, send: true, score_first: true, exclude_recent_days: 3 }
+      why: "Saturday and Sunday at a civilised hour: three stories at full depth, re-using the week's best rather than waiting for new ones."
+    # --- video ------------------------------------------------------------
     produce-top-story:
       task: hnfm.web.tasks.produce_top_story
       every: 6h

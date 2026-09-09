@@ -2603,8 +2603,13 @@ def build_digest(
     skip: int = 0,
     exclude_recent_days: int = 7,
     source: str = None,
+    edition: str = None,
 ) -> Dict[str, any]:
     """Render a digest of the top-ranked stories, optionally emailing it.
+
+    `edition` names a second run of the same shape on the same day
+    ("midday", "evening"): it goes into the slug so the morning file is not
+    overwritten, and into the title so the Kindle shelf tells them apart.
 
     `score_first` is on by default and matters more than it looks: a digest can
     only contain stories that have a Story Brief, and briefs are produced by
@@ -2662,7 +2667,7 @@ def build_digest(
         # disables, for a deliberate re-run of the same material.
         exclude_recent_days=int(exclude_recent_days) or None,
         source=source,
-        title=_edition_title(shape, source),
+        title=_edition_title(shape, source, edition),
     )
     if not digest.stories:
         logger.warning("digest: nothing to send — no stories have a Story Brief")
@@ -2809,6 +2814,8 @@ def build_digest(
         # Distinct slug per shape so several editions can coexist on one day
         # instead of overwriting each other.
         base = f"{base}-{shape}"
+    if edition:
+        base = f"{base}-{edition.strip().lower()}"
     if illustrate_n:
         # Keep the illustrated edition beside the plain one rather than
         # replacing it, so the two can be compared.
@@ -2963,7 +2970,7 @@ def _provider_accepts_epub() -> bool:
     }
 
 
-def _edition_title(shape: str, source: str = None) -> str:
+def _edition_title(shape: str, source: str = None, edition: str = None) -> str:
     """The edition's name, before an LLM proposes a better one.
 
     Shape and source are the two things that actually distinguish one
@@ -2973,7 +2980,10 @@ def _edition_title(shape: str, source: str = None) -> str:
     where = {"top": "Front Page", "new": "New Arrivals"}.get(source or "")
     what = "" if shape == "daily" else shape.title()
     parts = [p for p in (where, what) if p]
-    return "hn.fm · " + " ".join(parts) if parts else "hn.fm Digest"
+    title = "hn.fm · " + " ".join(parts) if parts else "hn.fm Digest"
+    if edition:
+        title += f" ({edition.strip().title()})"
+    return title
 
 
 def _score_unbriefed(limit: int) -> int:
