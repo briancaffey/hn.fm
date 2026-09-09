@@ -27,97 +27,106 @@
 
       <!-- Main Content -->
       <div v-else-if="!!item && !!segment" class="space-y-6">
-        <!-- Item Info -->
-        <div class="bg-card border rounded-lg p-6 flex flex-col gap-5 lg:flex-row lg:items-start">
-          <div class="min-w-0 flex-1">
-          <h1 class="text-xl font-semibold mb-4">{{ item.title || 'No Title' }}</h1>
-
-          <div class="flex flex-wrap gap-2 mb-4 items-center justify-between">
-            <div class="flex flex-wrap gap-2">
-              <Badge class="bg-primary text-primary-foreground border-primary text-sm">
-                Item ID: {{ item.id }}
-              </Badge>
-              <Badge class="bg-running-bg text-running border-running-border text-sm">
-                Run: {{ segment.run }}
-              </Badge>
-              <Badge class="bg-stale-bg text-stale border-stale-border text-sm">
-                Segment: {{ segment.seg }}
-              </Badge>
-              <!-- Both dates, labelled. A single unlabelled timestamp read
-                   as "when this happened" without saying which thing. -->
-              <Badge v-if="submittedAt" class="bg-stale-bg text-stale border-stale-border text-sm">
-                Posted: {{ formatDateTime(submittedAt) }}
-              </Badge>
-              <Badge class="bg-ok-bg text-ok border-ok-border text-sm">
-                Made: {{ formatDateTime(segment.created_at) }}
-              </Badge>
+        <!-- Masthead: what this is, where it came from, and the finished
+             piece in the corner. Quiet facts, one row of actions; nothing
+             here should compete with the title. -->
+        <header class="rounded-lg border bg-card p-5 sm:p-6">
+          <div class="flex flex-col gap-6 lg:flex-row lg:items-start">
+            <div class="min-w-0 flex-1">
+              <p class="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Segment {{ segment.seg }} · Run {{ segment.run }}
+                <template v-if="segment.style_theme_name"> · {{ segment.style_theme_name }}</template>
+              </p>
+              <h1 class="mt-1.5 text-2xl font-semibold leading-tight tracking-tight">
+                {{ item.title || 'No Title' }}
+              </h1>
+              <a
+                v-if="item.url"
+                :href="item.url"
+                target="_blank"
+                rel="noopener noreferrer"
+                class="mt-2 inline-flex max-w-full items-center gap-1.5 text-sm text-primary hover:underline"
+              >
+                <Icon name="lucide:link" class="h-3.5 w-3.5 shrink-0" />
+                <span class="truncate">{{ sourceHost }}</span>
+                <Icon name="lucide:arrow-up-right" class="h-3.5 w-3.5 shrink-0 opacity-60" />
+              </a>
+              <dl class="mt-5 grid grid-cols-2 gap-x-6 gap-y-3 text-xs sm:grid-cols-4">
+                <div>
+                  <dt class="text-muted-foreground">Story</dt>
+                  <dd class="mt-0.5 font-mono">
+                    <NuxtLink :to="`/hn/item/${item.id}`" class="hover:underline">{{ item.id }}</NuxtLink>
+                  </dd>
+                </div>
+                <div v-if="submittedAt">
+                  <dt class="text-muted-foreground">Posted</dt>
+                  <dd class="mt-0.5">{{ formatDateTime(submittedAt) }}</dd>
+                </div>
+                <div>
+                  <dt class="text-muted-foreground">Made</dt>
+                  <dd class="mt-0.5">{{ formatDateTime(segment.created_at) }}</dd>
+                </div>
+                <div>
+                  <dt class="text-muted-foreground">Run</dt>
+                  <dd class="mt-0.5">
+                    <NuxtLink :to="`/hn/item/${item.id}/run/${segment.run}`" class="hover:underline">Run {{ segment.run }}</NuxtLink>
+                  </dd>
+                </div>
+              </dl>
             </div>
-            <Button
-              variant="destructive"
-              size="sm"
-              :disabled="isDeleting"
-              class="ml-auto bg-danger hover:bg-danger text-white border-danger-border"
-              @click="deleteSegment"
-            >
-              <span v-if="isDeleting">Deleting...</span>
-              <span v-else>🗑️ Delete Segment</span>
-            </Button>
-          </div>
 
-          <div v-if="item.url" class="mb-4">
-            <a
-              :href="item.url"
-              target="_blank"
-              rel="noopener noreferrer"
-              class="text-primary hover:text-primary/80 font-medium break-all"
-            >
-              🔗 {{ item.url }}
-            </a>
-          </div>
-          </div>
-          <!-- The finished piece, beside the title rather than above the
-               page: a small player in the corner, never a wall of video. -->
-          <div class="w-full lg:w-[22rem] lg:shrink-0">
-            <div class="mb-1.5 flex items-center justify-between gap-2">
-              <div class="flex items-center gap-2">
-                <span class="text-sm font-semibold">Video</span>
-                <Badge v-if="segment.video_ready" class="bg-ok-bg text-ok border-ok-border text-xs">Ready</Badge>
-                <Badge v-else class="bg-warn-bg text-warn border-warn-border text-xs">Not made yet</Badge>
+            <div class="w-full lg:w-[22rem] lg:shrink-0">
+              <video
+                v-if="segment.video_ready && segment.video_path"
+                controls
+                class="aspect-video w-full rounded-lg border bg-black shadow-sm"
+                :src="getVideoUrl(segment.video_path)"
+              >
+                <track
+                  v-if="segment.subtitles_path"
+                  kind="subtitles"
+                  srclang="en"
+                  label="English"
+                  :src="getVideoUrl(segment.subtitles_path)"
+                  default
+                >
+                Your browser does not support the video tag.
+              </video>
+              <div v-else class="flex aspect-video items-center justify-center rounded-lg border border-dashed bg-muted/40 px-4 text-center text-xs text-muted-foreground">
+                <p v-if="!segment.script">The script comes first.</p>
+                <p v-else-if="!segment.audio_ready">Audio next, then the video.</p>
+                <p v-else-if="!segment.images_ready">Images next, then the video.</p>
+                <p v-else>Everything is ready to render.</p>
               </div>
-              <Button
-                v-if="segment.script && segment.audio_ready && segment.images_ready && !isGeneratingVideo"
-                size="sm"
-                class="bg-stale hover:bg-stale text-white border-stale-border"
-                @click="generateVideo"
-              >
-                <span v-if="isGeneratingVideo">Generating...</span>
-                <span v-else>🎬 Generate</span>
-              </Button>
-            </div>
-            <video
-              v-if="segment.video_ready && segment.video_path"
-              controls
-              class="aspect-video w-full rounded-lg border bg-black"
-              :src="getVideoUrl(segment.video_path)"
-            >
-              <track
-                v-if="segment.subtitles_path"
-                kind="subtitles"
-                srclang="en"
-                label="English"
-                :src="getVideoUrl(segment.subtitles_path)"
-                default
-              >
-              Your browser does not support the video tag.
-            </video>
-            <div v-else class="flex aspect-video items-center justify-center rounded-lg border bg-muted/40 px-3 text-center text-xs text-muted-foreground">
-              <p v-if="!segment.script">Generate script first to create video.</p>
-              <p v-else-if="!segment.audio_ready">Generate audio first to create video.</p>
-              <p v-else-if="!segment.images_ready">Generate images first to create video.</p>
-              <p v-else>Not generated yet.</p>
+              <div class="mt-2 flex items-center justify-between gap-2">
+                <StatusBadge
+                  :status="segment.video_ready ? 'ok' : 'queued'"
+                  :label="segment.video_ready ? 'Video ready' : 'No video yet'"
+                  dot
+                />
+                <div class="flex items-center gap-1">
+                  <Button
+                    v-if="segment.script && segment.audio_ready && segment.images_ready"
+                    size="sm" variant="outline" :disabled="isGeneratingVideo"
+                    @click="generateVideo"
+                  >
+                    <Icon name="lucide:clapperboard" class="h-3.5 w-3.5" />
+                    {{ isGeneratingVideo ? 'Rendering…' : (segment.video_ready ? 'Re-render' : 'Render video') }}
+                  </Button>
+                  <Button
+                    size="sm" variant="ghost"
+                    class="text-muted-foreground hover:text-destructive"
+                    :disabled="isDeleting"
+                    @click="deleteSegment"
+                  >
+                    <Icon name="lucide:trash-2" class="h-3.5 w-3.5" />
+                    {{ isDeleting ? 'Deleting…' : 'Delete' }}
+                  </Button>
+                </div>
+              </div>
             </div>
           </div>
-        </div>
+        </header>
 
         <!-- The work that made it. -->
         <div class="min-w-0">
@@ -511,6 +520,7 @@
 import { Badge } from '~/components/ui/badge'
 import PageShell from '~/components/kit/PageShell.vue'
 import Breadcrumbs from '~/components/kit/Breadcrumbs.vue'
+import StatusBadge from '~/components/kit/StatusBadge.vue'
 import AudioPlayer from '~/components/kit/AudioPlayer.vue'
 import { Button } from '~/components/ui/button'
 import { Icon } from '#components'
@@ -570,6 +580,12 @@ const imageCount = ref(0)
 // Tabs, not three independent collapse toggles. The old page could be in any
 // of eight open/closed combinations, none of them addressable, and every one
 // of them required scrolling past the sections you were not looking at.
+/** The link's host, not the whole URL: the title already says what it is. */
+const sourceHost = computed(() => {
+  try { return new URL(item.value?.url || '').hostname.replace(/^www\./, '') }
+  catch { return item.value?.url || '' }
+})
+
 const TABS = [
   { key: 'script', label: 'Script', icon: 'lucide:file-text' },
   { key: 'audio', label: 'Audio', icon: 'lucide:volume-2' },
