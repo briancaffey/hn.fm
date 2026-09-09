@@ -37,6 +37,9 @@ interface Img {
   seconds: number | null
   path: string | null
   thumb: string | null
+  /** Server-derived; the page must not rebuild this from item/run/seg. */
+  url: string | null
+  source_image_id: number | null
 }
 
 const config = useRuntimeConfig()
@@ -65,6 +68,7 @@ const KIND_HINT: Record<string, string> = {
   digest: 'Inline illustrations inside a Kindle edition. Greyscale line art, sized for a 6" screen.',
   cover: 'The plate on the front of an edition. Heavier line weight so it survives a thumbnail.',
   segment: 'Scenes for a video, one per script section, in that take’s art-direction theme.',
+  restyle: 'A real picture from the article, re-rendered by flux in a take’s theme. Its source is on the Source images page.',
 }
 
 async function load() {
@@ -93,10 +97,10 @@ const shown = computed(() => `${offset.value + 1}–${Math.min(offset.value + im
 
 function src(i: Img) {
   if (i.thumb) return i.thumb
-  if (i.path && i.item_id != null) {
-    const file = i.path.split('/').pop()
-    return `${apiBase}/api/images/${i.item_id}/${i.run}/${i.seg}/${i.seg}/${file}`
-  }
+  // The API derives this from the recorded path. Rebuilding it here put the
+  // segment number where the section index goes, so every entry of a take
+  // showed its first section's picture.
+  if (i.url) return i.url.startsWith('/') ? `${apiBase}${i.url}` : i.url
   return ''
 }
 function copyPrompt(text: string) {

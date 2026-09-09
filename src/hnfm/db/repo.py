@@ -7,6 +7,7 @@ shapes identical.
 """
 
 import logging
+import os
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -1040,6 +1041,27 @@ def record_generated_image(**fields) -> None:
         logging.getLogger(__name__).warning(f"image catalogue write failed: {e}")
 
 
+def _generated_image_url(r) -> Optional[str]:
+    """Where the page can fetch this picture, derived from where it lives.
+
+    The gallery used to rebuild this itself from item/run/seg and the file
+    name — and put the segment number where the section index belongs, so
+    every entry of a fifteen-section take showed section 1's picture. One
+    derivation, here, from the path that was actually recorded.
+    """
+    import re as _re
+
+    if r.thumb:
+        return r.thumb
+    path = r.path or ""
+    m = _re.search(r"/hn/item/(\d+)/runs/(\d+)/segments/(\d+)/images/(\d+)/([^/]+)$", path)
+    if m:
+        return f"/api/images/{m.group(1)}/{m.group(2)}/{m.group(3)}/{m.group(4)}/{m.group(5)}"
+    if r.source_image_id and "/source_images/restyles/" in path:
+        return f"/api/source-images/{r.source_image_id}/restyles/{os.path.basename(path)}"
+    return None
+
+
 def list_generated_images(kind: str = None, style_key: str = None,
                           item_id: int = None, sort: str = "recent",
                           offset: int = 0, limit: int = 60) -> tuple:
@@ -1085,6 +1107,7 @@ def list_generated_images(kind: str = None, style_key: str = None,
                 "ink": r.ink, "seconds": r.seconds,
                 "path": r.path, "thumb": r.thumb,
                 "source_image_id": r.source_image_id,
+                "url": _generated_image_url(r),
             }
             for r in rows
         ]

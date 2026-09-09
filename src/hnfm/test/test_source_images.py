@@ -254,3 +254,28 @@ class TestRepo:
         again = repo.replace_source_images(7, 1, [])
         assert again == [] and repo.list_source_images()[1] == 0
         assert repo.source_images_for_item(7) == []
+
+
+class TestCatalogueUrl:
+    """Every section of a take must resolve to its own file."""
+
+    def test_segment_rows_get_their_own_index(self):
+        repo.record_generated_image(
+            kind="segment", item_id=5, run=2, seg=1, prompt="p",
+            path="/app/outputs/hn/item/5/runs/2/segments/1/images/7/image.png",
+        )
+        repo.record_generated_image(
+            kind="segment", item_id=5, run=2, seg=1, prompt="p",
+            path="/app/outputs/hn/item/5/runs/2/segments/1/images/8/image.png",
+        )
+        repo.record_generated_image(
+            kind="restyle", item_id=5, run=2, prompt="p", source_image_id=42,
+            path="/app/outputs/hn/item/5/runs/1/source_images/restyles/src_1_noir_1.png",
+        )
+        items, _, _ = repo.list_generated_images(sort="oldest")
+        urls = [i["url"] for i in items]
+        assert urls == [
+            "/api/images/5/2/1/7/image.png",
+            "/api/images/5/2/1/8/image.png",
+            "/api/source-images/42/restyles/src_1_noir_1.png",
+        ]
