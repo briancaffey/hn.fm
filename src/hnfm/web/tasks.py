@@ -2870,7 +2870,7 @@ def _score_unbriefed(limit: int) -> int:
             continue
         if repo.get_latest_story_brief(item_id):
             continue
-        runs = repo.list_runs_for_item(item_id, offset=0, limit=1)
+        runs = repo.list_run_numbers(item_id, offset=0, limit=1)
         if not runs:
             continue
         try:

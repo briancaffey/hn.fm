@@ -224,3 +224,20 @@ class TestScrubBullets:
         s = _story(1, "Thin", source="top", excerpt="t")
         with mock.patch.object(_compose, "_write", return_value="- commenter A notes X"):
             assert compose_punchline(_digest(s), workers=1) == []
+
+
+def test_score_unbriefed_uses_a_repo_function_that_exists(monkeypatch):
+    """`_score_unbriefed` called `repo.list_runs_for_item`, which lives in
+    run_utils, not repo. Every nightly digest logged "pre-scoring failed
+    (non-fatal)" and silently shipped without tonight's arrivals. Pin the
+    lookup to the repo's actual helper."""
+    from hnfm.web import tasks
+    from hnfm.db import repo
+
+    monkeypatch.setattr(repo, "list_triage", lambda **kw: ([{"item_id": 7}], 1))
+    monkeypatch.setattr(repo, "get_latest_story_brief", lambda item_id: None)
+    seen = {}
+    monkeypatch.setattr(repo, "list_run_numbers", lambda item_id, offset, limit: seen.setdefault("runs", [3]))
+    monkeypatch.setattr(tasks, "score_run", lambda item_id, run: seen.setdefault("scored", (item_id, run)))
+    assert tasks._score_unbriefed(5) == 1
+    assert seen["scored"] == (7, 3)
