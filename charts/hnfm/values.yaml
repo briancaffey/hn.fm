@@ -229,7 +229,7 @@ features:
   music: false
   hyperframes: true
   metaSequencer: true
-  sourceImages: false
+  sourceImages: true
   # Celery beat runs config.yaml `schedule:` (fetch /new and /top, churn probe,
   # digests + Kindle sends, one video a few times a day). Pause switches are
   # on the /schedule page; this turns the whole table off.
