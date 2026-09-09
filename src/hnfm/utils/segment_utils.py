@@ -901,6 +901,19 @@ def build_timeline(item_id: int, run: int, seg: int) -> List[dict]:
     intro_image_path = (
         Path(__file__).parent.parent / "video" / "media" / "hnfm_square.png"
     )
+    # The rendered card for this take's format, if the video step made one
+    # (video/title_card.py). The static square is the fallback, letterboxed.
+    try:
+        from ..video.title_card import card_path_for
+
+        _seg = get_segment(item_id, run, seg)
+        _fmt = (getattr(_seg, "aspect_format", None) or "16:9") if _seg else "16:9"
+        _card = Path(card_path_for(os.getenv("OUTPUTS_DIR", "/app/outputs"),
+                                   item_id, run, seg, _fmt))
+        if _card.exists():
+            intro_image_path = _card
+    except Exception as e:
+        logger.debug(f"title card lookup failed, using static intro ({e})")
 
     if intro_audio_path.exists() and intro_image_path.exists():
         timeline.append(

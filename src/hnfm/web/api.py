@@ -906,6 +906,68 @@ async def source_image_restyle_file(image_id: int, filename: str):
     return FileResponse(path, media_type="image/png")
 
 
+# ---------------------------------------------------------------------------
+# Title cards (plans/19)
+# ---------------------------------------------------------------------------
+
+
+def _title_card_args(request_args: dict):
+    fmt = request_args.get("format") or "16:9"
+    from ..content.art_direction import FORMATS
+
+    if fmt not in FORMATS:
+        raise HTTPException(status_code=400, detail=f"format must be one of {list(FORMATS)}")
+    item_id = request_args.get("item_id")
+    run = request_args.get("run")
+    seg = request_args.get("seg")
+    return fmt, (int(item_id) if item_id else None), (int(run) if run else None), \
+        (int(seg) if seg else None), (request_args.get("tagline") or "").strip()
+
+
+@app.get("/api/title-card.html", tags=["video"])
+async def title_card_html(format: str = "16:9", item_id: int = None, run: int = None,
+                          seg: int = None, tagline: str = ""):
+    """The card as a live document, for the preview page's frames."""
+    from fastapi.responses import HTMLResponse
+    from ..content.art_direction import format_dims
+    from ..video import title_card as _tc
+
+    fmt, item_id, run, seg, tagline = _title_card_args(
+        {"format": format, "item_id": item_id, "run": run, "seg": seg, "tagline": tagline})
+    w, h = format_dims(fmt)
+    credits = _tc.credits_for(item_id, run, seg) if item_id else _tc.credits_for()
+    if item_id and run and not tagline:
+        tagline = _tc.tagline_for(item_id, run)
+    return HTMLResponse(_tc.build_html(fmt, w, h, tagline=tagline, credits=credits))
+
+
+@app.get("/api/title-card.png", tags=["video"])
+async def title_card_png(format: str = "16:9", item_id: int = None, run: int = None,
+                         seg: int = None, tagline: str = "", force: bool = False):
+    """The card rendered by the sidecar at the format's exact pixel size."""
+    from fastapi.responses import FileResponse
+    from ..video import title_card as _tc
+
+    fmt, item_id, run, seg, tagline = _title_card_args(
+        {"format": format, "item_id": item_id, "run": run, "seg": seg, "tagline": tagline})
+    path = _tc.preview_png(fmt, tagline=tagline, item_id=item_id, run=run, seg=seg, force=force)
+    if not path:
+        raise HTTPException(status_code=502, detail="render sidecar did not produce the card")
+    return FileResponse(path, media_type="image/png")
+
+
+@app.get("/api/title-card/context", tags=["video"])
+async def title_card_context(item_id: int = None, run: int = None, seg: int = None):
+    """What the card would say for a story: tagline and credits."""
+    from ..video import title_card as _tc
+
+    return {
+        "tagline": _tc.tagline_for(item_id, run) if item_id and run else "",
+        "credits": _tc.credits_for(item_id, run, seg) if item_id else _tc.credits_for(),
+        "formats": list(__import__("hnfm.content.art_direction", fromlist=["FORMATS"]).FORMATS.items()),
+    }
+
+
 @app.get("/api/evolution", tags=["activity"])
 async def evolution_endpoint():
     """Prompt-evolution rounds: what was measured, changed, and what moved.

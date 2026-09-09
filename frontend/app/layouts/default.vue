@@ -42,6 +42,8 @@ const navGroups: Array<{ label: string, items: NavItem[] }> = [
         hint: 'Every image drawn, with the prompt that drew it.' },
       { label: 'Source images', to: '/source-images', icon: 'lucide:images', match: '/source-images',
         hint: 'The pictures on the page each story links to: sizes, what the vision model saw, and what it cost.' },
+      { label: 'Title cards', to: '/title-cards', icon: 'lucide:clapperboard', match: '/title-cards',
+        hint: 'The card every episode opens on, in each aspect ratio, with the models that made it.' },
     ],
   },
   {

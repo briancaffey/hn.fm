@@ -1885,6 +1885,24 @@ def generate_segment_video(
 
         logger.info(f"✅ Prerequisites validated for segment {item_id}:{run}:{seg}")
 
+        # 1b) The title card for this take's format (plans/19). Non-fatal:
+        # without the sidecar the timeline falls back to the static square.
+        try:
+            from ..video.title_card import ensure_title_card
+
+            with steps.step(
+                item_id, run, seg, "video", "video/title_card",
+                {"format": getattr(segment, "aspect_format", None) or "16:9"},
+            ) as _st:
+                _card = ensure_title_card(
+                    item_id, run, seg, getattr(segment, "aspect_format", None) or "16:9"
+                )
+                _st.set(path=_card)
+                if not _card:
+                    _st.soft_fail("sidecar did not render; static intro used")
+        except Exception as _te:
+            logger.warning(f"title card skipped (non-fatal): {_te}")
+
         # 2) Build timeline from sections and images
         from ..utils.segment_utils import build_timeline
 

@@ -1,6 +1,7 @@
 // Tiny HTTP wrapper around `hyperframes render`.
 //
 // POST /render { project, output, format?, fps?, quality? }
+// POST /card   { html, output, width?, height? }   HTML string -> PNG still
 //   project: absolute path to a composition project dir (an index.html lives here)
 //   output:  absolute path to write the rendered file
 // Both paths live on the shared /outputs volume the pipeline also mounts.
@@ -158,6 +159,43 @@ async function shot({ url, output, width = 1200, height = 750, timeout = 25 }) {
   }
 }
 
+// A still from HTML we wrote ourselves: the title card (plans/19). No URL is
+// involved — the document arrives in the request body and is handed to the
+// page with setContent — so the private-address rule above does not apply,
+// and nothing on the network is fetched except the Google Fonts the markup
+// asks for. Waits for those fonts, since a screenshot taken a beat early is
+// the wordmark in a fallback face.
+async function card({ html, output, width = 1280, height = 720, timeout = 25 }) {
+  if (!html) return { ok: false, error: "html required" };
+  if (!output) return { ok: false, error: "output required" };
+
+  await acquire();
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || "/usr/bin/chromium",
+      args: [
+        "--no-sandbox", "--disable-gpu", "--disable-dev-shm-usage",
+        "--hide-scrollbars", "--no-first-run", "--disable-extensions",
+      ],
+      headless: true,
+    });
+    const page = await browser.newPage();
+    await page.setViewport({ width: Number(width), height: Number(height), deviceScaleFactor: 1 });
+    await page.setContent(html, { waitUntil: "load", timeout: Number(timeout) * 1000 });
+    await page.evaluate(() => document.fonts && document.fonts.ready);
+    await new Promise((r) => setTimeout(r, 300));
+    mkdirSync(dirname(output), { recursive: true });
+    await page.screenshot({ path: output, type: "png" });
+    return { ok: existsSync(output), output };
+  } catch (e) {
+    return { ok: false, error: String(e).slice(0, 300) };
+  } finally {
+    if (browser) await browser.close().catch(() => {});
+    release();
+  }
+}
+
 http
   .createServer((req, res) => {
     if (req.method === "GET" && req.url === "/health") {
@@ -170,6 +208,21 @@ http
       req.on("end", async () => {
         try {
           const result = await shot(JSON.parse(data));
+          res.writeHead(result.ok ? 200 : 500, { "content-type": "application/json" });
+          res.end(JSON.stringify(result));
+        } catch (e) {
+          res.writeHead(400, { "content-type": "application/json" });
+          res.end(JSON.stringify({ ok: false, error: String(e) }));
+        }
+      });
+      return;
+    }
+    if (req.method === "POST" && req.url === "/card") {
+      let data = "";
+      req.on("data", (c) => (data += c));
+      req.on("end", async () => {
+        try {
+          const result = await card(JSON.parse(data));
           res.writeHead(result.ok ? 200 : 500, { "content-type": "application/json" });
           res.end(JSON.stringify(result));
         } catch (e) {
