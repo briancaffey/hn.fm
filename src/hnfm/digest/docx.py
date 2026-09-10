@@ -232,11 +232,12 @@ def safe_filename(name: str, when, ext: str = "docx") -> str:
     `hnfm-digest-2026-09-05-illustrated.html` was itself the ugly title being
     reported. Keep it readable and filesystem-safe.
     """
-    from .render import title_prefix
+    from .render import kindle_safe, title_prefix
 
     # Brackets are kept: the "[dev]" marker has to survive into the filename,
-    # since on the HTML path the filename IS the shelf title.
-    base = re.sub(r"[^A-Za-z0-9 .·\[\]-]+", "", name or "hn.fm Digest").strip()
+    # since on the HTML path the filename IS the shelf title. ASCII only —
+    # the middle dot reached the device as "Â·" (see render.kindle_safe).
+    base = re.sub(r"[^A-Za-z0-9 .\[\]-]+", "", kindle_safe(name or "hn.fm Digest")).strip()
     base = re.sub(r"\s+", " ", base) or "hn.fm Digest"
     prefix = title_prefix()
     if prefix and not base.startswith(prefix.strip()):

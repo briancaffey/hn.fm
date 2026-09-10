@@ -22,18 +22,18 @@ def _digest():
 class TestPrefix:
     def test_unset_means_bare_title(self, monkeypatch):
         monkeypatch.delenv("DIGEST_TITLE_PREFIX", raising=False)
-        assert _render.kindle_title("Punchline", WHEN) == "Punchline · 9/9"
+        assert _render.kindle_title("Punchline", WHEN) == "Punchline - 9/9"
         assert safe_filename("Punchline", WHEN, ext="html") == "Punchline 9-9.html"
 
     def test_dev_marker_reaches_every_surface(self, monkeypatch, tmp_path):
         monkeypatch.setenv("DIGEST_TITLE_PREFIX", "[dev]")
-        assert _render.kindle_title("Punchline", WHEN) == "[dev] Punchline · 9/9"
+        assert _render.kindle_title("Punchline", WHEN) == "[dev] Punchline - 9/9"
         assert safe_filename("Punchline", WHEN, ext="html") == "[dev] Punchline 9-9.html"
         # Not doubled when the name already carries it.
         assert safe_filename("[dev] Punchline", WHEN) == "[dev] Punchline 9-9.docx"
 
         html = _render.render_html(_digest(), edition_name="Punchline")
-        assert "<title>[dev] Punchline · 9/9</title>" in html
+        assert "<title>[dev] Punchline - 9/9</title>" in html
 
         import zipfile
 
@@ -41,8 +41,25 @@ class TestPrefix:
 
         out = write_docx(_digest(), str(tmp_path / "d.docx"), edition_name="Punchline")
         core = zipfile.ZipFile(out).read("docProps/core.xml").decode()
-        assert "[dev] Punchline · 9/9" in core
+        assert "[dev] Punchline - 9/9" in core
 
         epub = _render.write_epub(_digest(), str(tmp_path / "d.epub"), edition_name="Punchline")
         opf = zipfile.ZipFile(epub).read("OEBPS/content.opf").decode()
-        assert "[dev] Punchline · 9/9" in opf
+        assert "[dev] Punchline - 9/9" in opf
+
+
+class TestAscii:
+    """The middle dot arrived on the Kindle as "Â·"; nothing non-ASCII may
+    reach the shelf title, the filename or the subject."""
+
+    def test_folds_punctuation_and_strips_the_rest(self):
+        assert _render.kindle_safe("hn.fm · Front Page — “Deep” … café 🚀") == \
+            'hn.fm - Front Page - "Deep" ... cafe'
+
+    def test_every_surface_is_ascii(self, monkeypatch):
+        monkeypatch.setenv("DIGEST_TITLE_PREFIX", "[dev]")
+        name = "hn.fm · Connectomics & Systems — Insights"
+        for s in (_render.kindle_title(name, WHEN), safe_filename(name, WHEN, ext="html")):
+            assert s.isascii(), s
+        assert safe_filename(name, WHEN, ext="html") == \
+            "[dev] hn.fm - Connectomics Systems - Insights 9-9.html"

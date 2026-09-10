@@ -92,13 +92,42 @@ def title_prefix() -> str:
     return f"{prefix} " if prefix else ""
 
 
+# Punctuation the Kindle shelf cannot be trusted with, folded to ASCII. The
+# middle dot in "hn.fm · Punchline" arrived on the device as "Â·": the title
+# travels as an attachment filename, an email subject and DOCX metadata, and
+# somewhere on that path the UTF-8 bytes were read as Latin-1. Body text is
+# unaffected — only what leaves the document as bare metadata is folded.
+_ASCII_FOLD = {
+    "·": "-", "•": "-", "–": "-", "—": "-", "―": "-", "‐": "-", "‑": "-",
+    "‘": "'", "’": "'", "‚": "'", "“": '"', "”": '"', "„": '"',
+    "…": "...", "×": "x", "\u00a0": " ", "\u2009": " ", "\u202f": " ",
+}
+
+
+def kindle_safe(text: str) -> str:
+    """The text with nothing a Latin-1 reader could mangle.
+
+    Known punctuation is folded to its ASCII equivalent, accented letters
+    lose their accents (NFKD strips the combining marks), and anything else
+    outside ASCII is dropped. Whitespace is collapsed so a dropped emoji
+    does not leave a double space.
+    """
+    import unicodedata
+
+    out = "".join(_ASCII_FOLD.get(ch, ch) for ch in (text or ""))
+    out = unicodedata.normalize("NFKD", out)
+    out = out.encode("ascii", "ignore").decode("ascii")
+    return " ".join(out.split())
+
+
 def kindle_title(name: str, when) -> str:
     """What shows on the Kindle shelf.
 
     Short name first so editions are distinguishable at a glance, then a
     condensed date — the year is noise on a device holding a week of them.
+    ASCII only: see `kindle_safe`.
     """
-    return f"{title_prefix()}{name} · {when:%-m/%-d}"
+    return kindle_safe(f"{title_prefix()}{name} - {when:%-m/%-d}")
 
 
 _kindle_title = kindle_title
