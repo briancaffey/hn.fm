@@ -98,7 +98,7 @@ const KIND_LABEL: Record<string, string> = { episode: 'Episode', station_id: 'St
   <div class="relative h-[calc(100vh-3.5rem)] min-h-[560px] w-full overflow-hidden bg-background">
     <!-- three.js has no server; the canvas is client-only, the HUD is not. -->
     <ClientOnly>
-    <TresCanvas clear-color="#0b0a09" shadows :alpha="false">
+    <TresCanvas clear-color="#15120f" shadows :alpha="false" :tone-mapping-exposure="1.35">
       <StudioScene
         :on-air="!!snap?.icecast?.up && (snap?.icecast?.mounts?.length || 0) > 0"
         :now-kind="snap?.now?.kind || null"

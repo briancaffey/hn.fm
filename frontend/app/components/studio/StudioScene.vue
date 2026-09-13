@@ -37,7 +37,7 @@ const props = defineProps<{
 
 // --- the palette: charcoal set, warm light, orange for anything on air ------
 const C = {
-  floor: '#141210', wall: '#1c1916', metal: '#2a2724', metalLight: '#3a3632',
+  floor: '#25211c', wall: '#2c2722', metal: '#3b3733', metalLight: '#514c46',
   cream: '#e8e0d0', orange: '#ff6a00', cyan: '#5eead4', amber: '#f5b642',
   lavender: '#b39ddb', white: '#f4efe6', red: '#d7263d', yellow: '#e9d829',
   duck: '#f2c14e', dim: '#6b655b',
@@ -182,10 +182,16 @@ const stacks = (n: number, max: number) => Math.max(0, Math.min(max, n))
   <TresPerspectiveCamera :position="[9, 8.5, 11]" :look-at="[0, 0.8, 0]" :fov="38" />
   <OrbitControls :target="[0, 0.8, 0]" :min-distance="7" :max-distance="24" :max-polar-angle="1.35" :enable-pan="false" />
 
-  <TresAmbientLight :intensity="0.35" color="#fff3e0" />
-  <TresDirectionalLight :position="[6, 12, 6]" :intensity="1.6" color="#fff1dc" cast-shadow />
-  <TresPointLight :position="[0.2, 3.2, 3.4]" :intensity="props.onAir ? 14 : 2" :color="C.orange" :distance="7" />
-  <TresPointLight :position="[6.4, 4, -1.2]" :intensity="props.onAir ? 8 : 1" :color="C.orange" :distance="6" />
+  <!-- Night, but a lit night: a warm key from above-right, a cool sky fill
+       from the hemisphere, and practicals over each station. -->
+  <TresAmbientLight :intensity="0.9" color="#fff3e0" />
+  <TresHemisphereLight :intensity="1.1" color="#cfd8ff" ground-color="#3a2a1a" />
+  <TresDirectionalLight :position="[6, 12, 6]" :intensity="2.6" color="#fff1dc" cast-shadow />
+  <TresPointLight :position="[0.2, 3.2, 3.4]" :intensity="props.onAir ? 16 : 4" :color="C.orange" :distance="8" />
+  <TresPointLight :position="[6.4, 4, -1.2]" :intensity="props.onAir ? 10 : 2" :color="C.orange" :distance="7" />
+  <TresPointLight :position="[-3.6, 3.4, -2.6]" :intensity="12" color="#ffe9c9" :distance="7" />
+  <TresPointLight :position="[-6.8, 3.4, 1.2]" :intensity="10" color="#ffe9c9" :distance="6" />
+  <TresPointLight :position="[0, 3.6, -0.2]" :intensity="8" color="#dfe8ff" :distance="6" />
 
   <!-- Floor and back wall -->
   <TresMesh :position="[0, -0.05, 0]" receive-shadow>
@@ -199,11 +205,11 @@ const stacks = (n: number, max: number) => Math.max(0, Math.min(max, n))
   <!-- Grid of faint plus marks, the station's own ground texture -->
   <TresMesh v-for="i in 24" :key="'px' + i" :position="[((i - 1) % 6) * 3.2 - 8, 0.011, Math.floor((i - 1) / 6) * 3.2 - 5]" :rotation="[-Math.PI / 2, 0, 0]">
     <TresPlaneGeometry :args="[0.28, 0.04]" />
-    <TresMeshBasicMaterial color="#3a1f08" />
+    <TresMeshBasicMaterial color="#5a3212" />
   </TresMesh>
   <TresMesh v-for="i in 24" :key="'py' + i" :position="[((i - 1) % 6) * 3.2 - 8, 0.011, Math.floor((i - 1) / 6) * 3.2 - 5]" :rotation="[-Math.PI / 2, 0, Math.PI / 2]">
     <TresPlaneGeometry :args="[0.28, 0.04]" />
-    <TresMeshBasicMaterial color="#3a1f08" />
+    <TresMeshBasicMaterial color="#5a3212" />
   </TresMesh>
 
   <!-- ===== The Switchboard (hn.fm API) ===== -->
