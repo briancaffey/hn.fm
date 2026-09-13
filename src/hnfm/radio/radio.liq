@@ -60,7 +60,10 @@ def report(m) =
     headers=[("content-type", "application/json")],
     data=json.stringify(m), timeout=10.0))
 end
-programme.on_track(synchronous=false, report)
+# on_metadata, not on_track: crossfade blends files into one continuous
+# stream with no track marks between them, so on_track fired once at
+# startup and never again. Every file still announces its metadata.
+programme.on_metadata(synchronous=false, report)
 
 # 3. Safety net: a music bed the bank keeps at a fixed path, then silence.
 safety =

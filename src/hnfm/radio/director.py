@@ -262,6 +262,19 @@ def record_event(meta: dict) -> dict:
         "hnfm_kind", "hnfm_ref", "hnfm_host", "hnfm_bank_id", "hnfm_sheet", "filename", "title")}
     if keep.get("hnfm_bank_id"):
         keep["bank_id"] = keep.pop("hnfm_bank_id")
+    # Metadata can announce the same file twice within a moment (the
+    # request, then the decoder); one play is one row.
+    last = repo.radio_recent_events(hours=1, limit=1)
+    if last:
+        prev = last[-1]
+        same = (prev.get("ref") or "") == (ref or "") and (prev.get("meta") or {}).get("bank_id") == keep.get("bank_id") \
+            and prev.get("title") == title
+        try:
+            age = (datetime.utcnow() - datetime.fromisoformat(prev["at"])).total_seconds()
+        except Exception:
+            age = 999
+        if same and age < 8:
+            return {"ignored": True, "reason": "duplicate announcement"}
     log("dj", f"on air: {kind} — {title[:60]}", kind=kind, ref=ref, host=meta.get("hnfm_host") or None)
     return repo.radio_record_event(kind=kind, title=title, ref=ref, meta=keep)
 
