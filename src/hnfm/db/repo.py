@@ -8,7 +8,7 @@ shapes identical.
 
 import logging
 import os
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
 from sqlalchemy import Integer, case, delete, func, select
@@ -1485,3 +1485,101 @@ def list_samples(list_name: str, since: datetime) -> List[dict]:
             }
             for r in rows
         ]
+
+
+# --- radio (plans/20) ------------------------------------------------------
+
+
+def _sheet_to_dict(r) -> dict:
+    return {
+        "sheet_id": r.sheet_id, "created_at": r.created_at.isoformat() if r.created_at else None,
+        "title": r.title, "minutes": r.minutes, "items": list(r.items or []),
+        "cursor": int(r.cursor or 0), "source": r.source, "model": r.model,
+        "tokens_in": r.tokens_in, "tokens_out": r.tokens_out, "reason": r.reason,
+    }
+
+
+def radio_save_sheet(sheet_id: str, title: str, minutes: int, items: list, source: str,
+                     model: str = None, tokens_in: int = 0, tokens_out: int = 0,
+                     reason: str = None) -> dict:
+    from .orm import RadioSheetRow
+
+    with db_session() as s:
+        row = RadioSheetRow(
+            sheet_id=sheet_id, created_at=datetime.utcnow(), title=title, minutes=minutes,
+            items=items, cursor=0, source=source, model=model,
+            tokens_in=tokens_in, tokens_out=tokens_out, reason=reason,
+        )
+        s.add(row)
+        s.commit()
+        return _sheet_to_dict(row)
+
+
+def radio_current_sheet() -> Optional[dict]:
+    """The oldest sheet that still has items to serve — blocks air in the
+    order they were planned."""
+    from .orm import RadioSheetRow
+    from sqlalchemy import func as _f
+
+    with db_session() as s:
+        rows = (
+            s.query(RadioSheetRow)
+            .order_by(RadioSheetRow.created_at.asc())
+            .all()
+        )
+        for r in rows:
+            if int(r.cursor or 0) < len(r.items or []):
+                return _sheet_to_dict(r)
+    return None
+
+
+def radio_advance_sheet(sheet_id: str) -> int:
+    from .orm import RadioSheetRow
+
+    with db_session() as s:
+        row = s.get(RadioSheetRow, sheet_id)
+        if row is None:
+            return 0
+        row.cursor = int(row.cursor or 0) + 1
+        s.commit()
+        return row.cursor
+
+
+def radio_list_sheets(limit: int = 10) -> List[dict]:
+    from .orm import RadioSheetRow
+
+    with db_session() as s:
+        rows = s.query(RadioSheetRow).order_by(RadioSheetRow.created_at.desc()).limit(limit).all()
+        return [_sheet_to_dict(r) for r in rows]
+
+
+def radio_record_event(kind: str, title: str, ref: str = None, meta: dict = None) -> dict:
+    from .orm import RadioEventRow
+
+    with db_session() as s:
+        row = RadioEventRow(at=datetime.utcnow(), kind=kind, title=title, ref=ref, meta=meta or {})
+        s.add(row)
+        s.commit()
+        return {"id": row.id, "at": row.at.isoformat(), "kind": kind, "title": title,
+                "ref": ref, "meta": meta or {}}
+
+
+def radio_recent_events(hours: int = 3, limit: int = 200) -> List[dict]:
+    """Oldest first, so the last element is what is on air now."""
+    from .orm import RadioEventRow
+
+    since = datetime.utcnow() - timedelta(hours=hours)
+    with db_session() as s:
+        rows = (
+            s.query(RadioEventRow)
+            .filter(RadioEventRow.at >= since)
+            .order_by(RadioEventRow.at.desc())
+            .limit(limit)
+            .all()
+        )
+        return [
+            {"id": r.id, "at": r.at.isoformat(), "kind": r.kind, "title": r.title,
+             "ref": r.ref, "meta": r.meta or {}}
+            for r in reversed(rows)
+        ]
+

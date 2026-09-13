@@ -77,6 +77,13 @@ data:
   EMAIL_PROVIDER: brevo
   DIGEST_FORMAT: html
   SCHEDULE_ENABLED: {{ .Values.features.schedule | quote }}
+  # --- The radio (plans/20) -------------------------------------------------
+  RADIO_ENABLED: {{ .Values.radio.enabled | quote }}
+  {{- if .Values.radio.enabled }}
+  ICECAST_BASE_URL: http://{{ include "hnfm.fullname" . }}-icecast:8000
+  LIQUIDSOAP_BASE_URL: http://{{ include "hnfm.fullname" . }}-liquidsoap:8080
+  RADIO_BLOCK_MINUTES: {{ .Values.radio.blockMinutes | quote }}
+  {{- end }}
   {{- range $k, $v := .Values.env }}
   {{ $k }}: {{ $v | quote }}
   {{- end }}

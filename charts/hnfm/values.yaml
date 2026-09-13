@@ -69,6 +69,9 @@ secrets:
     BREVO_API_KEY: ""
     DIGEST_FROM_EMAIL: ""
     KINDLE_EMAIL: ""
+    # The radio (plans/20); only read when radio.enabled.
+    ICECAST_SOURCE_PASSWORD: hackme
+    ICECAST_ADMIN_PASSWORD: hackme-admin
 externalSecret:
   enabled: false
   storeRef:
@@ -189,6 +192,31 @@ flower:
   resources:
     requests: { cpu: 20m, memory: 64Mi }
     limits: { memory: 256Mi }
+
+# --- The radio (plans/20) ----------------------------------------------------
+# Off by default, and off means nothing is rendered: no Deployments, no
+# Services, no ingress paths, no beat jobs, no nav entry. When on, Icecast
+# (the transmitter) and Liquidsoap (the DJ) run beside the workers on the
+# outputs node, and listeners use https://<host>/radio/hnfm.mp3.
+radio:
+  enabled: false
+  # A second hostname that exposes ONLY the listen page and the stream —
+  # never the dashboard. Empty = no public host. e.g. radio.inference.club
+  publicHost: ""
+  # Icecast passwords come from the app Secret (ICECAST_SOURCE_PASSWORD,
+  # ICECAST_ADMIN_PASSWORD); set them in secrets.values or the Vaultwarden item.
+  icecast:
+    image: libretime/icecast:2.4.4
+    resources:
+      requests: { cpu: 50m, memory: 64Mi }
+      limits: { memory: 256Mi }
+  liquidsoap:
+    image: savonet/liquidsoap:v2.4.5
+    resources:
+      requests: { cpu: 300m, memory: 256Mi }
+      limits: { memory: 1Gi }
+  # Minutes of air the producer plans per block (one LLM call each).
+  blockMinutes: 30
 
 # --- Inference services ------------------------------------------------------
 # In-cluster DNS of the inference-club fleet. Override to point elsewhere

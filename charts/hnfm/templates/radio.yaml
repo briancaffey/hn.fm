@@ -1,0 +1,148 @@
+{{- if .Values.radio.enabled }}
+{{- $full := include "hnfm.fullname" . -}}
+# HNFM on air (plans/20): the transmitter and the DJ. Rendered only when
+# radio.enabled — with it off, this file contributes nothing.
+#
+# Icecast takes one feed from Liquidsoap and fans it out to listeners at
+# /radio/hnfm.mp3 on the ingress. Liquidsoap fetches its script from the API
+# at start (GET /api/radio/script), so the script ships with the backend.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}-icecast
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: icecast
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hnfm.selectorLabels" (dict "root" . "name" "icecast") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hnfm.selectorLabels" (dict "root" . "name" "icecast") | nindent 8 }}
+    spec:
+      {{- include "hnfm.podScheduling" . | nindent 6 }}
+      containers:
+        - name: icecast
+          image: {{ .Values.radio.icecast.image }}
+          ports:
+            - name: http
+              containerPort: 8000
+          env:
+            - name: ICECAST_HOSTNAME
+              value: {{ .Values.host | quote }}
+            - name: ICECAST_SOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hnfm.secretName" . }}
+                  key: ICECAST_SOURCE_PASSWORD
+            - name: ICECAST_ADMIN_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hnfm.secretName" . }}
+                  key: ICECAST_ADMIN_PASSWORD
+            - name: ICECAST_RELAY_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hnfm.secretName" . }}
+                  key: ICECAST_ADMIN_PASSWORD
+          readinessProbe:
+            httpGet:
+              path: /status-json.xsl
+              port: http
+            initialDelaySeconds: 5
+            periodSeconds: 15
+          resources:
+            {{- toYaml .Values.radio.icecast.resources | nindent 12 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-icecast
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "hnfm.selectorLabels" (dict "root" . "name" "icecast") | nindent 4 }}
+  ports:
+    - name: http
+      port: 8000
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ $full }}-liquidsoap
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+    app.kubernetes.io/component: liquidsoap
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "hnfm.selectorLabels" (dict "root" . "name" "liquidsoap") | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "hnfm.selectorLabels" (dict "root" . "name" "liquidsoap") | nindent 8 }}
+      annotations:
+        {{- include "hnfm.configChecksum" . | nindent 8 }}
+    spec:
+      {{- include "hnfm.podScheduling" . | nindent 6 }}
+      containers:
+        - name: liquidsoap
+          image: {{ .Values.radio.liquidsoap.image }}
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              until curl -sf "$HNFM_API_BASE/api/radio/script" -o /tmp/radio.liq; do
+                echo "waiting for the API (is RADIO_ENABLED=true?)"; sleep 5; done;
+              exec liquidsoap /tmp/radio.liq
+          env:
+            - name: HNFM_API_BASE
+              value: http://{{ $full }}-web:8000
+            - name: ICECAST_HOST
+              value: {{ $full }}-icecast
+            - name: ICECAST_PORT
+              value: "8000"
+            - name: ICECAST_SOURCE_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hnfm.secretName" . }}
+                  key: ICECAST_SOURCE_PASSWORD
+            # Behind the ingress the mount carries the /radio prefix, so no
+            # rewrite is needed anywhere.
+            - name: RADIO_MOUNT
+              value: /radio/hnfm.mp3
+            - name: RADIO_SAFETY
+              value: /app/outputs/radio/safety.mp3
+          ports:
+            - name: harbor
+              containerPort: 8080
+          volumeMounts:
+            - name: outputs
+              mountPath: /app/outputs
+          resources:
+            {{- toYaml .Values.radio.liquidsoap.resources | nindent 12 }}
+      {{- include "hnfm.backendVolumes" . | nindent 6 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ $full }}-liquidsoap
+  labels:
+    {{- include "hnfm.labels" . | nindent 4 }}
+spec:
+  selector:
+    {{- include "hnfm.selectorLabels" (dict "root" . "name" "liquidsoap") | nindent 4 }}
+  ports:
+    - name: harbor
+      port: 8080
+      targetPort: harbor
+{{- end }}

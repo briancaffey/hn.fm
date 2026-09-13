@@ -471,3 +471,37 @@ class HNListSampleRow(Base):
     new_count: Mapped[int] = mapped_column(Integer, nullable=True)
     front_changed: Mapped[int] = mapped_column(Integer, nullable=True)
     seconds_since_prev: Mapped[int] = mapped_column(Integer, nullable=True)
+
+
+class RadioSheetRow(Base):
+    """One planned block of radio programming (plans/20)."""
+
+    __tablename__ = "radio_sheets"
+
+    sheet_id: Mapped[str] = mapped_column(Text, primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    title: Mapped[str] = mapped_column(Text, nullable=True)
+    minutes: Mapped[int] = mapped_column(Integer, nullable=True)
+    items: Mapped[list] = mapped_column(JSONVariant, nullable=False)
+    cursor: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    source: Mapped[str] = mapped_column(Text, nullable=True)
+    model: Mapped[str] = mapped_column(Text, nullable=True)
+    tokens_in: Mapped[int] = mapped_column(Integer, nullable=True)
+    tokens_out: Mapped[int] = mapped_column(Integer, nullable=True)
+    reason: Mapped[str] = mapped_column(Text, nullable=True)
+
+
+class RadioEventRow(Base):
+    """What the DJ reported it started playing (plans/20)."""
+
+    __tablename__ = "radio_events"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True,
+    )
+    at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    kind: Mapped[str] = mapped_column(Text, nullable=False)
+    title: Mapped[str] = mapped_column(Text, nullable=True)
+    ref: Mapped[str] = mapped_column(Text, nullable=True)
+    meta: Mapped[dict] = mapped_column(JSONVariant, nullable=True)
+

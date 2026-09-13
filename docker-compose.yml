@@ -149,6 +149,11 @@ x-common-env: &common-env
   # Marks editions from this laptop on the Kindle shelf. The cluster does not
   # set it, so a bare title means production.
   DIGEST_TITLE_PREFIX: ${DIGEST_TITLE_PREFIX:-[dev]}
+  # --- The radio (plans/20). Off unless RADIO_ENABLED=true AND the `radio`
+  # compose profile is up: `docker compose --profile radio up -d`.
+  RADIO_ENABLED: ${RADIO_ENABLED:-false}
+  ICECAST_BASE_URL: http://icecast:8000
+  LIQUIDSOAP_BASE_URL: http://liquidsoap:8080
   # Beat runs the table in config.yaml `schedule:` (fetch /new and /top, the
   # churn probe, digests, one video a few times a day). The two pause
   # switches are on the /schedule page; this only turns the whole table off.
@@ -405,6 +410,52 @@ services:
       timeout: 10s
       retries: 3
       start_period: 40s
+
+  # --- The radio (plans/20) --------------------------------------------------
+  # Both services sit in the `radio` profile: `docker compose up` never starts
+  # them. `docker compose --profile radio up -d` does, and RADIO_ENABLED=true
+  # in .env turns the API, the beat jobs and the nav entry on to match.
+  icecast:
+    image: libretime/icecast:2.4.4
+    container_name: hnfm-icecast
+    profiles: ["radio"]
+    environment:
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-hackme}
+      ICECAST_ADMIN_PASSWORD: ${ICECAST_ADMIN_PASSWORD:-hackme-admin}
+      ICECAST_RELAY_PASSWORD: ${ICECAST_ADMIN_PASSWORD:-hackme-admin}
+      ICECAST_HOSTNAME: ${ICECAST_HOSTNAME:-localhost}
+    ports:
+      - "8010:8000"   # listen: http://localhost:8010/hnfm.mp3
+    restart: unless-stopped
+    networks:
+      - hnfm-network
+
+  # The DJ. Fetches its script from the API at start, so the script lives in
+  # src/hnfm/radio/radio.liq and deploys with the backend.
+  liquidsoap:
+    image: savonet/liquidsoap:v2.4.5
+    container_name: hnfm-liquidsoap
+    profiles: ["radio"]
+    environment:
+      HNFM_API_BASE: http://web:8000
+      ICECAST_HOST: icecast
+      ICECAST_PORT: "8000"
+      ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-hackme}
+      RADIO_MOUNT: ${RADIO_MOUNT:-/hnfm.mp3}
+      RADIO_SAFETY: /app/outputs/radio/safety.mp3
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - >
+        until curl -sf "$$HNFM_API_BASE/api/radio/script" -o /tmp/radio.liq; do
+          echo "waiting for the API (is RADIO_ENABLED=true?)"; sleep 5; done;
+        exec liquidsoap /tmp/radio.liq
+    volumes:
+      - ./outputs:/app/outputs
+    depends_on:
+      - icecast
+    restart: unless-stopped
+    networks:
+      - hnfm-network
 
   # HyperFrames render sidecar (HTML -> MP4/WebM via headless Chrome)
   hyperframes:

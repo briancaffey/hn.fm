@@ -126,6 +126,11 @@ celery_app.conf.task_routes = {
     "hnfm.web.tasks.build_story_brief": {"queue": QUEUE_TRIAGE},
     # Downloads and one vision call per picture — network-bound, no GPU.
     "hnfm.web.tasks.collect_source_images": {"queue": QUEUE_INGEST},
+    # The radio (plans/20): planning is one LLM call; the bank uses TTS and
+    # the music service, which contend with renders; the monitor is cheap.
+    "hnfm.web.tasks.radio_plan_block": {"queue": QUEUE_TRIAGE},
+    "hnfm.web.tasks.radio_fill_bank": {"queue": QUEUE_RENDER},
+    "hnfm.web.tasks.radio_monitor": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.score_backlog": {"queue": QUEUE_TRIAGE},
     "hnfm.web.tasks.build_digest": {"queue": QUEUE_DIGEST},
     # Network and a headless browser, no GPU — the ingest lane, not render.

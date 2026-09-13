@@ -3096,6 +3096,71 @@ def scheduled_job(name: str, force: bool = False) -> Dict[str, any]:
     return record
 
 
+# ---------------------------------------------------------------------------
+# HNFM on air (plans/20). Every task here checks the switch first, so a
+# stray dispatch with the station off does nothing.
+# ---------------------------------------------------------------------------
+
+
+@celery_app.task(name="hnfm.web.tasks.radio_plan_block", time_limit=300, soft_time_limit=240)
+def radio_plan_block(reason: str = "scheduled", minutes: int = None) -> Dict[str, any]:
+    """Plan the next block of programming, then voice its lines."""
+    from .. import radio
+    from ..radio import bank, director
+
+    if not radio.enabled():
+        return {"status": "skipped", "reason": "radio is off"}
+    sheet = director.plan_now(minutes=minutes, reason=reason)
+    voiced = 0
+    try:
+        voiced = bank.voice_sheet(sheet["sheet_id"], sheet["items"])
+    except Exception as e:
+        logger.warning(f"radio: voicing the block failed (non-fatal): {e}")
+    return {"status": "ok", "sheet_id": sheet["sheet_id"], "items": len(sheet["items"]),
+            "source": sheet["source"], "voiced": voiced}
+
+
+@celery_app.task(name="hnfm.web.tasks.radio_fill_bank", time_limit=900, soft_time_limit=840)
+def radio_fill_bank(max_new: int = 4) -> Dict[str, any]:
+    """Top up the generic stock: station IDs and music beds."""
+    from .. import radio
+    from ..radio import bank
+
+    if not radio.enabled():
+        return {"status": "skipped", "reason": "radio is off"}
+    made = bank.fill(max_new=max_new)
+    return {"status": "ok", "made": made, "have": __import__("hnfm.radio.library", fromlist=["bank_counts"]).bank_counts()}
+
+
+@celery_app.task(name="hnfm.web.tasks.radio_monitor", time_limit=120, soft_time_limit=100)
+def radio_monitor() -> Dict[str, any]:
+    """The station manager's round: is the transmitter up, is there a
+    block ready, is the bank stocked. Fixes what it can, records the rest."""
+    from .. import radio
+    from ..radio import bank, director
+    from ..db import repo
+
+    if not radio.enabled():
+        return {"status": "skipped", "reason": "radio is off"}
+    st = director.status()
+    actions = []
+    if not st["sheet"]:
+        director.plan_now(reason="monitor: no sheet")
+        actions.append("planned a block")
+    if (st["bank"].get("station_id", 0) < 2 or st["bank"].get("music", 0) < 2):
+        radio_fill_bank.apply_async(kwargs={"max_new": 4})
+        actions.append("filling the bank")
+    keep = [sh["sheet_id"] for sh in repo.radio_list_sheets(limit=3)]
+    pruned = bank.prune(keep_sheets=keep)
+    if pruned:
+        actions.append(f"pruned {pruned} bank files")
+    if not st["icecast"].get("up"):
+        actions.append(f"icecast down: {st['icecast'].get('error')}")
+    repo.set_setting("radio.monitor", {"at": datetime.utcnow().isoformat(),
+                                       "actions": actions, "icecast": st["icecast"]})
+    return {"status": "ok", "actions": actions}
+
+
 @celery_app.task(name="hnfm.web.tasks.fetch_hn_list", time_limit=300, soft_time_limit=240)
 def fetch_hn_list(list_name: str = "new", limit: int = 60) -> Dict[str, any]:
     """Queue every id on an HN list that we have not seen. One GET for the

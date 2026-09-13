@@ -44,6 +44,17 @@ spec:
                 port:
                   number: 9000
           {{- end }}
+          {{- if .Values.radio.enabled }}
+          # The stream. Icecast serves the mount at this exact path, so no
+          # prefix stripping is needed (plans/20).
+          - path: /radio/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-icecast
+                port:
+                  number: 8000
+          {{- end }}
           {{- if .Values.flower.enabled }}
           - path: /flower
             pathType: Prefix
@@ -60,4 +71,54 @@ spec:
                 name: {{ $full }}-frontend
                 port:
                   number: 3000
+    {{- if and .Values.radio.enabled .Values.radio.publicHost }}
+    # The public face of the station: ONLY the listen page and the stream.
+    # Nothing else on this host resolves — the dashboard stays on the LAN
+    # host above (plans/20).
+    - host: {{ .Values.radio.publicHost | quote }}
+      http:
+        paths:
+          - path: /radio/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-icecast
+                port:
+                  number: 8000
+          - path: /api/radio/status
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $full }}-web
+                port:
+                  number: 8000
+          - path: /api/radio/now
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $full }}-web
+                port:
+                  number: 8000
+          - path: /api/radio/history
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $full }}-web
+                port:
+                  number: 8000
+          - path: /listen
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-frontend
+                port:
+                  number: 3000
+          - path: /_nuxt
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-frontend
+                port:
+                  number: 3000
+    {{- end }}
 {{- end }}

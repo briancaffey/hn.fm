@@ -37,12 +37,38 @@ class ServiceSpec:
     optional: bool = False  # if True, an offline status doesn't fail "all_healthy"
 
 
+def _radio_specs() -> List[ServiceSpec]:
+    """The transmitter and the DJ (plans/20) — listed only when the station
+    is on, so an off station is absent rather than "offline"."""
+    if os.getenv("RADIO_ENABLED", "false").strip().lower() != "true":
+        return []
+    return [
+        ServiceSpec(
+            name="Radio · Icecast",
+            role="Radio",
+            base_url=os.getenv("ICECAST_BASE_URL", "http://icecast:8000").rstrip("/"),
+            health_path="/status-json.xsl",
+            expect_json_key="icestats",
+            note="the transmitter: listeners connect here",
+            optional=True,
+        ),
+        ServiceSpec(
+            name="Radio · Liquidsoap",
+            role="Radio",
+            base_url=os.getenv("LIQUIDSOAP_BASE_URL", "http://liquidsoap:8080").rstrip("/"),
+            health_path="/health",
+            note="the DJ: asks the API what to play, reports what it played",
+            optional=True,
+        ),
+    ]
+
+
 def get_service_specs() -> List[ServiceSpec]:
     """Build the live list of services from the current environment."""
     tts_backend = os.getenv("TTS_BACKEND", "magpie").lower()
     tts_health = "/v1/health/ready" if tts_backend == "magpie" else "/health"
 
-    return [
+    specs = [
         ServiceSpec(
             name="LLM · LiteLLM",
             role="LLM",
@@ -112,3 +138,4 @@ def get_service_specs() -> List[ServiceSpec]:
             optional=True,
         ),
     ]
+    return specs + _radio_specs()

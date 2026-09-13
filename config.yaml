@@ -130,6 +130,10 @@ llm:
     source_image.cast:
       temperature: 0.4
       max_tokens: 800
+    radio.plan:
+      # The producer: one call per block of air. Cheap and local.
+      temperature: 0.7
+      max_tokens: 1800
     # The two halves of the Story Brief run at deliberately different
     # temperatures — that difference is the main reason they are separate
     # calls (see content/story_brief.py).
@@ -397,6 +401,19 @@ schedule:
       gate: scraping
       kwargs: { limit: 40 }
       why: "Half an hour before the first edition: make sure everything that arrived overnight is scored, so the Punchline is the full picture, not whatever happened to be triaged."
+    # --- the radio (plans/20): only scheduled when RADIO_ENABLED=true ------
+    radio-monitor:
+      task: hnfm.web.tasks.radio_monitor
+      every: 5m
+      gate: none
+      requires_env: RADIO_ENABLED
+      why: "The station manager's round: transmitter up, a block ready, the bank stocked. Plans or refills when not."
+    radio-fill-bank:
+      task: hnfm.web.tasks.radio_fill_bank
+      every: 30m
+      gate: generation
+      requires_env: RADIO_ENABLED
+      why: "Keeps station IDs and music beds in stock so the air never waits on TTS or the music model."
     digest-punchline:
       task: hnfm.web.tasks.build_digest
       cron: "30 3 * * *"

@@ -968,6 +968,137 @@ async def title_card_context(item_id: int = None, run: int = None, seg: int = No
     }
 
 
+# ---------------------------------------------------------------------------
+# HNFM on air (plans/20). Every route but /status answers 404 when the
+# station is off; /status always answers, so the UI can hide itself.
+# ---------------------------------------------------------------------------
+
+
+def _radio_on():
+    from .. import radio
+
+    if not radio.enabled():
+        raise HTTPException(status_code=404, detail="radio is off (RADIO_ENABLED)")
+
+
+@app.get("/api/radio/status", tags=["radio"])
+async def radio_status():
+    from .. import radio
+
+    if not radio.enabled():
+        return {"enabled": False}
+    from ..radio import director
+
+    return director.status()
+
+
+@app.get("/api/radio/next", tags=["radio"])
+async def radio_next():
+    """Liquidsoap's question: what do I play next?"""
+    _radio_on()
+    from ..radio import director
+
+    return director.next_item()
+
+
+@app.post("/api/radio/events", tags=["radio"])
+async def radio_events(request: dict = Body(default={})):
+    """Liquidsoap's report: this just started."""
+    _radio_on()
+    from ..radio import director
+
+    return director.record_event(request or {})
+
+
+@app.get("/api/radio/now", tags=["radio"])
+async def radio_now():
+    _radio_on()
+    from ..radio import director
+
+    return {"now": director.now_playing(), "queue": director.queue()}
+
+
+@app.get("/api/radio/history", tags=["radio"])
+async def radio_history(hours: int = 3):
+    _radio_on()
+    from ..db import repo as _repo
+
+    return {"events": _repo.radio_recent_events(hours=min(int(hours), 48))}
+
+
+@app.get("/api/radio/sheets", tags=["radio"])
+async def radio_sheets(limit: int = 5):
+    """The blocks the producer planned, newest first, with what each cost."""
+    _radio_on()
+    from ..db import repo as _repo
+
+    return {"sheets": _repo.radio_list_sheets(limit=min(int(limit), 50))}
+
+
+@app.post("/api/radio/queue", tags=["radio"])
+async def radio_queue(request: dict = Body(default={})):
+    """Play this episode next. Body: {ref: "item:run:seg"} or {item_id, run, seg}."""
+    _radio_on()
+    from ..radio import director
+    from ..radio.library import episode_ref
+
+    ref = request.get("ref") or (
+        episode_ref(int(request["item_id"]), int(request["run"]), int(request["seg"]))
+        if request.get("item_id") else None
+    )
+    if not ref:
+        raise HTTPException(status_code=400, detail="ref or item_id/run/seg required")
+    try:
+        return {"queue": director.enqueue(ref)}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+
+
+@app.post("/api/radio/skip", tags=["radio"])
+async def radio_skip():
+    """Ask the DJ to move on. Forwarded to Liquidsoap's own small endpoint."""
+    _radio_on()
+    import requests as _rq
+
+    base = os.getenv("LIQUIDSOAP_BASE_URL", "http://liquidsoap:8080").rstrip("/")
+    try:
+        r = _rq.post(f"{base}/skip", timeout=5)
+        return {"status": "ok" if r.status_code == 200 else "error", "detail": r.text[:100]}
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"liquidsoap unreachable: {e}")
+
+
+@app.post("/api/radio/plan", tags=["radio"])
+async def radio_plan(request: dict = Body(default={})):
+    """Plan a block now (queued), e.g. after changing the producer prompt."""
+    _radio_on()
+    from .tasks import radio_plan_block
+
+    t = radio_plan_block.apply_async(kwargs={"reason": "manual",
+                                             "minutes": request.get("minutes")})
+    return {"status": "queued", "task_id": t.id}
+
+
+@app.post("/api/radio/bank/fill", tags=["radio"])
+async def radio_bank_fill():
+    _radio_on()
+    from .tasks import radio_fill_bank
+
+    t = radio_fill_bank.apply_async(kwargs={"max_new": 6})
+    return {"status": "queued", "task_id": t.id}
+
+
+@app.get("/api/radio/script", tags=["radio"])
+async def radio_script():
+    """The Liquidsoap script the DJ container fetches at start."""
+    from fastapi.responses import PlainTextResponse
+
+    _radio_on()
+    path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "radio", "radio.liq")
+    with open(path) as f:
+        return PlainTextResponse(f.read())
+
+
 @app.get("/api/evolution", tags=["activity"])
 async def evolution_endpoint():
     """Prompt-evolution rounds: what was measured, changed, and what moved.

@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { onMounted, ref } from 'vue'
 import { Button } from '~/components/ui/button'
 import { Icon } from '#components'
 import ActivityIndicator from '~/components/ActivityIndicator.vue'
@@ -15,12 +16,27 @@ interface NavItem {
   /** Shown on hover. A flat list of seven nouns said nothing about what each
    *  page is for, or in what order you would use them. */
   hint: string
+  /** Optional gate: the item is listed only while this returns true. */
+  when?: () => boolean
 }
 
 /**
  * Grouped by what you are doing, in pipeline order: choose material, look at
  * what came out, watch the machine.
  */
+/**
+ * The radio (plans/20) is opt-in: its entry appears only when the API says
+ * the station is on, so a stack with it off has no dead page in the menu.
+ */
+const radioOn = ref(false)
+onMounted(async () => {
+  try {
+    const cfg = useRuntimeConfig()
+    const st = await $fetch<{ enabled: boolean }>(`${cfg.public.apiBase}/api/radio/status`)
+    radioOn.value = !!st?.enabled
+  } catch { radioOn.value = false }
+})
+
 const navGroups: Array<{ label: string, items: NavItem[] }> = [
   {
     label: 'Content',
@@ -44,6 +60,9 @@ const navGroups: Array<{ label: string, items: NavItem[] }> = [
         hint: 'The pictures on the page each story links to: sizes, what the vision model saw, and what it cost.' },
       { label: 'Title cards', to: '/title-cards', icon: 'lucide:clapperboard', match: '/title-cards',
         hint: 'The card every episode opens on, in each aspect ratio, with the models that made it.' },
+      { label: 'Radio', to: '/radio', icon: 'lucide:radio', match: '/radio',
+        hint: 'HNFM on air: what is playing, what the producer planned, queue and skip. Shown only when the station is on.',
+        when: () => radioOn.value },
     ],
   },
   {
@@ -100,7 +119,7 @@ function isActive(item: NavItem): boolean {
             {{ group.label }}
           </p>
           <NuxtLink
-            v-for="item in group.items"
+            v-for="item in group.items.filter(i => !i.when || i.when())"
             :key="item.to"
             :to="item.to"
             :title="item.hint"

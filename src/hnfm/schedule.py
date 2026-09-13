@@ -57,6 +57,10 @@ class Job:
     kwargs: Dict = field(default_factory=dict)
     enabled: bool = True
     why: str = ""
+    # An env var that must be "true" for the job to be scheduled at all.
+    # Opt-in subsystems (the radio) use this so that "off" leaves no beat
+    # entry behind, rather than an entry that fires and does nothing.
+    requires_env: Optional[str] = None
     # IANA zone the cron fields are written in (schedule.timezone). Beat is
     # configured with the same zone, so "30 3 * * *" is 03:30 local all year,
     # DST included — the whole point of not writing the table in UTC.
@@ -191,6 +195,7 @@ def _job_from_config(name: str, raw: dict, tz: str = DEFAULT_TIMEZONE) -> Job:
         enabled=bool(raw.get("enabled", True)),
         why=str(raw.get("why") or ""),
         timezone=tz,
+        requires_env=(str(raw["requires_env"]) if raw.get("requires_env") else None),
     )
 
 
@@ -246,6 +251,8 @@ def beat_schedule(config: Optional[dict] = None) -> dict:
     table = {}
     for job in load_jobs(config):
         if not job.enabled:
+            continue
+        if job.requires_env and os.getenv(job.requires_env, "false").strip().lower() != "true":
             continue
         table[job.name] = {
             "task": "hnfm.web.tasks.scheduled_job",
