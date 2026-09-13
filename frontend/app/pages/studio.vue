@@ -31,11 +31,14 @@ const config = useRuntimeConfig()
 const apiBase = config.public.apiBase
 
 const snap = ref<Snapshot | null>(null)
+const titles = ref<Record<string, string>>({})
+const sheetItems = computed(() => (snap.value?.sheet_items || []).map(it => ({ ...it, title: it.episode ? (titles.value[it.episode] || it.episode) : null })))
 const lines = ref<LogLine[]>([])
 const bubbles = ref<Bubble[]>([])
 const packets = ref<{ id: number, from: string, to: string, color: string }[]>([])
-const counters = reactive({ tracks: 0, plans: 0, rounds: 0 })
+const counters = reactive({ tracks: 0, plans: 0, rounds: 0, beds: 0 })
 const thinking = ref(false)
+const jukeboxPrompt = ref<string | null>(null)
 const connected = ref(false)
 const explain = ref<string | null>(null)
 let source: EventSource | null = null
@@ -66,7 +69,9 @@ function react(line: LogLine) {
   if (line.component === 'producer' && m.startsWith('thinking')) thinking.value = true
   if (line.component === 'producer' && m.startsWith('planned')) { thinking.value = false; counters.plans++; fire('producer', 'hub', '#5eead4') }
   if (line.component === 'producer' && (m.includes('using the deterministic'))) thinking.value = false
-  if (line.component === 'bank') fire('library', 'hub', '#b39ddb')
+  if (line.component === 'bank' && m.startsWith('prompting the jukebox')) jukeboxPrompt.value = String(line.meta?.prompt || m.replace('prompting the jukebox: ', ''))
+  if (line.component === 'bank' && m.startsWith('pressed')) { jukeboxPrompt.value = null; counters.beds++; fire('jukebox', 'library', '#5eead4') }
+  if (line.component === 'bank' && !m.startsWith('prompting')) fire('library', 'hub', '#b39ddb')
   if (line.component === 'monitor') counters.rounds++
 }
 function fire(from: string, to: string, color: string) {
@@ -82,6 +87,11 @@ async function boot() {
     source = new EventSource(`${apiBase}/api/radio/stream?after=${last}`)
     source.addEventListener('log', (e) => react(JSON.parse((e as MessageEvent).data)))
     source.addEventListener('snapshot', (e) => { snap.value = { ...snap.value, ...JSON.parse((e as MessageEvent).data) } })
+    // Episode titles for the belt: the sheet stores refs, the library knows names.
+    try {
+      const lib = await $fetch<{ episodes: { ref: string, title: string }[] }>(`${apiBase}/api/radio/episodes`)
+      titles.value = Object.fromEntries(lib.episodes.map(e => [e.ref, e.title]))
+    } catch { /* labels fall back to the ref */ }
     source.onopen = () => { connected.value = true }
     source.onerror = () => { connected.value = false }
   } catch { snap.value = { enabled: false } as Snapshot }
@@ -108,12 +118,14 @@ const KIND_LABEL: Record<string, string> = { episode: 'Episode', station_id: 'St
         :episodes="snap?.episodes || 0"
         :station-ids="snap?.bank?.station_id || 0"
         :beds="snap?.bank?.music || 0"
-        :sheet-items="snap?.sheet_items || []"
+        :sheet-items="sheetItems"
         :sheet-cursor="snap?.sheet_cursor || 0"
         :thinking="thinking"
+        :jukebox-prompt="jukeboxPrompt"
         :bubbles="bubbles"
         :track-changes="counters.tracks"
         :plans="counters.plans"
+        :beds-pressed="counters.beds"
         :packets="packets"
         :monitor-rounds="counters.rounds"
       />

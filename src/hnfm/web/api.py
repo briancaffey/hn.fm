@@ -1097,6 +1097,16 @@ async def radio_bank_fill():
     return {"status": "queued", "task_id": t.id}
 
 
+@app.get("/api/radio/episodes", tags=["radio"])
+async def radio_episodes(limit: int = 120):
+    """Finished episodes the station can play: ref, title, seconds."""
+    _radio_on()
+    from ..radio.library import episodes
+
+    return {"episodes": [{"ref": e["ref"], "title": e["title"], "seconds": e.get("seconds"),
+                          "item_id": e["item_id"]} for e in episodes(limit=min(int(limit), 400))]}
+
+
 @app.get("/api/radio/log", tags=["radio"])
 async def radio_log(limit: int = 60, after: int = None):
     """The station's running commentary: what each component just did."""

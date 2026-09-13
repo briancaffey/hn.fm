@@ -59,6 +59,7 @@ def fill(targets: Optional[Dict[str, int]] = None, max_new: int = 6) -> Dict[str
     n = have.get("music", 0)
     while budget and have.get("music", 0) < targets["music"]:
         style = STYLES[n % len(STYLES)]
+        log("bank", f"prompting the jukebox: {style}", kind="music", prompt=style)
         path = make_bed(style, 60, _new_path("music"))
         n += 1
         if not path:
