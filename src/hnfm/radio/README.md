@@ -21,9 +21,19 @@ hn.fm API ──"what's next?"──▶ Liquidsoap ──MP3 128k──▶ Iceca
   compose bind-mounts it; the chart's init container fetches it from
   `GET /api/radio/script` at pod start, so it deploys with the backend.
 - **The producer** (`producer.py`) plans a block of programming — about
-  thirty minutes — with one structured call to the local model: which
-  episodes, in what order, which host says what between them, what music.
-  If the model is down, a deterministic fallback plans the block instead.
+  thirty minutes — with one structured call to the local model. The
+  station's sound is quick: six to nine **briefs** (thirty seconds on a
+  story that just landed on /new — headline, then the two or three things
+  worth knowing, written by the Punchline prompt and read by a host over a
+  quiet bed), short music beds between every two or three items, a station
+  ID every few items, a time check near the top, and at most one deep-dive
+  episode in the middle. It never repeats a story or episode that aired in
+  the last twelve hours or is already on the belt. If the model is down, a
+  deterministic fallback plans the same shape.
+- **Voices** (`voice.py`): Mia, Jason, Sofia, Leo, Aria and Ray on Magpie,
+  each with moods the server lists (calm is the house mood; neutral and sad
+  when a line wants them), plus Dia. Spoken items end in a beat of silence
+  and the DJ's crossfade is short, so nothing steps on the last word.
 - **The director** (`director.py`) serves the block one item at a time,
   honours the queue ("play this next"), keeps history, and asks for the
   next block when the current one runs low.
