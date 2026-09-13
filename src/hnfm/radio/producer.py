@@ -11,6 +11,7 @@ two episodes are never adjacent. The model chooses; the code enforces.
 """
 
 import logging
+import os
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -21,10 +22,14 @@ logger = logging.getLogger(__name__)
 
 TASK = "radio.plan"
 MAX_LINE_WORDS = 25
-# A block with fewer episodes than this is not a block; use the fallback.
-MIN_EPISODES = 2
-# How many episodes the model is shown. More is tokens, not quality.
-SHOW_EPISODES = 16
+# A block with fewer stories than this is not a block; use the fallback.
+MIN_STORIES = 3
+# How many episodes and stories the model is shown. More is tokens, not quality.
+SHOW_EPISODES = 8
+SHOW_STORIES = 18
+# Deep dives per block. The station is briefs; an episode is the exception.
+MAX_EPISODES = int(os.getenv("RADIO_MAX_EPISODES", "1"))
+MUSIC_MIN, MUSIC_MAX = 20, 45
 
 STATION_IDS = [
     "You're listening to HNFM.",
@@ -51,58 +56,82 @@ def _recent_listing(recent: List[dict]) -> str:
     ) or "(nothing yet)"
 
 
-def plan_block(eps: List[dict], recent: List[dict], minutes: int = 30,
-               now: Optional[datetime] = None) -> tuple:
+def _stories_listing(stories: List[dict]) -> str:
+    return "\n".join(
+        f"- {st['item_id']} · {st.get('age_hours') if st.get('age_hours') is not None else '?'} h · {st['title'][:90]}"
+        for st in stories
+    ) or "(none)"
+
+
+def _planned_listing(planned: List[dict]) -> str:
+    return "\n".join(
+        f"- {it.get('kind')}: {it.get('episode') or it.get('story') or it.get('line') or ''}"
+        for it in planned
+    ) or "(nothing)"
+
+
+def used_refs(recent: List[dict], planned: List[dict]) -> tuple:
+    """(episode refs, story ids) that must not be scheduled again."""
+    eps = {r.get("ref") for r in recent if r.get("ref") and ":" in str(r.get("ref")) and not str(r["ref"]).startswith("story:")}
+    stories = {int(str(r["ref"])[6:]) for r in recent if str(r.get("ref") or "").startswith("story:")}
+    for it in planned:
+        if it.get("episode"):
+            eps.add(it["episode"])
+        if it.get("story"):
+            stories.add(int(it["story"]))
+    return eps, stories
+
+
+def plan_block(eps: List[dict], stories: List[dict], recent: List[dict], planned: List[dict],
+               minutes: int = 30, now: Optional[datetime] = None) -> tuple:
     """(RunSheet, source, usage) — source is "llm" or "fallback"."""
     from ..content.llm_service import LLMService
     from ..content.prompts import render
     from .voice import host_listing
 
     now = now or datetime.now()
-    recent_refs = {r.get("ref") for r in recent if r.get("ref")}
-    fresh = [e for e in eps if e["ref"] not in recent_refs]
-    if not fresh:
-        fresh = eps  # everything has aired: the model may repeat the oldest
+    used_eps, used_stories = used_refs(recent, planned)
+    fresh_eps = [e for e in eps if e["ref"] not in used_eps] or list(eps)
+    fresh_stories = [st for st in stories if st["item_id"] not in used_stories]
 
     svc = LLMService(task=TASK)
-    log("producer", f"thinking: asking {svc.model} for a {minutes}-minute block from {min(len(fresh), SHOW_EPISODES)} episodes",
+    log("producer", f"thinking: asking {svc.model} for a {minutes}-minute block from "
+        f"{min(len(fresh_stories), SHOW_STORIES)} new stories and {min(len(fresh_eps), SHOW_EPISODES)} episodes",
         model=svc.model, minutes=minutes)
     try:
         prompt = render(
             TASK, now=now.strftime("%A %-I:%M %p"), minutes=minutes,
-            hosts=host_listing(), episodes=_episode_listing(fresh[:SHOW_EPISODES]),
-            recent=_recent_listing(recent[-12:]),
+            hosts=host_listing(), stories=_stories_listing(fresh_stories[:SHOW_STORIES]),
+            episodes=_episode_listing(fresh_eps[:SHOW_EPISODES]),
+            recent=_recent_listing(recent[-14:]), planned=_planned_listing(planned[:20]),
         )
         raw = svc.generate_structured(prompt, RunSheet)
-        sheet = enforce(raw, {e["ref"]: e for e in eps}, recent_refs, minutes)
-        n_eps = sum(1 for i in sheet.items if i.kind == "episode")
+        sheet = enforce(raw, {e["ref"]: e for e in eps}, {st["item_id"] for st in stories},
+                        used_eps, used_stories, minutes)
+        n_stories = sum(1 for i in sheet.items if i.kind in ("episode", "brief"))
         logger.info(
             f"radio producer: model wrote {len(raw.items)} items, {len(sheet.items)} kept, "
-            f"{n_eps} episodes ({svc.usage['tokens_in']}/{svc.usage['tokens_out']} tokens)"
+            f"{n_stories} stories ({svc.usage['tokens_in']}/{svc.usage['tokens_out']} tokens)"
         )
-        if n_eps >= MIN_EPISODES:
+        if n_stories >= MIN_STORIES:
             return sheet, "llm", dict(svc.usage)
-        logger.warning(
-            f"radio producer: only {n_eps} episode(s) in the plan (a cut-off or thin "
-            f"answer); falling back"
-        )
-        log("producer", f"the model's block had only {n_eps} episode(s); using the deterministic producer")
+        logger.warning(f"radio producer: only {n_stories} stories in the plan; falling back")
+        log("producer", f"the model's block had only {n_stories} stories; using the deterministic producer")
     except Exception as e:
         logger.warning(f"radio producer: model failed ({e}); falling back")
         log("producer", f"the model did not answer ({str(e)[:60]}); using the deterministic producer")
-    return fallback_block(eps, recent, minutes, now), "fallback", dict(svc.usage)
+    return fallback_block(eps, stories, recent, planned, minutes, now), "fallback", dict(svc.usage)
 
 
-def enforce(sheet: RunSheet, by_ref: Dict[str, dict], recent_refs: set,
-            minutes: int) -> RunSheet:
+def enforce(sheet: RunSheet, by_ref: Dict[str, dict], story_ids: set, used_eps: set,
+            used_stories: set, minutes: int) -> RunSheet:
     """The station's rules, applied to whatever the model returned."""
     out: List[RunItem] = []
-    used = set()
+    used = set(used_eps)
+    used_st = set(used_stories)
     budget = minutes * 60 + 180
     total = 0.0
-    # The model writes the ref it was shown — usually. It has also written the
-    # bare story id, and once "id:run". Resolve those to the listed episode
-    # for that story rather than throwing the whole block away.
+    n_eps = 0
     by_item = {}
     for ref, e in by_ref.items():
         by_item.setdefault(str(e.get("item_id")), ref)
@@ -114,22 +143,32 @@ def enforce(sheet: RunSheet, by_ref: Dict[str, dict], recent_refs: set,
                 ref = by_item.get(ref.split(":")[0], ref)
             it.episode = ref
             e = by_ref.get(ref)
-            if not e or ref in used or ref in recent_refs:
+            if not e or ref in used or n_eps >= MAX_EPISODES:
                 continue
-            if out and out[-1].kind == "episode":
-                out.append(RunItem(kind="station_id", host=_next_host(out), line=None))
+            if out and out[-1].kind in ("episode", "brief"):
+                out.append(RunItem(kind="station_id", host=_next_host(out), mood="calm"))
             used.add(ref)
+            n_eps += 1
             total += e.get("seconds") or 120
+        elif it.kind == "brief":
+            if it.story is None or it.story not in story_ids or it.story in used_st:
+                continue
+            if it.host not in HOSTS or it.host == "dia":
+                it.host = _next_host(out)
+            it.mood = it.mood if it.mood in ("calm", "neutral", "sad") else "calm"
+            it.line = None
+            used_st.add(it.story)
+            total += 30
         elif it.kind == "music":
-            it.seconds = max(45, min(int(it.seconds or 60), 90))
+            it.seconds = max(MUSIC_MIN, min(int(it.seconds or 30), MUSIC_MAX))
             it.music_style = (it.music_style or "warm lo-fi piano, 72 bpm, instrumental")[:120]
             total += it.seconds
         else:
             if it.host not in HOSTS:
                 it.host = _next_host(out)
+            it.mood = it.mood if it.mood in ("calm", "neutral", "sad") else "calm"
             if it.line:
-                words = it.line.split()
-                it.line = " ".join(words[:MAX_LINE_WORDS])
+                it.line = " ".join(it.line.split()[:MAX_LINE_WORDS])
             if it.kind == "coming_up" and not it.line:
                 continue
             total += 8
@@ -137,7 +176,7 @@ def enforce(sheet: RunSheet, by_ref: Dict[str, dict], recent_refs: set,
             break
         out.append(it)
     if out and out[0].kind != "station_id":
-        out.insert(0, RunItem(kind="station_id", host=_next_host([]), line=None))
+        out.insert(0, RunItem(kind="station_id", host=_next_host([]), mood="calm"))
     return RunSheet(title=sheet.title or "HNFM", items=out)
 
 
@@ -149,34 +188,45 @@ def _next_host(items: List[RunItem]) -> str:
     return order[0]
 
 
-def fallback_block(eps: List[dict], recent: List[dict], minutes: int = 30,
-                   now: Optional[datetime] = None) -> RunSheet:
-    """A block with no model: ID, episode, bed, ID, episode, coming-up…
+def fallback_block(eps: List[dict], stories: List[dict], recent: List[dict], planned: List[dict],
+                   minutes: int = 30, now: Optional[datetime] = None) -> RunSheet:
+    """A block with no model: ID, time check, then briefs with short beds
+    between, one episode in the middle, an ID every few items.
 
-    Newest episodes that have not aired recently, a music bed between
-    them, a station ID every third item, a time check at the top of the
-    block. Deterministic, so the same inputs plan the same block.
+    Deterministic, so the same inputs plan the same block; and it never
+    repeats what aired or is already on the belt.
     """
     from .music import STYLES
 
     now = now or datetime.now()
-    recent_refs = {r.get("ref") for r in recent if r.get("ref")}
-    pool = [e for e in eps if e["ref"] not in recent_refs] or list(eps)
-    items: List[RunItem] = [RunItem(kind="station_id", host="mia")]
-    items.append(RunItem(kind="time_check", host="sofia",
+    used_eps, used_stories = used_refs(recent, planned)
+    ep_pool = [e for e in eps if e["ref"] not in used_eps]
+    st_pool = [st for st in stories if st["item_id"] not in used_stories]
+    hosts = ["mia", "jason", "sofia", "leo", "aria", "ray"]
+    items: List[RunItem] = [RunItem(kind="station_id", host="mia", mood="calm")]
+    items.append(RunItem(kind="time_check", host="sofia", mood="calm",
                          line=f"It's {now.strftime('%-I:%M')} on HNFM."))
-    total, i = 0.0, 0
-    hosts = ["mia", "jason", "sofia", "leo"]
-    while pool and total < minutes * 60:
-        e = pool.pop(0)
-        if items[-1].kind == "episode":
-            items.append(RunItem(kind="coming_up", host=hosts[i % 4],
-                                 line=f"Coming up: {e['title'][:80]}."))
-        items.append(RunItem(kind="episode", episode=e["ref"]))
-        total += e.get("seconds") or 120
-        items.append(RunItem(kind="music", music_style=STYLES[i % len(STYLES)], seconds=60))
-        total += 60
+    total, i = 12.0, 0
+    target = minutes * 60
+    deep_at = max(3, len(st_pool) // 2)
+    while total < target and (st_pool or (ep_pool and i == deep_at)):
+        if i == deep_at and ep_pool:
+            e = ep_pool.pop(0)
+            items.append(RunItem(kind="coming_up", host=hosts[i % 6], mood="calm",
+                                 line=f"Coming up, a deep dive: {e['title'][:80]}."))
+            items.append(RunItem(kind="episode", episode=e["ref"]))
+            total += (e.get("seconds") or 120) + 8
+        elif st_pool:
+            st = st_pool.pop(0)
+            items.append(RunItem(kind="brief", story=st["item_id"], host=hosts[i % 6], mood="calm"))
+            total += 30
+        else:
+            break
         if i % 2 == 1:
-            items.append(RunItem(kind="station_id", host=hosts[(i + 1) % 4]))
+            items.append(RunItem(kind="music", music_style=STYLES[i % len(STYLES)], seconds=30))
+            total += 30
+        if i % 4 == 3:
+            items.append(RunItem(kind="station_id", host=hosts[(i + 1) % 6], mood="calm"))
+            total += 6
         i += 1
     return RunSheet(title=f"HNFM · {now.strftime('%-I %p')} block", items=items)

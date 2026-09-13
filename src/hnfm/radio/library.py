@@ -209,17 +209,26 @@ def _duration(path: str) -> Optional[float]:
     return seconds
 
 
+# Silence added to the end of everything the station makes, so items breathe
+# instead of the next one arriving on the last syllable.
+TAIL_PAD = float(os.getenv("RADIO_TAIL_PAD", "0.8"))
+
+
 def to_mp3(src: str, dst: str, seconds: Optional[float] = None, fade: float = 1.5,
-           loudnorm: bool = True) -> bool:
+           loudnorm: bool = True, pad: Optional[float] = None) -> bool:
     """Any audio -> 128k MP3 at broadcast loudness, optionally trimmed with a
-    fade out. The station is one loudness everywhere; a quiet jingle after a
-    loud episode is the tell of amateur radio."""
+    fade out, with a moment of silence on the end. The station is one
+    loudness everywhere; a quiet jingle after a loud episode is the tell of
+    amateur radio, and a bed that starts on the host's last word is another."""
     filters = []
     if seconds:
         filters.append(f"atrim=0:{seconds}")
         filters.append(f"afade=t=out:st={max(0.0, seconds - fade)}:d={fade}")
     if loudnorm:
         filters.append("loudnorm=I=-16:TP=-1.5:LRA=11")
+    pad = TAIL_PAD if pad is None else pad
+    if pad:
+        filters.append(f"apad=pad_dur={pad}")
     cmd = ["ffmpeg", "-y", "-i", src]
     if filters:
         cmd += ["-af", ",".join(filters)]
@@ -230,3 +239,27 @@ def to_mp3(src: str, dst: str, seconds: Optional[float] = None, fade: float = 1.
         logger.warning(f"radio: mp3 encode failed: {res.stderr[-200:]}")
         return False
     return True
+
+
+def mix_under(voice_src: str, bed_src: str, dst: str, bed_db: float = -17.0,
+              lead: float = 1.2, tail: float = 2.0) -> bool:
+    """A voice over a quiet music bed: the bed leads in, ducks under the
+    voice, and runs on after it with a fade. One 128k MP3 at broadcast
+    loudness. `bed_db` is how far under the voice the bed sits."""
+    graph = (
+        f"[1:a]volume={bed_db}dB,afade=t=in:st=0:d=1.0[bed];"
+        f"[0:a]adelay={int(lead * 1000)}|{int(lead * 1000)},apad=pad_dur={tail}[v];"
+        f"[v][bed]amix=inputs=2:duration=first:dropout_transition=2,"
+        f"afade=t=out:st=9999:d=1[mix0];"
+        f"[mix0]loudnorm=I=-16:TP=-1.5:LRA=11,apad=pad_dur={TAIL_PAD}[out]"
+    )
+    cmd = ["ffmpeg", "-y", "-i", voice_src, "-stream_loop", "-1", "-i", bed_src,
+           "-filter_complex", graph, "-map", "[out]",
+           "-ac", "2", "-ar", "44100", "-c:a", "libmp3lame", "-b:a", "128k", dst]
+    os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
+    res = subprocess.run(cmd, capture_output=True, text=True)
+    if res.returncode != 0 or not os.path.exists(dst):
+        logger.warning(f"radio: mix failed: {res.stderr[-240:]}")
+        return False
+    return True
+

@@ -22,7 +22,9 @@ from .voice import HOSTS, say
 logger = logging.getLogger(__name__)
 
 # How much generic stock to keep.
-TARGETS = {"station_id": 8, "music": 6}
+TARGETS = {"station_id": 10, "music": 8}
+# Generic beds are short: the station changes topic every half minute.
+BED_SECONDS = int(os.getenv("RADIO_BED_SECONDS", "35"))
 
 
 def _new_path(kind: str) -> str:
@@ -45,7 +47,7 @@ def fill(targets: Optional[Dict[str, int]] = None, max_new: int = 6) -> Dict[str
     while budget and have.get("station_id", 0) < targets["station_id"]:
         line = STATION_IDS[n % len(STATION_IDS)]
         host = hosts[n % len(hosts)]
-        path = say(line, host, _new_path("station_id"))
+        path = say(line, host, _new_path("station_id"), mood="calm")
         n += 1
         if not path:
             break
@@ -60,13 +62,13 @@ def fill(targets: Optional[Dict[str, int]] = None, max_new: int = 6) -> Dict[str
     while budget and have.get("music", 0) < targets["music"]:
         style = STYLES[n % len(STYLES)]
         log("bank", f"prompting the jukebox: {style}", kind="music", prompt=style)
-        path = make_bed(style, 60, _new_path("music"))
+        path = make_bed(style, BED_SECONDS, _new_path("music"))
         n += 1
         if not path:
             break
         add_to_bank({"id": uuid.uuid4().hex[:12], "kind": "music", "path": path,
-                     "style": style, "seconds": 60})
-        log("bank", f"pressed a 60-second music bed: {style[:50]}", kind="music")
+                     "style": style, "seconds": BED_SECONDS})
+        log("bank", f"pressed a {BED_SECONDS}-second music bed: {style[:50]}", kind="music")
         have["music"] = have.get("music", 0) + 1
         made["music"] = made.get("music", 0) + 1
         budget -= 1
@@ -89,20 +91,48 @@ def ensure_safety() -> Optional[str]:
 
 
 def voice_sheet(sheet_id: str, items: List[dict]) -> int:
-    """Speak the lines a producer wrote for one block. Returns how many."""
-    lines = [it for it in items if it.get("kind") in ("station_id", "coming_up", "time_check") and it.get("line")]
-    log("bank", f"voicing {len(lines)} lines the producer wrote for the block", sheet_id=sheet_id)
+    """Make the block's spoken items: the lines the producer wrote, and the
+    briefs on new stories (written from the story, then read over a quiet
+    bed). Returns how many were made."""
+    from .briefs import brief_for, spoken
+    from .library import pick_from_bank
+
+    spoken_kinds = ("station_id", "coming_up", "time_check", "brief")
+    todo = [it for it in items if it.get("kind") in spoken_kinds and (it.get("line") or it.get("kind") == "brief")]
+    log("bank", f"voicing {len(todo)} items for the block", sheet_id=sheet_id)
     made = 0
+    beds = [b for b in load_bank() if b["kind"] == "music" and not b.get("sheet_id")]
     for idx, it in enumerate(items):
-        if it.get("kind") not in ("station_id", "coming_up", "time_check") or not it.get("line"):
+        kind = it.get("kind")
+        if kind not in spoken_kinds:
             continue
         host = it.get("host") or "mia"
-        path = say(it["line"], host, _new_path(it["kind"]))
+        mood = it.get("mood") or "calm"
+        if kind == "brief":
+            b = brief_for(int(it["story"])) if it.get("story") else None
+            if not b:
+                log("bank", f"no brief could be written for story {it.get('story')}; skipped", kind="brief")
+                continue
+            text = spoken(b)
+            bed = beds[(idx * 7) % len(beds)]["path"] if beds else None
+            path = say(text, host, _new_path("brief"), mood=mood, bed=bed)
+            if not path:
+                continue
+            add_to_bank({"id": f"{sheet_id}-{idx}", "kind": "brief", "path": path,
+                         "text": b["title"], "host": host, "sheet_id": sheet_id,
+                         "story": int(it["story"]), "mood": mood})
+            log("bank", f"{host} ({mood}) read a brief on: {b['title'][:60]}", kind="brief", host=host,
+                sheet_id=sheet_id, story=int(it["story"]))
+            made += 1
+            continue
+        if not it.get("line"):
+            continue
+        path = say(it["line"], host, _new_path(kind), mood=mood)
         if not path:
             continue
-        add_to_bank({"id": f"{sheet_id}-{idx}", "kind": it["kind"], "path": path,
-                     "text": it["line"], "host": host, "sheet_id": sheet_id})
-        log("bank", f"{host} recorded: “{it['line'][:70]}”", kind=it["kind"], host=host, sheet_id=sheet_id)
+        add_to_bank({"id": f"{sheet_id}-{idx}", "kind": kind, "path": path,
+                     "text": it["line"], "host": host, "sheet_id": sheet_id, "mood": mood})
+        log("bank", f"{host} ({mood}) recorded: “{it['line'][:70]}”", kind=kind, host=host, sheet_id=sheet_id)
         made += 1
     return made
 

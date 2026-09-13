@@ -25,7 +25,7 @@ BLOCK_MINUTES = int(os.getenv("RADIO_BLOCK_MINUTES", "30"))
 # Plan the next block when this many items remain on the current one.
 REPLAN_AT = 3
 # Don't re-air an episode within this window.
-NO_REPEAT_HOURS = int(os.getenv("RADIO_NO_REPEAT_HOURS", "3"))
+NO_REPEAT_HOURS = int(os.getenv("RADIO_NO_REPEAT_HOURS", "12"))
 SETTING_QUEUE = "radio.queue"
 SETTING_PLANNING = "radio.planning_since"
 
@@ -50,15 +50,22 @@ def plan_now(minutes: int = None, reason: str = "manual", fast: bool = False) ->
     block is requested in the background right after.
     """
     from ..db import repo
+    from .briefs import candidates
     from .producer import fallback_block, plan_block
 
     minutes = minutes or BLOCK_MINUTES
     recent = repo.radio_recent_events(hours=NO_REPEAT_HOURS)
     eps = episodes(limit=80)
+    stories = candidates(limit=40)
+    # What is already on the belt: the unserved tail of every open sheet.
+    # Two blocks planned minutes apart used to open on the same stories.
+    planned = []
+    for sh in repo.radio_list_sheets(limit=4):
+        planned.extend(sh["items"][sh["cursor"]:])
     if fast:
-        sheet, source, usage = fallback_block(eps, recent, minutes), "fallback", {}
+        sheet, source, usage = fallback_block(eps, stories, recent, planned, minutes), "fallback", {}
     else:
-        sheet, source, usage = plan_block(eps, recent, minutes)
+        sheet, source, usage = plan_block(eps, stories, recent, planned, minutes)
     row = repo.radio_save_sheet(
         sheet_id=uuid.uuid4().hex[:12], title=sheet.title, minutes=minutes,
         items=[i.model_dump() for i in sheet.items], source=source,
@@ -154,6 +161,19 @@ def _resolve(item: dict, sheet_id: str, recent_ids: List[str]) -> Optional[dict]
             return None
         return {"kind": kind, "path": b["path"], "title": b.get("style") or "music",
                 "bank_id": b["id"], "seconds": b.get("seconds")}
+    if kind == "brief":
+        # Written and voiced for this block by the bank; there is no generic
+        # substitute for a story, so a missing one is skipped.
+        b = pick_from_bank("brief", avoid_ids=recent_ids, sheet_id=sheet_id)
+        if not b or b.get("sheet_id") != sheet_id or b.get("story") != item.get("story"):
+            b = next((x for x in __import__("hnfm.radio.library", fromlist=["load_bank"]).load_bank()
+                      if x.get("sheet_id") == sheet_id and x.get("kind") == "brief"
+                      and x.get("story") == item.get("story")), None)
+        if not b:
+            return None
+        return {"kind": kind, "path": b["path"], "title": b.get("text") or "brief",
+                "host": b.get("host"), "bank_id": b["id"], "ref": f"story:{b.get('story')}",
+                "item_id": b.get("story")}
     # A spoken line: the one written for this block if it was voiced in
     # time, otherwise a generic station ID in the same host's voice.
     b = pick_from_bank(kind, avoid_ids=recent_ids, sheet_id=sheet_id, host=item.get("host"))

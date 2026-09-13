@@ -17,66 +17,81 @@ def _eps(n=4, seconds=120):
              "path": f"/e/{i}.mp3", "seconds": seconds, "age_hours": i} for i in range(1, n + 1)]
 
 
+def _stories(n=8):
+    return [{"item_id": 100 + i, "run": 1, "title": f"New story {i}", "url": None, "age_hours": i}
+            for i in range(1, n + 1)]
+
+
 class TestFallbackBlock:
-    def test_opens_with_an_id_and_never_stacks_episodes(self):
-        sheet = producer.fallback_block(_eps(), [], minutes=10, now=datetime(2026, 9, 12, 8, 5))
+    def test_opens_with_id_and_time_check_then_briefs_with_beds(self):
+        sheet = producer.fallback_block(_eps(), _stories(), [], [], minutes=10, now=datetime(2026, 9, 12, 8, 5))
         kinds = [i.kind for i in sheet.items]
-        assert kinds[0] == "station_id"
-        assert "time_check" in kinds
+        assert kinds[:2] == ["station_id", "time_check"]
+        assert sheet.items[1].line == "It's 8:05 on HNFM."
+        assert kinds.count("brief") >= 3
+        assert kinds.count("episode") <= 1
+        assert "music" in kinds
         for a, b in zip(kinds, kinds[1:]):
             assert not (a == "episode" and b == "episode")
-        assert sheet.items[1].line == "It's 8:05 on HNFM."
+        for it in sheet.items:
+            if it.kind in ("station_id", "time_check", "coming_up", "brief"):
+                assert it.mood == "calm"
 
-    def test_skips_what_aired_recently(self):
-        recent = [{"kind": "episode", "ref": "1:1:1"}, {"kind": "episode", "ref": "2:1:1"}]
-        sheet = producer.fallback_block(_eps(), recent, minutes=10)
-        refs = [i.episode for i in sheet.items if i.kind == "episode"]
-        assert refs and "1:1:1" not in refs and "2:1:1" not in refs
+    def test_skips_what_aired_or_is_planned(self):
+        recent = [{"kind": "brief", "ref": "story:101"}, {"kind": "episode", "ref": "1:1:1"}]
+        planned = [{"kind": "brief", "story": 102}, {"kind": "episode", "episode": "2:1:1"}]
+        sheet = producer.fallback_block(_eps(), _stories(), recent, planned, minutes=10)
+        stories = [i.story for i in sheet.items if i.kind == "brief"]
+        eps = [i.episode for i in sheet.items if i.kind == "episode"]
+        assert 101 not in stories and 102 not in stories
+        assert "1:1:1" not in eps and "2:1:1" not in eps
 
     def test_respects_the_length(self):
-        sheet = producer.fallback_block(_eps(20, seconds=180), [], minutes=10)
-        total = sum((180 if i.kind == "episode" else 60 if i.kind == "music" else 8) for i in sheet.items)
+        sheet = producer.fallback_block(_eps(20, seconds=180), _stories(40), [], [], minutes=10)
+        total = sum((180 if i.kind == "episode" else 30 if i.kind in ("music", "brief") else 8) for i in sheet.items)
         assert total < 10 * 60 + 300
 
 
 class TestEnforce:
-    def test_model_output_is_policed(self):
+    def _run(self, items, used_eps=set(), used_stories=set()):
         by_ref = {e["ref"]: e for e in _eps()}
-        sheet = RunSheet(title="x", items=[
+        return producer.enforce(RunSheet(title="x", items=items), by_ref, {101, 102, 103},
+                                used_eps, used_stories, minutes=30)
+
+    def test_model_output_is_policed(self):
+        out = self._run([
+            RunItem(kind="brief", story=101, host="nobody", mood="happy"),
+            RunItem(kind="brief", story=999),                 # unknown story: dropped
+            RunItem(kind="brief", story=101),                 # repeat: dropped
             RunItem(kind="episode", episode="1:1:1"),
-            RunItem(kind="episode", episode="2:1:1"),        # adjacent: an ID is inserted
-            RunItem(kind="episode", episode="9:9:9"),        # unknown: dropped
-            RunItem(kind="episode", episode="1:1:1"),        # repeat: dropped
+            RunItem(kind="episode", episode="2:1:1"),         # second deep dive: dropped
             RunItem(kind="coming_up", host="nobody", line=" ".join(["w"] * 40)),
             RunItem(kind="music", music_style="", seconds=500),
         ])
-        out = producer.enforce(sheet, by_ref, recent_refs=set(), minutes=30)
         kinds = [i.kind for i in out.items]
         assert kinds[0] == "station_id"
-        assert kinds.count("episode") == 2
-        idx = [n for n, k in enumerate(kinds) if k == "episode"]
-        assert idx[1] - idx[0] > 1
+        assert kinds.count("brief") == 1 and kinds.count("episode") == 1
+        br = next(i for i in out.items if i.kind == "brief")
+        assert br.host in producer.HOSTS and br.mood == "calm"
         cu = next(i for i in out.items if i.kind == "coming_up")
-        assert cu.host in producer.HOSTS and len(cu.line.split()) == 25
+        assert len(cu.line.split()) == 25
         mu = next(i for i in out.items if i.kind == "music")
-        assert mu.seconds == 90 and mu.music_style
+        assert mu.seconds == 45 and mu.music_style
 
     def test_a_bare_story_id_resolves_to_its_episode(self):
-        """The model wrote "49616257" for an episode listed as "49616257:2:1"
-        and the whole block fell back for it."""
-        by_ref = {e["ref"]: e for e in _eps()}
-        sheet = RunSheet(title="x", items=[
-            RunItem(kind="episode", episode="1"),
-            RunItem(kind="music", music_style="s", seconds=60),
-            RunItem(kind="episode", episode="2:1"),
-        ])
-        out = producer.enforce(sheet, by_ref, recent_refs=set(), minutes=30)
-        assert [i.episode for i in out.items if i.kind == "episode"] == ["1:1:1", "2:1:1"]
+        out = self._run([RunItem(kind="episode", episode="1"), RunItem(kind="music", music_style="s", seconds=30)])
+        assert [i.episode for i in out.items if i.kind == "episode"] == ["1:1:1"]
 
-    def test_recent_episodes_are_refused(self):
-        by_ref = {e["ref"]: e for e in _eps()}
-        sheet = RunSheet(title="x", items=[RunItem(kind="episode", episode="1:1:1")])
-        assert producer.enforce(sheet, by_ref, recent_refs={"1:1:1"}, minutes=30).items == []
+    def test_recent_and_planned_are_refused(self):
+        out = self._run([RunItem(kind="episode", episode="1:1:1"), RunItem(kind="brief", story=102)],
+                        used_eps={"1:1:1"}, used_stories={102})
+        assert [i.kind for i in out.items] == []
+
+    def test_used_refs(self):
+        eps, stories = producer.used_refs(
+            [{"ref": "1:1:1"}, {"ref": "story:7"}, {"ref": None}],
+            [{"kind": "episode", "episode": "2:1:1"}, {"kind": "brief", "story": 8}])
+        assert eps == {"1:1:1", "2:1:1"} and stories == {7, 8}
 
 
 class TestPlanBlockFallsBack:
@@ -85,8 +100,24 @@ class TestPlanBlockFallsBack:
         svc.usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "model": None}
         svc.generate_structured.side_effect = RuntimeError("model down")
         with mock.patch("hnfm.content.llm_service.LLMService", return_value=svc):
-            sheet, source, _ = producer.plan_block(_eps(), [], minutes=10)
+            sheet, source, _ = producer.plan_block(_eps(), _stories(), [], [], minutes=10)
         assert source == "fallback" and sheet.items
+
+
+class TestBriefs:
+    def test_spoken_reads_headline_then_bullets(self):
+        from ..radio.briefs import spoken
+
+        text = spoken({"title": "Kimi K3 at 1 token/s ", "bullets": ["It streams from four SSDs", "It is slow."]})
+        assert text == "Kimi K3 at 1 token/s. It streams from four SSDs. It is slow."
+
+    def test_voice_name_uses_the_mood_when_the_server_has_it(self, monkeypatch):
+        from ..radio import voice
+
+        monkeypatch.setattr(voice, "_VOICES", ["Magpie-Multilingual.EN-US.Mia", "Magpie-Multilingual.EN-US.Mia.Calm"])
+        assert voice.voice_name("mia", "calm") == "Magpie-Multilingual.EN-US.Mia.Calm"
+        assert voice.voice_name("mia", "happy") == "Magpie-Multilingual.EN-US.Mia"
+        assert voice.voice_name("dia", "calm") == voice.HOSTS["dia"][1]
 
 
 class TestDirector:

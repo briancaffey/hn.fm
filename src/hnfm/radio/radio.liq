@@ -47,8 +47,11 @@ end
 programme = request.dynamic(id="programme", prefetch=2, retry_delay=3.0, next_item)
 
 # 2. Never more than a few seconds of silence, and gentle joins.
-programme = blank.skip(max_blank=6.0, programme)
-programme = crossfade(fade_in=0.5, fade_out=1.5, programme)
+# Twelve seconds before dead air counts as a broken file: episodes pause.
+programme = blank.skip(max_blank=12.0, programme)
+# A short join, not a long one: every file the station makes already ends
+# in a beat of silence, and a long crossfade ate the last words of a story.
+programme = crossfade(duration=0.6, fade_in=0.2, fade_out=0.5, programme)
 
 # 5. Tell hn.fm what just started.
 def report(m) =
