@@ -75,7 +75,35 @@ def _num(match: re.Match) -> str:
     return number_words(n)
 
 
+def clock_words(hour: int, minute: int) -> str:
+    """4:04 -> four oh four; 12:30 -> twelve thirty; 9:00 -> nine o'clock."""
+    h = hour % 12 or 12
+    if minute == 0:
+        return number_words(h) + " o'clock"
+    if minute < 10:
+        return number_words(h) + " oh " + number_words(minute)
+    return number_words(h) + " " + number_words(minute)
+
+
+def time_words(dt) -> str:
+    """A datetime the way a host says it: four oh four in the morning."""
+    part = "in the morning" if dt.hour < 12 else "in the afternoon" if dt.hour < 18 else "in the evening"
+    return clock_words(dt.hour, dt.minute) + " " + part
+
+
+def _clock(match: re.Match) -> str:
+    h, m, ampm = int(match.group(1)), int(match.group(2)), (match.group(3) or "").replace(".", "").upper()
+    if h > 23 or m > 59:
+        return match.group(0)
+    if ampm == "PM" and h < 12:
+        h += 12
+    if ampm == "AM" and h == 12:
+        h = 0
+    return clock_words(h, m) + (" " + ".".join(ampm) + "." if ampm else "")
+
+
 _SYMBOLS = [
+    (re.compile(r"\b(\d{1,2}):(\d{2})\s*(AM|PM|am|pm|a\.m\.|p\.m\.)?\b"), _clock),
     # URLs go first, whole, before the slash rule can take them apart.
     (re.compile(r"https?://\S+|www\.\S+"), lambda m: ""),
     (re.compile(r"\$(\d[\d,]*(?:\.\d+)?)\s*(billion|million|thousand|[bmk])?\b", re.I),

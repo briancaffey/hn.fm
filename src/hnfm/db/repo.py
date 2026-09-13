@@ -1515,22 +1515,20 @@ def radio_save_sheet(sheet_id: str, title: str, minutes: int, items: list, sourc
         return _sheet_to_dict(row)
 
 
-def radio_current_sheet() -> Optional[dict]:
-    """The oldest sheet that still has items to serve — blocks air in the
-    order they were planned."""
+def radio_open_sheets() -> List[dict]:
+    """Every sheet that still has items to serve, oldest first — blocks air
+    in the order they were planned."""
     from .orm import RadioSheetRow
-    from sqlalchemy import func as _f
 
     with db_session() as s:
-        rows = (
-            s.query(RadioSheetRow)
-            .order_by(RadioSheetRow.created_at.asc())
-            .all()
-        )
-        for r in rows:
-            if int(r.cursor or 0) < len(r.items or []):
-                return _sheet_to_dict(r)
-    return None
+        rows = s.query(RadioSheetRow).order_by(RadioSheetRow.created_at.asc()).all()
+        return [_sheet_to_dict(r) for r in rows if int(r.cursor or 0) < len(r.items or [])]
+
+
+def radio_current_sheet() -> Optional[dict]:
+    """The oldest sheet that still has items to serve."""
+    open_ = radio_open_sheets()
+    return open_[0] if open_ else None
 
 
 def radio_advance_sheet(sheet_id: str) -> int:

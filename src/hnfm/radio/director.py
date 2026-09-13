@@ -210,6 +210,7 @@ def _resolve(item: dict, sheet_id: str, recent_ids: List[str]) -> Optional[dict]
     b = pick_from_bank(kind, avoid_ids=recent_ids, sheet_id=sheet_id, host=item.get("host"))
     if not b and kind != "station_id":
         b = pick_from_bank("station_id", avoid_ids=recent_ids, host=item.get("host"))
+        kind = "station_id" if b else kind
     if not b:
         return None
     return {"kind": kind, "path": b["path"], "title": b.get("text") or kind,
@@ -245,7 +246,8 @@ def next_item() -> dict:
         repo.radio_advance_sheet(sheet["sheet_id"])
         sheet["cursor"] = idx + 1
         resolved = _resolve(item, sheet["sheet_id"], recent_ids)
-        if len(sheet["items"]) - sheet["cursor"] <= REPLAN_AT:
+        # Running low matters only when nothing is planned behind this block.
+        if len(sheet["items"]) - sheet["cursor"] <= REPLAN_AT and len(repo.radio_open_sheets()) <= 1:
             _request_plan()
         if resolved:
             resolved["sheet_id"] = sheet["sheet_id"]

@@ -53,7 +53,7 @@ system: |
       pretty-printing, no commentary. Omit fields that are null.
 
 template: |
-  Now: {now}
+  Now: {now} (say the time in these words if you write a time check)
   Target length: {minutes} minutes
 
   HOSTS:

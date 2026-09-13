@@ -166,12 +166,16 @@ def pick_from_bank(kind: str, avoid_ids: List[str] = (), sheet_id: Optional[str]
             and (host is None or i.get("host") == host)]
     if not pool and host is not None:
         pool = [i for i in items if i["kind"] == kind and not i.get("sheet_id")]
-    fresh = [i for i in pool if i["id"] not in avoid_ids]
-    pool = fresh or pool
     if not pool:
         return None
-    # Least recently created first is a fine proxy for "not overplayed".
-    return sorted(pool, key=lambda i: i.get("created_at") or "")[0]
+    # `avoid_ids` is what played lately, newest first. Prefer anything not
+    # in it (oldest first, so the stock rotates); failing that, whatever
+    # played longest ago — never the same one again because it is oldest.
+    avoid = list(avoid_ids)
+    fresh = [i for i in pool if i["id"] not in avoid]
+    if fresh:
+        return sorted(fresh, key=lambda i: i.get("created_at") or "")[0]
+    return max(pool, key=lambda i: avoid.index(i["id"]))
 
 
 def safety_path() -> str:

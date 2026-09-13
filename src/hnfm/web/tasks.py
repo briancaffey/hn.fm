@@ -3150,7 +3150,11 @@ def radio_monitor() -> Dict[str, any]:
     if (st["bank"].get("station_id", 0) < 2 or st["bank"].get("music", 0) < 2):
         radio_fill_bank.apply_async(kwargs={"max_new": 4})
         actions.append("filling the bank")
-    keep = [sh["sheet_id"] for sh in repo.radio_list_sheets(limit=3)]
+    # Blocks air oldest first, so an open sheet can be older than the newest
+    # three; pruning its lines used to empty the block mid-air.
+    keep = {sh["sheet_id"] for sh in repo.radio_list_sheets(limit=3)}
+    keep |= {sh["sheet_id"] for sh in repo.radio_open_sheets()}
+    keep = list(keep)
     pruned = bank.prune(keep_sheets=keep)
     if pruned:
         actions.append(f"pruned {pruned} bank files")

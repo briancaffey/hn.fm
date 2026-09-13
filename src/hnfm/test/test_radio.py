@@ -27,7 +27,7 @@ class TestFallbackBlock:
         sheet = producer.fallback_block(_eps(), _stories(), [], [], minutes=10, now=datetime(2026, 9, 12, 8, 5))
         kinds = [i.kind for i in sheet.items]
         assert kinds[:2] == ["station_id", "time_check"]
-        assert sheet.items[1].line == "It's 8:05 on HNFM."
+        assert sheet.items[1].line == "It's eight oh five in the morning, on HNFM."
         assert kinds.count("brief") >= 3
         assert kinds.count("episode") <= 1
         assert "music" in kinds
@@ -381,4 +381,22 @@ class TestRequestPlan:
         assert director.request_plan("manual")["status"] == "already planning"
         assert director.request_plan("manual", force=True)["status"] == "queued"
         assert len(sent) == 2
+
+
+class TestPickFromBank:
+    def test_when_everything_played_lately_pick_the_longest_ago(self, monkeypatch):
+        from hnfm.radio import library
+        items = [{"id": "a", "kind": "music", "created_at": "1"}, {"id": "b", "kind": "music", "created_at": "2"},
+                 {"id": "c", "kind": "music", "created_at": "3"}]
+        monkeypatch.setattr(library, "load_bank", lambda: items)
+        assert library.pick_from_bank("music", avoid_ids=["a", "c", "b"])["id"] == "b"
+        assert library.pick_from_bank("music", avoid_ids=["a"])["id"] == "b"
+
+    def test_clock_times_read_like_a_host(self):
+        from datetime import datetime
+        from hnfm.radio.copy import speakable, time_words
+        assert speakable("It's 4:04 AM.") == "It's four oh four A.M."
+        assert speakable("The time is 12:30 PM") == "The time is twelve thirty P.M."
+        assert speakable("at 9:00") == "at nine o'clock"
+        assert time_words(datetime(2026, 9, 13, 16, 5)) == "four oh five in the afternoon"
 

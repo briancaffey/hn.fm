@@ -16,6 +16,7 @@ from datetime import datetime
 from typing import Dict, List, Optional
 
 from . import log
+from .copy import time_words
 from .schemas import HOSTS, RunItem, RunSheet
 
 logger = logging.getLogger(__name__)
@@ -104,7 +105,7 @@ def plan_block(eps: List[dict], stories: List[dict], recent: List[dict], planned
         model=svc.model, minutes=minutes)
     try:
         prompt = render(
-            TASK, now=now.strftime("%A %-I:%M %p"), minutes=minutes,
+            TASK, now=f"{now.strftime('%A')}, {time_words(now)}", minutes=minutes,
             hosts=host_listing(), stories=_stories_listing(fresh_stories[:SHOW_STORIES]),
             bits=bits_listing(),
             episodes=_episode_listing(fresh_eps[:SHOW_EPISODES]),
@@ -324,7 +325,7 @@ def fallback_block(eps: List[dict], stories: List[dict], recent: List[dict], pla
     hosts = ["mia", "jason", "sofia", "leo", "aria", "ray"]
     items: List[RunItem] = [RunItem(kind="station_id", host="mia", mood="calm")]
     items.append(RunItem(kind="time_check", host="sofia", mood="calm",
-                         line=f"It's {now.strftime('%-I:%M')} on HNFM."))
+                         line=f"It's {time_words(now)}, on HNFM."))
     from .bits import BITS
 
     total, i = 12.0, 0
