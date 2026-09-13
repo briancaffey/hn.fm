@@ -154,6 +154,27 @@ other; passwords come from the Vaultwarden item.
 - Every track change is an event row, so the Live page shows the station
   the way it shows the pipeline.
 
+## Opt-in, and out of the way when it is off
+
+The station is off by default at every layer, and "off" means nothing runs,
+nothing is exposed and nothing is required — not "running but hidden".
+
+| Layer | Switch | When off |
+|---|---|---|
+| Mac compose | `docker compose --profile radio up` — Icecast and Liquidsoap sit in the `radio` profile | `docker compose up` never starts them; no ports, no env needed |
+| Chart | `radio.enabled: false` (default) in `charts/hnfm/values.yaml` | No Deployments, no Services, no ingress paths, no secret keys demanded. `helm template` output is byte-identical to today |
+| Public host | `radio.publicHost: ""` (default) | No second host rule. Set it to `radio.inference.club` and only the listen page and the stream are exposed there; the dashboard never is |
+| API | `RADIO_ENABLED=false` (default) | `/api/radio/*` answer 404 with "radio is off"; `/api/radio/status` still answers `{enabled: false}` so the UI knows |
+| Beat | The interstitial-bank task is scheduled only when enabled | No TTS or music calls happen for the station |
+| Frontend | The `Radio` nav entry appears only when the API says enabled | No dead page in the sidebar |
+
+One `radio/` package holds all of it — rotation, the director endpoints, the
+Liquidsoap script, the bank task — so it can be read (or deleted) as a unit.
+`radio/README.md` is the operator's page: what the public host exposes (a
+listen page and one stream URL), what it never exposes (everything else),
+how to turn the station on and off at each layer, and how to check it is
+actually off.
+
 ## Things to decide early
 
 - **Bitrate.** 128 kbps MP3 everywhere; AAC later if phones matter.
