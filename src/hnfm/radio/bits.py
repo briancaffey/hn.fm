@@ -10,6 +10,7 @@ plus its material into radio copy; `speakable()` makes it readable aloud.
 
 import logging
 import random
+import re
 from typing import Dict, List, Optional
 
 from .copy import house_style, speakable
@@ -17,6 +18,8 @@ from .copy import house_style, speakable
 logger = logging.getLogger(__name__)
 
 TASK = "radio.bit"
+# "Leo:", "**Ray:**", "CalmHost:" at the start of a line.
+_LABEL = re.compile(r"^\W*([A-Za-z][A-Za-z ]{0,14}):\W*\s*")
 
 # key -> the card. `material` names a provider below.
 BITS: Dict[str, dict] = {
@@ -166,10 +169,15 @@ def write(key: str, story: Optional[int] = None, seed: Optional[int] = None,
     how = HOSTS.get(host, HOSTS[card["host"]])[2]
     if card.get("host2"):
         how += f"; and {card['host2']}: {HOSTS[card['host2']][2]}"
+        fmt = (f"This is a two-voice sketch between {host} and {card['host2']}. Put each line on its own "
+               f"line, starting with the speaker's name and a colon, alternating. Nobody else speaks.")
+    else:
+        fmt = (f"One voice, {host}, speaking straight to the listener. Do not write the host's name or any "
+               f"label before the words, and do not add a second speaker.")
     try:
         text = LLMService(task=TASK).generate_content(render(
-            TASK, house_style=house_style(), words=card["words"], name=card["name"],
-            what=card["what"], host=host, how=how, material=material[:5000],
+            TASK, house_style=house_style(), words=card["words"], bit_name=card["name"],
+            what=card["what"], host=host, how=how, material=material[:5000], format=fmt,
         ))
     except Exception as e:
         logger.warning(f"radio bit {key} failed: {e}")
@@ -192,6 +200,16 @@ def write(key: str, story: Optional[int] = None, seed: Optional[int] = None,
         if len(lines) < 2:
             return None
     else:
-        lines.append((host, speakable(" ".join(text.split()))))
+        # A single voice still sometimes arrives as "Leo: ..." or grows a
+        # second speaker. Keep the words, drop the labels and the stranger.
+        kept = []
+        for raw in text.splitlines():
+            m = _LABEL.match(raw.strip())
+            if m and m.group(1).lower() not in (host.lower(), "host", "narrator"):
+                continue
+            kept.append(_LABEL.sub("", raw.strip()))
+        lines.append((host, speakable(" ".join(" ".join(kept).split()))))
+        if not lines[0][1]:
+            return None
     return {"key": key, "name": card["name"], "host": host, "host2": card.get("host2"),
             "mood": card["mood"], "bed": card["bed"], "lines": lines, "story": story}

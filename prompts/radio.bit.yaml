@@ -1,5 +1,5 @@
 name: radio.bit
-version: 1
+version: 2
 task: radio.bit
 description: >
   The station's copywriter: one short recurring bit, written to be read
@@ -14,11 +14,10 @@ system: |
   {house_style}
 
   Length: {words} words, give or take fifteen. Return only the words to be
-  spoken. For a two-voice sketch, put each line on its own line, starting
-  with the host name and a colon, and alternate the two hosts.
+  spoken: no title, no stage directions, no notes. {format}
 
 template: |
-  The bit: {name}
+  The bit: {bit_name}
   What it is: {what}
   Voice: {host} ({how})
   Material to draw on (use only this; do not invent facts):

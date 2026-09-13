@@ -3144,7 +3144,7 @@ def radio_monitor() -> Dict[str, any]:
         return {"status": "skipped", "reason": "radio is off"}
     st = director.status()
     actions = []
-    if not st["sheet"]:
+    if not st["sheet"] and not director.planning_since():
         director.plan_now(reason="monitor: no sheet")
         actions.append("planned a block")
     if (st["bank"].get("station_id", 0) < 2 or st["bank"].get("music", 0) < 2):

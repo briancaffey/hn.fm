@@ -116,12 +116,21 @@ def speakable(text: str) -> str:
     """Text a voice model will read the way a person would."""
     t = text or ""
     t = _EMOJI.sub("", t)
+    # Dashes read as a pause; curly quotes and ellipses as their plain kin.
+    t = re.sub(r"\s*[—–]\s*|\s+-\s+", ", ", t)
+    t = t.translate(str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "…": "."}))
     t = _HNFM.sub("H.N.F.M.", t)
     for pattern, repl in _SYMBOLS:
         t = pattern.sub(repl, t)
     t = _ACRONYM.sub(_acronym, t)
     t = _NUMBER.sub(_num, t)
-    # "G.P.U." at the end of a sentence would otherwise read "G.P.U..".
+    # "G.P.U." at the end of a sentence would otherwise read "G.P.U..", and
+    # an ellipsis is just a full stop to a voice.
+    t = re.sub(r"\.{2,}", ".", t)
     t = re.sub(r"\.(\s*)\.", r".\1", t)
+    # A whole line wrapped in quote marks is the writer, not the speaker.
+    t = t.strip()
+    if len(t) > 2 and t[0] == '"' and t[-1] == '"' and t.count('"') == 2:
+        t = t[1:-1]
     t = re.sub(r"\s+", " ", t).strip()
     return t

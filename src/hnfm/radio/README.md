@@ -105,6 +105,39 @@ curl -s -o /dev/null -w "%{http_code}\n" localhost:8000/api/radio/next   # 404
 helm template hnfm charts/hnfm | grep -c icecast       # 0
 ```
 
+## What a block sounds like
+
+A thirty-minute block is a run sheet of about twenty items, planned by
+the model (`prompts/radio.plan.yaml`) and repaired by the producer so it
+always has the shape below, whatever the model wrote:
+
+- **Briefs** — the bulk. A quick read of one new story, twenty to forty
+  seconds, over a music bed at minus twenty decibels. At least six a
+  block, each read by a different host in turn, no story twice in twelve
+  hours.
+- **A feature** — sixty to ninety seconds on one story, mid-block,
+  announced by a "coming up" line. The station's long form; there is one.
+- **Bits** — one or two from the library in `bits.py`: *Under the hood*
+  (a shout-out to the models in the stack), *One from Leo* (a dry joke on
+  a tech trope), *Two engineers* (a two-voice sketch), *Word of the hour*
+  (a piece of jargon explained). Each is a card — who reads it, how long,
+  on a bed or not — and a copywriter prompt (`prompts/radio.bit.yaml`)
+  turns the card and its material into copy. Add a bit by adding a card.
+- **Music** — a bed of twenty to forty-five seconds after every second
+  spoken item, a different style each time, all from ACE-Step.
+- Station IDs, the time, and the odd full episode.
+
+Everything spoken passes through `copy.speakable()` on its way to the
+voice, so the house style is a guarantee and not a request: numbers
+become words, acronyms become letters with periods (A.I., G.P.U.),
+symbols become words, dashes become pauses, markdown and URLs go.
+
+One plan is in flight at a time. The director asks for one when a sheet
+runs low, the monitor asks if there is no sheet at all, and
+`POST /api/radio/plan` asks by hand; all three go through
+`director.request_plan`, which refuses a second within five minutes
+unless told `{"force": true}`.
+
 ## Costs
 
 - One LLM call per block, measured at about 1,900 tokens in and 700 out

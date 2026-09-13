@@ -293,3 +293,92 @@ class TestBitsAndFeatures:
         assert kinds.count("feature") == 1 and kinds.count("bit") >= 1 and kinds.count("episode") == 0
         assert kinds[kinds.index("feature") - 1] == "coming_up"
 
+
+class TestComplete:
+    def test_a_thin_block_is_given_its_shape(self):
+        thin = RunSheet(title="x", items=[
+            RunItem(kind="station_id", host="mia", mood="calm"),
+            RunItem(kind="brief", story=101, host="leo", mood="calm"),
+            RunItem(kind="music", music_style="a", seconds=30),
+            RunItem(kind="music", music_style="a", seconds=30),
+        ])
+        out = producer.complete(thin, _stories(12), minutes=30, now=datetime(2026, 9, 13, 3, 0))
+        kinds = [i.kind for i in out.items]
+        assert kinds.count("brief") >= 6
+        assert kinds.count("feature") == 1 and kinds[kinds.index("feature") - 1] == "coming_up"
+        assert 1 <= kinds.count("bit") <= 2
+        for a, b in zip(kinds, kinds[1:]):
+            assert not (a == "bit" and b == "bit")
+        # the model's own items are still there, in order
+        assert out.items[0].kind == "station_id" and out.items[1].story == 101
+        stories = [i.story for i in out.items if i.story]
+        assert len(stories) == len(set(stories))
+
+    def test_a_full_block_is_left_alone(self):
+        full = producer.fallback_block(_eps(), _stories(12), [], [], minutes=15, now=datetime(2026, 9, 13, 3, 0))
+        out = producer.complete(full, _stories(12), minutes=15, now=datetime(2026, 9, 13, 3, 0))
+        assert [i.kind for i in out.items if i.kind != "music"] == [i.kind for i in full.items if i.kind != "music"]
+
+    def test_feature_wins_over_an_earlier_brief_on_the_same_story(self):
+        sheet = RunSheet(title="x", items=[
+            RunItem(kind="brief", story=101, host="mia"),
+            RunItem(kind="brief", story=102, host="mia"),
+            RunItem(kind="coming_up", story=101, host="jason", line="Coming up"),
+            RunItem(kind="feature", story=101, host="jason"),
+        ])
+        out = producer.enforce(sheet, {}, {101, 102}, set(), set(), minutes=30)
+        kinds = [(i.kind, i.story) for i in out.items if i.kind in ("brief", "feature")]
+        assert kinds == [("brief", 102), ("feature", 101)]
+
+    def test_hosts_rotate_when_the_model_repeats_one(self):
+        sheet = RunSheet(title="x", items=[RunItem(kind="brief", story=s, host="mia") for s in (101, 102, 103)])
+        out = producer.enforce(sheet, {}, {101, 102, 103}, set(), set(), minutes=30)
+        hosts = [i.host for i in out.items if i.kind == "brief"]
+        assert hosts[0] == "mia" and hosts[1] != "mia" and hosts[2] != hosts[1]
+
+    def test_a_brief_with_a_bit_key_and_no_story_is_a_bit(self):
+        out = producer.enforce(RunSheet(title="x", items=[RunItem(kind="brief", bit="stack", host="ray")]),
+                               {}, set(), set(), set(), minutes=30)
+        assert [(i.kind, i.bit, i.host) for i in out.items if i.kind == "bit"] == [("bit", "stack", "ray")]
+
+
+class TestBitsCopy:
+    def test_dashes_and_curly_quotes_read_plainly(self):
+        from hnfm.radio.copy import speakable
+        assert speakable("Another ‘quick sync’—because it’s fun") == "Another 'quick sync', because it's fun"
+
+    def test_single_voice_drops_labels_and_strangers(self):
+        from hnfm.radio import bits
+        text = "Leo: Set-up here.\nCalmHost: Not me.\n**Leo:** The turn."
+        kept = []
+        for raw in text.splitlines():
+            m = bits._LABEL.match(raw.strip())
+            if m and m.group(1).lower() not in ("leo", "host", "narrator"):
+                continue
+            kept.append(bits._LABEL.sub("", raw.strip()))
+        assert kept == ["Set-up here.", "The turn."]
+
+    def test_ellipsis_and_wrapping_quotes(self):
+        from hnfm.radio.copy import speakable
+        assert speakable('"How... cozy."') == "How. cozy."
+
+
+class TestRequestPlan:
+    def test_second_request_within_window_is_not_dispatched(self, monkeypatch):
+        from datetime import datetime
+        from hnfm.radio import director
+        store = {}
+        monkeypatch.setattr(director, "log", lambda *a, **k: None)
+        monkeypatch.setattr("hnfm.db.repo.get_setting", lambda k: store.get(k))
+        monkeypatch.setattr("hnfm.db.repo.set_setting", lambda k, v: store.__setitem__(k, v))
+        sent = []
+
+        class _T:
+            def apply_async(self, kwargs):
+                sent.append(kwargs); return type("R", (), {"id": "t1"})()
+        monkeypatch.setattr("hnfm.web.tasks.radio_plan_block", _T())
+        assert director.request_plan("sheet low")["status"] == "queued"
+        assert director.request_plan("manual")["status"] == "already planning"
+        assert director.request_plan("manual", force=True)["status"] == "queued"
+        assert len(sent) == 2
+

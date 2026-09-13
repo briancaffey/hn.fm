@@ -1079,13 +1079,13 @@ async def radio_skip():
 
 @app.post("/api/radio/plan", tags=["radio"])
 async def radio_plan(request: dict = Body(default={})):
-    """Plan a block now (queued), e.g. after changing the producer prompt."""
+    """Plan a block now (queued), e.g. after changing the producer prompt.
+    One plan in flight at a time; pass {"force": true} to queue another."""
     _radio_on()
-    from .tasks import radio_plan_block
+    from ..radio import director
 
-    t = radio_plan_block.apply_async(kwargs={"reason": "manual",
-                                             "minutes": request.get("minutes")})
-    return {"status": "queued", "task_id": t.id}
+    return director.request_plan(reason="manual", minutes=request.get("minutes"),
+                                 force=bool(request.get("force")))
 
 
 @app.post("/api/radio/bank/fill", tags=["radio"])

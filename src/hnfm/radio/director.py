@@ -72,7 +72,11 @@ def plan_now(minutes: int = None, reason: str = "manual", fast: bool = False) ->
         model=usage.get("model"), tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0), reason=reason,
     )
-    repo.set_setting(SETTING_PLANNING, None)
+    # A fast block is a stopgap; the model's block is still owed, so only
+    # a model plan clears the request. (Clearing it here used to let the
+    # next low-sheet check dispatch a second model plan.)
+    if not fast:
+        repo.set_setting(SETTING_PLANNING, None)
     logger.info(
         f"📻 planned block {row['sheet_id']} ({source}): {len(sheet.items)} items, "
         f"{usage.get('tokens_in', 0)}/{usage.get('tokens_out', 0)} tokens — {sheet.title}"
@@ -85,26 +89,49 @@ def plan_now(minutes: int = None, reason: str = "manual", fast: bool = False) ->
     return row
 
 
-def _request_plan() -> None:
-    """Ask for a new block in the background, at most once at a time."""
+PLAN_WINDOW = timedelta(minutes=5)
+
+
+def planning_since() -> Optional[datetime]:
+    """When a model plan was last requested and has not landed yet, if within the window."""
     from ..db import repo
 
     since = repo.get_setting(SETTING_PLANNING)
-    if since:
-        try:
-            if datetime.utcnow() - datetime.fromisoformat(since) < timedelta(minutes=5):
-                return
-        except Exception:
-            pass
+    if not since:
+        return None
+    try:
+        at = datetime.fromisoformat(since)
+    except Exception:
+        return None
+    return at if datetime.utcnow() - at < PLAN_WINDOW else None
+
+
+def request_plan(reason: str = "sheet low", minutes: int = None, force: bool = False) -> dict:
+    """Ask for a new block in the background, at most one in flight.
+
+    Every caller — the director when a sheet runs low, the monitor, the
+    manual button — comes through here, so two of them within the window
+    produce one task. `force` is the manual button's "I mean it".
+    """
+    from ..db import repo
+
+    since = planning_since()
+    if since and not force:
+        return {"status": "already planning", "since": since.isoformat()}
     repo.set_setting(SETTING_PLANNING, datetime.utcnow().isoformat())
-    log("director", "block running low; asked the producer for the next one")
+    log("director", f"asked the producer for the next block ({reason})")
     try:
         from ..web.tasks import radio_plan_block
 
-        radio_plan_block.apply_async(kwargs={"reason": "sheet low"})
+        t = radio_plan_block.apply_async(kwargs={"reason": reason, "minutes": minutes})
+        return {"status": "queued", "task_id": t.id}
     except Exception as e:
         logger.warning(f"radio: could not dispatch a plan ({e}); planning inline")
-        plan_now(reason="sheet low (inline)")
+        return {"status": "planned", "sheet_id": plan_now(reason=f"{reason} (inline)")["sheet_id"]}
+
+
+def _request_plan() -> None:
+    request_plan()
 
 
 # ---------------------------------------------------------------------------
