@@ -205,6 +205,15 @@ class LLMService:
             )
 
         message = response.choices[0].message
+        # A cut-off answer is the one failure a JSON schema cannot save: the
+        # radio producer's first block came back as one item because the
+        # run sheet was truncated mid-string. Say so, with the numbers.
+        if getattr(response.choices[0], "finish_reason", None) == "length":
+            usage = getattr(response, "usage", None)
+            logger.warning(
+                f"{model}: answer cut off at max_tokens={self.max_tokens} "
+                f"(completion_tokens={getattr(usage, 'completion_tokens', '?')})"
+            )
         content = getattr(message, "content", None) or getattr(
             message, "reasoning_content", None
         )
@@ -338,6 +347,10 @@ class LLMService:
                     detail = _short(e)
                     errors.append(f"{model} attempt {attempt}: {detail}")
                     logger.warning(f"structured output invalid ({model}): {detail}")
+                    if "Invalid JSON" in detail:
+                        logger.info(
+                            f"structured raw head: {raw[:240]!r} … tail: {raw[-160:]!r}"
+                        )
                     base = (
                         attempt_prompt.text
                         if isinstance(attempt_prompt, RenderedPrompt)
@@ -350,6 +363,9 @@ class LLMService:
                 except json.JSONDecodeError as e:
                     errors.append(f"{model} attempt {attempt}: not JSON ({e})")
                     logger.warning(f"structured output was not JSON ({model}): {e}")
+                    logger.info(
+                        f"structured raw head: {raw[:240]!r} … tail: {raw[-160:]!r}"
+                    )
                 except Exception as e:
                     errors.append(f"{model} attempt {attempt}: {e}")
                     logger.warning(f"structured call failed ({model}): {e}")

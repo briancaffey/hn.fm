@@ -41,15 +41,24 @@ def current_sheet() -> Optional[dict]:
     return repo.radio_current_sheet()
 
 
-def plan_now(minutes: int = None, reason: str = "manual") -> dict:
-    """Plan a block synchronously (the task and the API both call this)."""
+def plan_now(minutes: int = None, reason: str = "manual", fast: bool = False) -> dict:
+    """Plan a block synchronously (the task and the API both call this).
+
+    `fast` skips the model and uses the deterministic producer. The director
+    uses it when Liquidsoap is waiting on the answer: the DJ gives the API
+    thirty seconds, and a model call can take longer than that. The model's
+    block is requested in the background right after.
+    """
     from ..db import repo
-    from .producer import plan_block
+    from .producer import fallback_block, plan_block
 
     minutes = minutes or BLOCK_MINUTES
     recent = repo.radio_recent_events(hours=NO_REPEAT_HOURS)
     eps = episodes(limit=80)
-    sheet, source, usage = plan_block(eps, recent, minutes)
+    if fast:
+        sheet, source, usage = fallback_block(eps, recent, minutes), "fallback", {}
+    else:
+        sheet, source, usage = plan_block(eps, recent, minutes)
     row = repo.radio_save_sheet(
         sheet_id=uuid.uuid4().hex[:12], title=sheet.title, minutes=minutes,
         items=[i.model_dump() for i in sheet.items], source=source,
@@ -165,7 +174,7 @@ def next_item() -> dict:
 
     sheet = current_sheet()
     if not sheet:
-        sheet = plan_now(reason="no sheet")
+        sheet = plan_now(reason="no sheet (fast)", fast=True)
         _request_plan()
 
     for _ in range(len(sheet["items"]) + 1):
@@ -183,8 +192,10 @@ def next_item() -> dict:
             return resolved
         logger.info(f"radio: item {idx} ({item.get('kind')}) unavailable, skipping")
 
-    # Sheet exhausted before a replacement arrived: plan one now, inline.
-    sheet = plan_now(reason="exhausted")
+    # Sheet exhausted before a replacement arrived: a fast block now, and
+    # the model's block requested for after it.
+    sheet = plan_now(reason="exhausted (fast)", fast=True)
+    _request_plan()
     return next_item() if sheet["items"] else _safety()
 
 
@@ -206,7 +217,11 @@ def record_event(meta: dict) -> dict:
     """Liquidsoap's on_track callback: the metadata of what just started."""
     from ..db import repo
 
-    kind = meta.get("hnfm_kind") or "unknown"
+    kind = meta.get("hnfm_kind")
+    if not kind:
+        # Not one of ours: the safety bed, a blank, a crossfade's internal
+        # track mark. The history is what the station chose to play.
+        return {"ignored": True, "reason": "no hnfm_kind"}
     title = meta.get("title") or meta.get("filename") or ""
     ref = meta.get("hnfm_ref") or None
     keep = {k: v for k, v in meta.items() if k in (

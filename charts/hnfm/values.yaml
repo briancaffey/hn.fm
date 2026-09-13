@@ -215,6 +215,9 @@ radio:
     resources:
       requests: { cpu: 300m, memory: 256Mi }
       limits: { memory: 1Gi }
+  # Fetches the DJ's script from the API at pod start (the Liquidsoap image
+  # has no curl).
+  curlImage: curlimages/curl:8.10.1
   # Minutes of air the producer plans per block (one LLM call each).
   blockMinutes: 30
 

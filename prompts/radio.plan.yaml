@@ -30,8 +30,12 @@ system: |
       (instrument, mood, tempo). Vary the styles across the block.
     - Lines are spoken aloud by a voice model: plain words, no emoji, no
       markdown, no more than 25 words. Say numbers as words where natural.
-    - Fill the target length, give or take three minutes. Do not exceed it.
-    - Return the run sheet only.
+    - Fill the target length, give or take three minutes. Do not exceed it,
+      and never plan more than fourteen items.
+    - Plan eight to fourteen items. A block is one screen of a run sheet,
+      not an evening's schedule.
+    - Return the run sheet only, as compact JSON on a single line — no
+      pretty-printing, no commentary. Omit fields that are null.
 
 template: |
   Now: {now}
@@ -40,7 +44,8 @@ template: |
   HOSTS:
   {hosts}
 
-  EPISODES (ref · minutes · age · title):
+  EPISODES (ref · minutes · age · title). For kind=episode, `episode` is the
+  ref exactly as written here, e.g. 49616257:2:1 — never the number alone:
   {episodes}
 
   RECENT (oldest first):

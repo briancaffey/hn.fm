@@ -131,9 +131,11 @@ llm:
       temperature: 0.4
       max_tokens: 800
     radio.plan:
-      # The producer: one call per block of air. Cheap and local.
+      # The producer: one call per block of air. Cheap and local. The cap is
+      # generous because a cut-off answer is a one-item block; the model is
+      # shown sixteen episodes so the prompt stays around two thousand tokens.
       temperature: 0.7
-      max_tokens: 1800
+      max_tokens: 4000
     # The two halves of the Story Brief run at deliberately different
     # temperatures — that difference is the main reason they are separate
     # calls (see content/story_brief.py).

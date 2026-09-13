@@ -95,15 +95,23 @@ spec:
         {{- include "hnfm.configChecksum" . | nindent 8 }}
     spec:
       {{- include "hnfm.podScheduling" . | nindent 6 }}
-      containers:
-        - name: liquidsoap
-          image: {{ .Values.radio.liquidsoap.image }}
+      # The Liquidsoap image carries no curl; a tiny init container fetches
+      # the script from the API into a shared volume, then the DJ runs it.
+      initContainers:
+        - name: fetch-script
+          image: {{ .Values.radio.curlImage }}
           command: ["/bin/sh", "-c"]
           args:
             - >
-              until curl -sf "$HNFM_API_BASE/api/radio/script" -o /tmp/radio.liq; do
-                echo "waiting for the API (is RADIO_ENABLED=true?)"; sleep 5; done;
-              exec liquidsoap /tmp/radio.liq
+              until curl -sf "http://{{ $full }}-web:8000/api/radio/script" -o /script/radio.liq; do
+                echo "waiting for the API (is RADIO_ENABLED=true?)"; sleep 5; done
+          volumeMounts:
+            - name: script
+              mountPath: /script
+      containers:
+        - name: liquidsoap
+          image: {{ .Values.radio.liquidsoap.image }}
+          command: ["liquidsoap", "/script/radio.liq"]
           env:
             - name: HNFM_API_BASE
               value: http://{{ $full }}-web:8000
@@ -128,9 +136,16 @@ spec:
           volumeMounts:
             - name: outputs
               mountPath: /app/outputs
+            - name: script
+              mountPath: /script
           resources:
             {{- toYaml .Values.radio.liquidsoap.resources | nindent 12 }}
-      {{- include "hnfm.backendVolumes" . | nindent 6 }}
+      volumes:
+        - name: outputs
+          persistentVolumeClaim:
+            claimName: {{ include "hnfm.outputsClaim" . }}
+        - name: script
+          emptyDir: {}
 ---
 apiVersion: v1
 kind: Service

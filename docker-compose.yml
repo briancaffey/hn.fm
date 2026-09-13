@@ -430,8 +430,9 @@ services:
     networks:
       - hnfm-network
 
-  # The DJ. Fetches its script from the API at start, so the script lives in
-  # src/hnfm/radio/radio.liq and deploys with the backend.
+  # The DJ. The script is src/hnfm/radio/radio.liq, bind-mounted here so an
+  # edit takes effect on restart; the chart fetches the same file from the
+  # API (GET /api/radio/script) with an init container.
   liquidsoap:
     image: savonet/liquidsoap:v2.4.5
     container_name: hnfm-liquidsoap
@@ -443,13 +444,9 @@ services:
       ICECAST_SOURCE_PASSWORD: ${ICECAST_SOURCE_PASSWORD:-hackme}
       RADIO_MOUNT: ${RADIO_MOUNT:-/hnfm.mp3}
       RADIO_SAFETY: /app/outputs/radio/safety.mp3
-    entrypoint: ["/bin/sh", "-c"]
-    command:
-      - >
-        until curl -sf "$$HNFM_API_BASE/api/radio/script" -o /tmp/radio.liq; do
-          echo "waiting for the API (is RADIO_ENABLED=true?)"; sleep 5; done;
-        exec liquidsoap /tmp/radio.liq
+    command: ["liquidsoap", "/radio.liq"]
     volumes:
+      - ./src/hnfm/radio/radio.liq:/radio.liq:ro
       - ./outputs:/app/outputs
     depends_on:
       - icecast

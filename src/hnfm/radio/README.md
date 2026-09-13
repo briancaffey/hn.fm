@@ -17,8 +17,9 @@ hn.fm API ──"what's next?"──▶ Liquidsoap ──MP3 128k──▶ Iceca
 - **Icecast** is the transmitter. One feed in, any number of listeners out.
 - **Liquidsoap** is the DJ. It asks the API what to play next, crossfades,
   never lets the stream drop (safety bed, then silence), pushes one MP3 to
-  Icecast, and reports every track change. Its script is `radio.liq` here;
-  the container fetches it from `GET /api/radio/script` at start.
+  Icecast, and reports every track change. Its script is `radio.liq` here:
+  compose bind-mounts it; the chart's init container fetches it from
+  `GET /api/radio/script` at pod start, so it deploys with the backend.
 - **The producer** (`producer.py`) plans a block of programming — about
   thirty minutes — with one structured call to the local model: which
   episodes, in what order, which host says what between them, what music.
@@ -96,8 +97,9 @@ helm template hnfm charts/hnfm | grep -c icecast       # 0
 
 ## Costs
 
-- One LLM call per block (~1.5k tokens in, ~500 out) — a few thousand
-  tokens an hour, on the local model.
+- One LLM call per block, measured at about 1,900 tokens in and 700 out
+  for a thirty-minute block — a few thousand tokens an hour, on the local
+  model, and about thirty-five seconds of its time.
 - TTS for the block's lines (a handful of short sentences) and, now and
   then, a 60 s music bed from ACE-Step to keep the bank stocked.
 - Liquidsoap encodes continuously: about a third of a core.

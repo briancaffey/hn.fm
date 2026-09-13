@@ -128,7 +128,10 @@ celery_app.conf.task_routes = {
     "hnfm.web.tasks.collect_source_images": {"queue": QUEUE_INGEST},
     # The radio (plans/20): planning is one LLM call; the bank uses TTS and
     # the music service, which contend with renders; the monitor is cheap.
-    "hnfm.web.tasks.radio_plan_block": {"queue": QUEUE_TRIAGE},
+    # Planning waits on the model for a minute or two; on the triage lane it
+    # queued behind Story Briefs and the air ran out of block. Ingest is
+    # four-wide and network-bound, so a slow call there blocks nothing.
+    "hnfm.web.tasks.radio_plan_block": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.radio_fill_bank": {"queue": QUEUE_RENDER},
     "hnfm.web.tasks.radio_monitor": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.score_backlog": {"queue": QUEUE_TRIAGE},

@@ -43,12 +43,21 @@ def episodes(limit: int = 60) -> List[dict]:
     """
     from ..db import repo
 
-    rows, _ = repo.list_episodes(offset=0, limit=limit)
+    rows, _ = repo.list_episodes(offset=0, limit=limit * 2)
     out = []
+    seen_items = set()
     for r in rows:
         path = r.get("episode_path")
         if not path or not os.path.exists(path):
             continue
+        # One episode per story: a story re-rendered as runs 2, 3, 4 is the
+        # same story three times, and the first fallback block aired it
+        # four times in a row. Newest run wins (the rows are newest first).
+        if r["item_id"] in seen_items:
+            continue
+        seen_items.add(r["item_id"])
+        if len(out) >= limit:
+            break
         created = r.get("created_at")
         age_h = None
         if created:
@@ -68,10 +77,28 @@ def episodes(limit: int = 60) -> List[dict]:
 
 
 def episode(ref: str) -> Optional[dict]:
-    for e in episodes(limit=400):
-        if e["ref"] == ref:
-            return e
-    return None
+    """One episode by ref, looked up directly.
+
+    Scanning `episodes()` for it probed every file on disk with ffprobe on
+    every "what's next?" — a couple of seconds the DJ did not have, which
+    showed up on air as a moment of the safety bed between items.
+    """
+    from ..db import repo
+
+    parsed = parse_ref(ref)
+    if not parsed:
+        return None
+    item_id, run, seg = parsed
+    segment = repo.get_segment(item_id, run, seg)
+    path = getattr(segment, "episode_path", None) if segment else None
+    if not path or not os.path.exists(path):
+        return None
+    item = repo.get_item(item_id)
+    return {
+        "ref": ref, "item_id": item_id, "run": run, "seg": seg,
+        "title": (item.title if item else None) or f"Story {item_id}",
+        "path": path, "seconds": _duration(path), "age_hours": None,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -156,16 +183,30 @@ def safety_path() -> str:
 # ---------------------------------------------------------------------------
 
 
+# path -> (mtime, seconds). Episode files never change once written, so a
+# probe is worth remembering for the life of the process.
+_DURATIONS: Dict[str, tuple] = {}
+
+
 def _duration(path: str) -> Optional[float]:
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        return None
+    hit = _DURATIONS.get(path)
+    if hit and hit[0] == mtime:
+        return hit[1]
     try:
         out = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "csv=p=0", path],
             capture_output=True, text=True, timeout=20,
         ).stdout.strip()
-        return round(float(out), 1) if out else None
+        seconds = round(float(out), 1) if out else None
     except Exception:
-        return None
+        seconds = None
+    _DURATIONS[path] = (mtime, seconds)
+    return seconds
 
 
 def to_mp3(src: str, dst: str, seconds: Optional[float] = None, fade: float = 1.5,

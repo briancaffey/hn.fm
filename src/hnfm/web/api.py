@@ -5,7 +5,7 @@ import logging
 import os
 from datetime import datetime, timezone
 import re
-from typing import Optional
+from typing import Any, Optional
 from fastapi import FastAPI, HTTPException, Body, Request
 from fastapi.responses import (
     JSONResponse,
@@ -1002,12 +1002,21 @@ async def radio_next():
 
 
 @app.post("/api/radio/events", tags=["radio"])
-async def radio_events(request: dict = Body(default={})):
-    """Liquidsoap's report: this just started."""
+async def radio_events(request: Any = Body(default=None)):
+    """Liquidsoap's report: this just started.
+
+    Liquidsoap serialises metadata as a list of [key, value] pairs, not an
+    object, so the body is accepted as anything and normalised here.
+    """
     _radio_on()
     from ..radio import director
 
-    return director.record_event(request or {})
+    meta = request or {}
+    if isinstance(meta, list):
+        meta = {str(k): str(v) for k, v in (p for p in meta if isinstance(p, (list, tuple)) and len(p) == 2)}
+    elif not isinstance(meta, dict):
+        meta = {}
+    return director.record_event(meta)
 
 
 @app.get("/api/radio/now", tags=["radio"])

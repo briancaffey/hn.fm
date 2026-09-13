@@ -61,6 +61,18 @@ class TestEnforce:
         mu = next(i for i in out.items if i.kind == "music")
         assert mu.seconds == 90 and mu.music_style
 
+    def test_a_bare_story_id_resolves_to_its_episode(self):
+        """The model wrote "49616257" for an episode listed as "49616257:2:1"
+        and the whole block fell back for it."""
+        by_ref = {e["ref"]: e for e in _eps()}
+        sheet = RunSheet(title="x", items=[
+            RunItem(kind="episode", episode="1"),
+            RunItem(kind="music", music_style="s", seconds=60),
+            RunItem(kind="episode", episode="2:1"),
+        ])
+        out = producer.enforce(sheet, by_ref, recent_refs=set(), minutes=30)
+        assert [i.episode for i in out.items if i.kind == "episode"] == ["1:1:1", "2:1:1"]
+
     def test_recent_episodes_are_refused(self):
         by_ref = {e["ref"]: e for e in _eps()}
         sheet = RunSheet(title="x", items=[RunItem(kind="episode", episode="1:1:1")])

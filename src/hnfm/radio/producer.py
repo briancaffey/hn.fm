@@ -20,6 +20,10 @@ logger = logging.getLogger(__name__)
 
 TASK = "radio.plan"
 MAX_LINE_WORDS = 25
+# A block with fewer episodes than this is not a block; use the fallback.
+MIN_EPISODES = 2
+# How many episodes the model is shown. More is tokens, not quality.
+SHOW_EPISODES = 16
 
 STATION_IDS = [
     "You're listening to HNFM.",
@@ -63,14 +67,22 @@ def plan_block(eps: List[dict], recent: List[dict], minutes: int = 30,
     try:
         prompt = render(
             TASK, now=now.strftime("%A %-I:%M %p"), minutes=minutes,
-            hosts=host_listing(), episodes=_episode_listing(fresh[:30]),
+            hosts=host_listing(), episodes=_episode_listing(fresh[:SHOW_EPISODES]),
             recent=_recent_listing(recent[-12:]),
         )
-        sheet = svc.generate_structured(prompt, RunSheet)
-        sheet = enforce(sheet, {e["ref"]: e for e in eps}, recent_refs, minutes)
-        if sheet.items:
+        raw = svc.generate_structured(prompt, RunSheet)
+        sheet = enforce(raw, {e["ref"]: e for e in eps}, recent_refs, minutes)
+        n_eps = sum(1 for i in sheet.items if i.kind == "episode")
+        logger.info(
+            f"radio producer: model wrote {len(raw.items)} items, {len(sheet.items)} kept, "
+            f"{n_eps} episodes ({svc.usage['tokens_in']}/{svc.usage['tokens_out']} tokens)"
+        )
+        if n_eps >= MIN_EPISODES:
             return sheet, "llm", dict(svc.usage)
-        logger.warning("radio producer: model returned nothing usable; falling back")
+        logger.warning(
+            f"radio producer: only {n_eps} episode(s) in the plan (a cut-off or thin "
+            f"answer); falling back"
+        )
     except Exception as e:
         logger.warning(f"radio producer: model failed ({e}); falling back")
     return fallback_block(eps, recent, minutes, now), "fallback", dict(svc.usage)
@@ -83,14 +95,25 @@ def enforce(sheet: RunSheet, by_ref: Dict[str, dict], recent_refs: set,
     used = set()
     budget = minutes * 60 + 180
     total = 0.0
+    # The model writes the ref it was shown — usually. It has also written the
+    # bare story id, and once "id:run". Resolve those to the listed episode
+    # for that story rather than throwing the whole block away.
+    by_item = {}
+    for ref, e in by_ref.items():
+        by_item.setdefault(str(e.get("item_id")), ref)
+
     for it in sheet.items:
         if it.kind == "episode":
-            e = by_ref.get(it.episode or "")
-            if not e or it.episode in used or it.episode in recent_refs:
+            ref = (it.episode or "").strip()
+            if ref not in by_ref:
+                ref = by_item.get(ref.split(":")[0], ref)
+            it.episode = ref
+            e = by_ref.get(ref)
+            if not e or ref in used or ref in recent_refs:
                 continue
             if out and out[-1].kind == "episode":
                 out.append(RunItem(kind="station_id", host=_next_host(out), line=None))
-            used.add(it.episode)
+            used.add(ref)
             total += e.get("seconds") or 120
         elif it.kind == "music":
             it.seconds = max(45, min(int(it.seconds or 60), 90))

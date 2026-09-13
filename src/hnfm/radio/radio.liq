@@ -24,7 +24,9 @@ safety_file = environment.get("RADIO_SAFETY")
 
 # 1. What's next. hn.fm answers with a path and the metadata to attach.
 def next_item() =
-  answer = http.get("#{api}/api/radio/next", timeout=15.0)
+  # Thirty seconds: the API answers from a planned block in milliseconds,
+  # and plans a fast block inline when it has none.
+  answer = http.get("#{api}/api/radio/next", timeout=30.0)
   let json.parse (j : {
     path: string, title: string, kind: string,
     ref: string?, host: string?, bank_id: string?, sheet_id: string?
@@ -41,7 +43,8 @@ def next_item() =
   request.create("annotate:#{joined}:#{j.path}")
 end
 
-programme = request.dynamic(id="programme", retry_delay=3.0, next_item)
+# Two items fetched ahead: the join between tracks must never wait on HTTP.
+programme = request.dynamic(id="programme", prefetch=2, retry_delay=3.0, next_item)
 
 # 2. Never more than a few seconds of silence, and gentle joins.
 programme = blank.skip(max_blank=6.0, programme)
