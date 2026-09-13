@@ -94,11 +94,12 @@ def voice_sheet(sheet_id: str, items: List[dict]) -> int:
     """Make the block's spoken items: the lines the producer wrote, and the
     briefs on new stories (written from the story, then read over a quiet
     bed). Returns how many were made."""
+    from .bits import write as write_bit
     from .briefs import brief_for, spoken
-    from .library import pick_from_bank
+    from .voice import say_lines
 
-    spoken_kinds = ("station_id", "coming_up", "time_check", "brief")
-    todo = [it for it in items if it.get("kind") in spoken_kinds and (it.get("line") or it.get("kind") == "brief")]
+    spoken_kinds = ("station_id", "coming_up", "time_check", "brief", "feature", "bit")
+    todo = [it for it in items if it.get("kind") in spoken_kinds and (it.get("line") or it.get("kind") in ("brief", "feature", "bit"))]
     log("bank", f"voicing {len(todo)} items for the block", sheet_id=sheet_id)
     made = 0
     beds = [b for b in load_bank() if b["kind"] == "music" and not b.get("sheet_id")]
@@ -108,6 +109,28 @@ def voice_sheet(sheet_id: str, items: List[dict]) -> int:
             continue
         host = it.get("host") or "mia"
         mood = it.get("mood") or "calm"
+        if kind in ("feature", "bit"):
+            bit = write_bit("feature" if kind == "feature" else it.get("bit"),
+                            story=it.get("story"), host=it.get("host"))
+            if not bit:
+                log("bank", f"could not write the {kind} ({it.get('bit') or it.get('story')}); skipped", kind=kind)
+                continue
+            bed = beds[(idx * 7) % len(beds)]["path"] if (beds and bit["bed"]) else None
+            out = _new_path(kind)
+            if len(bit["lines"]) > 1:
+                path = say_lines(bit["lines"], out, mood=bit["mood"], bed=bed)
+            else:
+                path = say(bit["lines"][0][1], bit["lines"][0][0], out, mood=bit["mood"], bed=bed)
+            if not path:
+                continue
+            title = bit["name"] if kind == "bit" else (__import__("hnfm.db.repo", fromlist=["get_item"]).get_item(int(it["story"])).title if it.get("story") else bit["name"])
+            add_to_bank({"id": f"{sheet_id}-{idx}", "kind": kind, "path": path, "text": title,
+                         "host": bit["host"], "sheet_id": sheet_id, "bit": bit["key"],
+                         "story": it.get("story"), "mood": bit["mood"]})
+            log("bank", f"{bit['host']} recorded {bit['name']}" + (f": {title[:50]}" if kind == "feature" else ""),
+                kind=kind, host=bit["host"], sheet_id=sheet_id, bit=bit["key"])
+            made += 1
+            continue
         if kind == "brief":
             b = brief_for(int(it["story"])) if it.get("story") else None
             if not b:

@@ -28,7 +28,10 @@ MIN_STORIES = 3
 SHOW_EPISODES = 8
 SHOW_STORIES = 18
 # Deep dives per block. The station is briefs; an episode is the exception.
-MAX_EPISODES = int(os.getenv("RADIO_MAX_EPISODES", "1"))
+MAX_EPISODES = int(os.getenv("RADIO_MAX_EPISODES", "0"))
+# Features (sixty to ninety seconds on a story) and bits per block.
+MAX_FEATURES = int(os.getenv("RADIO_MAX_FEATURES", "1"))
+MAX_BITS = int(os.getenv("RADIO_MAX_BITS", "2"))
 MUSIC_MIN, MUSIC_MAX = 20, 45
 
 STATION_IDS = [
@@ -87,6 +90,7 @@ def plan_block(eps: List[dict], stories: List[dict], recent: List[dict], planned
     """(RunSheet, source, usage) — source is "llm" or "fallback"."""
     from ..content.llm_service import LLMService
     from ..content.prompts import render
+    from .bits import listing as bits_listing
     from .voice import host_listing
 
     now = now or datetime.now()
@@ -102,13 +106,14 @@ def plan_block(eps: List[dict], stories: List[dict], recent: List[dict], planned
         prompt = render(
             TASK, now=now.strftime("%A %-I:%M %p"), minutes=minutes,
             hosts=host_listing(), stories=_stories_listing(fresh_stories[:SHOW_STORIES]),
+            bits=bits_listing(),
             episodes=_episode_listing(fresh_eps[:SHOW_EPISODES]),
             recent=_recent_listing(recent[-14:]), planned=_planned_listing(planned[:20]),
         )
         raw = svc.generate_structured(prompt, RunSheet)
         sheet = enforce(raw, {e["ref"]: e for e in eps}, {st["item_id"] for st in stories},
                         used_eps, used_stories, minutes)
-        n_stories = sum(1 for i in sheet.items if i.kind in ("episode", "brief"))
+        n_stories = sum(1 for i in sheet.items if i.kind in ("episode", "brief", "feature"))
         logger.info(
             f"radio producer: model wrote {len(raw.items)} items, {len(sheet.items)} kept, "
             f"{n_stories} stories ({svc.usage['tokens_in']}/{svc.usage['tokens_out']} tokens)"
@@ -131,7 +136,8 @@ def enforce(sheet: RunSheet, by_ref: Dict[str, dict], story_ids: set, used_eps: 
     used_st = set(used_stories)
     budget = minutes * 60 + 180
     total = 0.0
-    n_eps = 0
+    n_eps = n_features = n_bits = 0
+    used_bits = set()
     by_item = {}
     for ref, e in by_ref.items():
         by_item.setdefault(str(e.get("item_id")), ref)
@@ -150,15 +156,34 @@ def enforce(sheet: RunSheet, by_ref: Dict[str, dict], story_ids: set, used_eps: 
             used.add(ref)
             n_eps += 1
             total += e.get("seconds") or 120
-        elif it.kind == "brief":
+        elif it.kind in ("brief", "feature"):
             if it.story is None or it.story not in story_ids or it.story in used_st:
                 continue
+            if it.kind == "feature" and n_features >= MAX_FEATURES:
+                it.kind = "brief"
             if it.host not in HOSTS or it.host == "dia":
                 it.host = _next_host(out)
             it.mood = it.mood if it.mood in ("calm", "neutral", "sad") else "calm"
             it.line = None
             used_st.add(it.story)
-            total += 30
+            if it.kind == "feature":
+                n_features += 1
+                total += 75
+            else:
+                total += 30
+        elif it.kind == "bit":
+            from .bits import BITS
+
+            if it.bit not in BITS or it.bit in used_bits or n_bits >= MAX_BITS:
+                continue
+            if out and out[-1].kind == "bit":
+                continue
+            it.host = BITS[it.bit]["host"]
+            it.mood = BITS[it.bit]["mood"]
+            it.line = None
+            used_bits.add(it.bit)
+            n_bits += 1
+            total += 45
         elif it.kind == "music":
             it.seconds = max(MUSIC_MIN, min(int(it.seconds or 30), MUSIC_MAX))
             it.music_style = (it.music_style or "warm lo-fi piano, 72 bpm, instrumental")[:120]
@@ -200,28 +225,33 @@ def fallback_block(eps: List[dict], stories: List[dict], recent: List[dict], pla
 
     now = now or datetime.now()
     used_eps, used_stories = used_refs(recent, planned)
-    ep_pool = [e for e in eps if e["ref"] not in used_eps]
     st_pool = [st for st in stories if st["item_id"] not in used_stories]
     hosts = ["mia", "jason", "sofia", "leo", "aria", "ray"]
     items: List[RunItem] = [RunItem(kind="station_id", host="mia", mood="calm")]
     items.append(RunItem(kind="time_check", host="sofia", mood="calm",
                          line=f"It's {now.strftime('%-I:%M')} on HNFM."))
+    from .bits import BITS
+
     total, i = 12.0, 0
     target = minutes * 60
-    deep_at = max(3, len(st_pool) // 2)
-    while total < target and (st_pool or (ep_pool and i == deep_at)):
-        if i == deep_at and ep_pool:
-            e = ep_pool.pop(0)
+    feature_at = max(3, min(len(st_pool) // 2, 5))
+    bit_keys = [k for k in BITS if k != "feature"]
+    bit_at = {2: bit_keys[now.hour % len(bit_keys)], 7: bit_keys[(now.hour + 1) % len(bit_keys)]}
+    while total < target and st_pool:
+        if i in bit_at:
+            key = bit_at[i]
+            items.append(RunItem(kind="bit", bit=key, host=BITS[key]["host"], mood=BITS[key]["mood"]))
+            total += 45
+        if i == feature_at and MAX_FEATURES:
+            st = st_pool.pop(0)
             items.append(RunItem(kind="coming_up", host=hosts[i % 6], mood="calm",
-                                 line=f"Coming up, a deep dive: {e['title'][:80]}."))
-            items.append(RunItem(kind="episode", episode=e["ref"]))
-            total += (e.get("seconds") or 120) + 8
-        elif st_pool:
+                                 line=f"Coming up, the story: {st['title'][:80]}."))
+            items.append(RunItem(kind="feature", story=st["item_id"], host="jason", mood="calm"))
+            total += 83
+        else:
             st = st_pool.pop(0)
             items.append(RunItem(kind="brief", story=st["item_id"], host=hosts[i % 6], mood="calm"))
             total += 30
-        else:
-            break
         if i % 2 == 1:
             items.append(RunItem(kind="music", music_style=STYLES[i % len(STYLES)], seconds=30))
             total += 30

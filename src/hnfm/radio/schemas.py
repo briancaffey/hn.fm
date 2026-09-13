@@ -9,7 +9,7 @@ from typing import List, Literal, Optional
 
 from pydantic import BaseModel, Field
 
-Kind = Literal["station_id", "episode", "coming_up", "music", "time_check", "brief"]
+Kind = Literal["station_id", "episode", "coming_up", "music", "time_check", "brief", "feature", "bit"]
 
 # Who can speak on air. Keys are what the producer chooses between; the
 # voice module maps them to an engine and a voice.
@@ -20,8 +20,10 @@ class RunItem(BaseModel):
     kind: Kind
     # For an episode: "item:run:seg" from the library listing.
     episode: Optional[str] = Field(default=None, description='"item:run:seg" for kind=episode, else null.')
-    # For a brief: the story id from the NEW STORIES listing.
-    story: Optional[int] = Field(default=None, description="Story id for kind=brief, else null.")
+    # For a brief or a feature: the story id from the NEW STORIES listing.
+    story: Optional[int] = Field(default=None, description="Story id for kind=brief or kind=feature, else null.")
+    # For a bit: which recurring bit, from the BITS listing.
+    bit: Optional[str] = Field(default=None, description="Bit key for kind=bit (stack, joke, sketch, word), else null.")
     mood: Optional[str] = Field(default=None, description="How the host says it: calm, happy, neutral. Calm suits the station.")
     host: Optional[str] = Field(default=None, description="Who speaks, for station_id / coming_up / time_check.")
     line: Optional[str] = Field(default=None, description="What they say, at most 25 words. Null for episode and music.")

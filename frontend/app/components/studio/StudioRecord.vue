@@ -24,14 +24,14 @@ const props = withDefaults(defineProps<{
 }>(), { title: '', host: null, radius: 0.55, standing: false, spinning: false, showLabel: true, glow: 0.25 })
 
 const COLOR: Record<string, string> = {
-  episode: '#ff6a00', music: '#5eead4', station_id: '#f4efe6', coming_up: '#f5b642', time_check: '#b39ddb', brief: '#ff9f43',
+  episode: '#ff6a00', music: '#5eead4', station_id: '#f4efe6', coming_up: '#f5b642', time_check: '#b39ddb', brief: '#ff9f43', feature: '#ff4d6d', bit: '#f78fb3',
 }
 const ICON: Record<string, string> = {
   episode: 'lucide:newspaper', music: 'lucide:music', station_id: 'lucide:radio-tower',
-  coming_up: 'lucide:signpost', time_check: 'lucide:clock', brief: 'lucide:zap',
+  coming_up: 'lucide:signpost', time_check: 'lucide:clock', brief: 'lucide:zap', feature: 'lucide:book-open', bit: 'lucide:sparkles',
 }
 const LABEL: Record<string, string> = {
-  episode: 'Episode', music: 'Music bed', station_id: 'Station ID', coming_up: 'Coming up', time_check: 'Time check', brief: 'Brief',
+  episode: 'Episode', music: 'Music bed', station_id: 'Station ID', coming_up: 'Coming up', time_check: 'Time check', brief: 'Brief', feature: 'Feature', bit: 'Bit',
 }
 const color = computed(() => COLOR[props.kind] || '#6b655b')
 const icon = computed(() => ICON[props.kind] || 'lucide:disc')

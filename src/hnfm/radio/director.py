@@ -161,19 +161,23 @@ def _resolve(item: dict, sheet_id: str, recent_ids: List[str]) -> Optional[dict]
             return None
         return {"kind": kind, "path": b["path"], "title": b.get("style") or "music",
                 "bank_id": b["id"], "seconds": b.get("seconds")}
-    if kind == "brief":
+    if kind in ("brief", "feature", "bit"):
         # Written and voiced for this block by the bank; there is no generic
-        # substitute for a story, so a missing one is skipped.
-        b = pick_from_bank("brief", avoid_ids=recent_ids, sheet_id=sheet_id)
-        if not b or b.get("sheet_id") != sheet_id or b.get("story") != item.get("story"):
-            b = next((x for x in __import__("hnfm.radio.library", fromlist=["load_bank"]).load_bank()
-                      if x.get("sheet_id") == sheet_id and x.get("kind") == "brief"
-                      and x.get("story") == item.get("story")), None)
+        # substitute for a story or a bit, so a missing one is skipped.
+        from .library import load_bank
+
+        b = next((x for x in load_bank()
+                  if x.get("sheet_id") == sheet_id and x.get("kind") == kind
+                  and (kind == "bit" and x.get("bit") == item.get("bit")
+                       or kind != "bit" and x.get("story") == item.get("story"))), None)
         if not b:
             return None
-        return {"kind": kind, "path": b["path"], "title": b.get("text") or "brief",
-                "host": b.get("host"), "bank_id": b["id"], "ref": f"story:{b.get('story')}",
-                "item_id": b.get("story")}
+        out = {"kind": kind, "path": b["path"], "title": b.get("text") or kind,
+               "host": b.get("host"), "bank_id": b["id"]}
+        if b.get("story"):
+            out["ref"] = f"story:{b['story']}"
+            out["item_id"] = b["story"]
+        return out
     # A spoken line: the one written for this block if it was voiced in
     # time, otherwise a generic station ID in the same host's voice.
     b = pick_from_bank(kind, avoid_ids=recent_ids, sheet_id=sheet_id, host=item.get("host"))

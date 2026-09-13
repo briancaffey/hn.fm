@@ -13,6 +13,7 @@ import os
 import tempfile
 from typing import Dict, List, Optional
 
+from .copy import speakable
 from .library import mix_under, to_mp3
 
 logger = logging.getLogger(__name__)
@@ -76,21 +77,10 @@ def say(text: str, host: str, out_mp3: str, mood: Optional[str] = None,
     None on any failure."""
     from ..audio.tts_api_service import TtsApiService
 
-    engine, _base, _ = HOSTS.get(host) or HOSTS[DEFAULT_HOST]
-    text = " ".join((text or "").split())
+    text = speakable(" ".join((text or "").split()))
     if not text:
         return None
-    try:
-        svc = TtsApiService(backend=engine)
-        if engine == "magpie":
-            wav = svc._magpie_one(text, voice_name(host, mood))
-            if not wav and mood:
-                wav = svc._magpie_one(text, voice_name(host, "default"))
-        else:
-            wav = svc._synthesize_dia(f"[S1] {text}", HOSTS["dia"][1], 7)
-    except Exception as e:
-        logger.warning(f"radio voice ({host}) failed: {e}")
-        return None
+    wav = _wav(text, host, mood)
     if not wav:
         return None
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
@@ -107,3 +97,53 @@ def say(text: str, host: str, out_mp3: str, mood: Optional[str] = None,
         except OSError:
             pass
     return out_mp3 if ok else None
+
+
+def _wav(text: str, host: str, mood: Optional[str]) -> Optional[bytes]:
+    from ..audio.tts_api_service import TtsApiService
+
+    engine, _base, _ = HOSTS.get(host) or HOSTS[DEFAULT_HOST]
+    try:
+        svc = TtsApiService(backend=engine)
+        if engine == "magpie":
+            wav = svc._magpie_one(text, voice_name(host, mood))
+            if not wav and mood:
+                wav = svc._magpie_one(text, voice_name(host, "default"))
+            return wav
+        return svc._synthesize_dia(f"[S1] {text}", HOSTS["dia"][1], 7)
+    except Exception as e:
+        logger.warning(f"radio voice ({host}) failed: {e}")
+        return None
+
+
+def say_lines(lines, out_mp3: str, mood: Optional[str] = None, bed: Optional[str] = None,
+              bed_db: float = -17.0, gap_ms: int = 260) -> Optional[str]:
+    """A dialogue: [(host, text), ...] spoken in turn, with a beat between
+    turns, as one file. Used for the two-voice sketch."""
+    from ..audio.tts_api_service import TtsApiService
+
+    clips = []
+    for host, text in lines:
+        text = speakable(" ".join((text or "").split()))
+        if not text:
+            continue
+        wav = _wav(text, host, mood)
+        if wav:
+            clips.append(wav)
+    if not clips:
+        return None
+    joined = TtsApiService.__new__(TtsApiService)._concat_wavs(clips, gap_ms=gap_ms)
+    if not joined:
+        return None
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        f.write(joined)
+        tmp = f.name
+    try:
+        ok = mix_under(tmp, bed, out_mp3, bed_db=bed_db) if bed and os.path.exists(bed) else to_mp3(tmp, out_mp3)
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+    return out_mp3 if ok else None
+

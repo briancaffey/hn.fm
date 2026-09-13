@@ -78,7 +78,7 @@ async function act(path: string, body?: Record<string, unknown>, note = '') {
 }
 const listeners = computed(() => (status.value?.icecast?.mounts || []).reduce((n, m) => n + (m.listeners || 0), 0))
 const when = (iso: string) => new Date(iso.endsWith('Z') ? iso : iso + 'Z').toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
-const KIND_LABEL: Record<string, string> = { episode: 'Episode', station_id: 'Station ID', coming_up: 'Coming up', music: 'Music', time_check: 'Time check', brief: 'Brief', unknown: '—' }
+const KIND_LABEL: Record<string, string> = { episode: 'Episode', station_id: 'Station ID', coming_up: 'Coming up', music: 'Music', time_check: 'Time check', brief: 'Brief', feature: 'Feature', bit: 'Bit', unknown: '—' }
 </script>
 
 <template>

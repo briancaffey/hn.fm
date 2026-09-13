@@ -54,6 +54,9 @@ class TestFallbackBlock:
 
 class TestEnforce:
     def _run(self, items, used_eps=set(), used_stories=set()):
+        # Episodes are off by default now (the feature is the long form);
+        # these tests exercise the episode rules, so allow one.
+        producer.MAX_EPISODES = 1
         by_ref = {e["ref"]: e for e in _eps()}
         return producer.enforce(RunSheet(title="x", items=items), by_ref, {101, 102, 103},
                                 used_eps, used_stories, minutes=30)
@@ -242,3 +245,51 @@ class TestCommentary:
         assert c.get("/api/radio/log").json() == {"lines": []} or True
         snap = c.get("/api/radio/studio").json()
         assert "log" in snap and "sheet_items" in snap and "icecast" in snap
+
+
+class TestCopy:
+    def test_speakable(self):
+        from ..radio.copy import speakable
+
+        assert speakable("HNFM uses AI on a GPU.") == "H.N.F.M. uses A.I. on a G.P.U."
+        assert speakable("NASA and RAM stay words.") == "NASA and RAM stay words."
+        assert speakable("It costs $2.5 billion, up 40% since 1994.") == \
+            "It costs two point five billion dollars, up forty percent since nineteen ninety-four."
+        assert speakable("2026 saw 12 GB in 300 ms") == "twenty twenty-six saw twelve gigabytes in three hundred milliseconds"
+        assert speakable("**bold** & `code` at https://x.y/z 🚀") == "bold and code at"
+        assert speakable("1,234 users") == "one thousand two hundred thirty-four users"
+
+    def test_bits_listing_names_every_bit(self):
+        from ..radio import bits
+
+        text = bits.listing()
+        for key in bits.BITS:
+            assert f"- {key}:" in text
+
+
+class TestBitsAndFeatures:
+    def test_enforce_keeps_one_feature_and_two_bits_never_adjacent(self):
+        by_ref = {}
+        sheet = RunSheet(title="x", items=[
+            RunItem(kind="bit", bit="joke"),
+            RunItem(kind="bit", bit="word"),           # adjacent: dropped
+            RunItem(kind="feature", story=101, host="jason"),
+            RunItem(kind="feature", story=102),        # second feature: becomes a brief
+            RunItem(kind="bit", bit="stack"),
+            RunItem(kind="bit", bit="nope"),           # unknown: dropped
+            RunItem(kind="brief", story=103),
+            RunItem(kind="bit", bit="sketch"),         # third bit: dropped
+        ])
+        out = producer.enforce(sheet, by_ref, {101, 102, 103}, set(), set(), minutes=30)
+        kinds = [i.kind for i in out.items]
+        assert kinds.count("feature") == 1 and kinds.count("bit") == 2 and kinds.count("brief") == 2
+        bits_ = [i.bit for i in out.items if i.kind == "bit"]
+        assert bits_ == ["joke", "stack"]
+        assert next(i for i in out.items if i.kind == "bit").host == "leo"
+
+    def test_fallback_has_a_feature_and_bits(self):
+        sheet = producer.fallback_block(_eps(), _stories(12), [], [], minutes=15, now=datetime(2026, 9, 13, 3, 0))
+        kinds = [i.kind for i in sheet.items]
+        assert kinds.count("feature") == 1 and kinds.count("bit") >= 1 and kinds.count("episode") == 0
+        assert kinds[kinds.index("feature") - 1] == "coming_up"
+

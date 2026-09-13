@@ -193,7 +193,7 @@ function tube(a: [number, number, number], b: [number, number, number]) {
 }
 const TUBES = computed(() => ['producer', 'dj', 'transmitter', 'library'].map(k => ({ key: k, ...tube([ANCHOR.hub[0], 0.5, ANCHOR.hub[2]], [ANCHOR[k][0], 0.5, ANCHOR[k][2]]) })))
 
-const speaking = computed(() => ['station_id', 'coming_up', 'time_check', 'brief'].includes(props.nowKind || ''))
+const speaking = computed(() => ['station_id', 'coming_up', 'time_check', 'brief', 'feature', 'bit'].includes(props.nowKind || ''))
 const bubbleFor = (component: string) => {
   const b = [...props.bubbles].reverse().find(x => x.component === component)
   return b && performance.now() - b.at < 9000 ? b : null

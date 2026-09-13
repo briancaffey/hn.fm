@@ -101,7 +101,7 @@ onUnmounted(() => source?.close())
 
 const when = (iso: string) => new Date(iso.endsWith('Z') ? iso : iso + 'Z').toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 const tail = computed(() => lines.value.slice(-12).reverse())
-const KIND_LABEL: Record<string, string> = { episode: 'Episode', station_id: 'Station ID', coming_up: 'Coming up', music: 'Music', time_check: 'Time check', brief: 'Brief' }
+const KIND_LABEL: Record<string, string> = { episode: 'Episode', station_id: 'Station ID', coming_up: 'Coming up', music: 'Music', time_check: 'Time check', brief: 'Brief', feature: 'Feature', bit: 'Bit' }
 </script>
 
 <template>
