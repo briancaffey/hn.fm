@@ -48,6 +48,8 @@ export default defineNuxtConfig({
   },
 
   modules: [
+    // The Studio (plans/21): three.js through TresJS components.
+    '@tresjs/nuxt',
     '@nuxt/fonts',
     '@nuxt/content',
     '@nuxt/image',

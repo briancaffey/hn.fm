@@ -89,6 +89,9 @@ const KIND_LABEL: Record<string, string> = { episode: 'Episode', station_id: 'St
       hint="The producer plans a block of programming with one call to the local model; the DJ (Liquidsoap) asks the API what to play next and reports every track change; Icecast fans the stream out to listeners. Everything here is off unless RADIO_ENABLED is true."
     >
       <template #actions>
+        <Button size="sm" as-child>
+          <NuxtLink to="/studio"><Icon name="lucide:box" class="mr-1.5 h-3.5 w-3.5" />Open the Studio</NuxtLink>
+        </Button>
         <Button variant="outline" size="sm" :disabled="loading" @click="load">
           <Icon name="lucide:refresh-cw" class="mr-1.5 h-3.5 w-3.5" :class="loading ? 'animate-spin' : ''" />
           Refresh

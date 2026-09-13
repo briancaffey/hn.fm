@@ -25,3 +25,17 @@ def enabled() -> bool:
 def radio_root() -> str:
     """Where the station keeps its own files under outputs/."""
     return os.path.join(os.getenv("OUTPUTS_DIR", "/app/outputs"), "radio")
+
+
+def log(component: str, message: str, **meta) -> None:
+    """A line of the station's running commentary, for the studio (plans/21).
+
+    Never raises: the commentary must not be able to stop the show.
+    """
+    try:
+        from ..db import repo
+
+        repo.radio_log_write(component, message, meta or None)
+    except Exception:
+        pass
+

@@ -24,6 +24,9 @@
     "@pinia/nuxt": "0.11.2",
     "@tailwindcss/vite": "^4.1.12",
     "@tanstack/vue-table": "^8.21.3",
+    "@tresjs/cientos": "^5.8.1",
+    "@tresjs/core": "^5.8.3",
+    "@tresjs/nuxt": "^5.6.3",
     "@unhead/vue": "^2.0.3",
     "@unovis/ts": "^1.6.0",
     "@unovis/vue": "^1.6.0",
@@ -41,6 +44,7 @@
     "shadcn-nuxt": "2.2.0",
     "tailwind-merge": "^3.3.1",
     "tailwindcss": "^4.1.12",
+    "three": "^0.186.0",
     "tw-animate-css": "^1.3.7",
     "vaul-vue": "^0.4.1",
     "vee-validate": "^4.15.1",
@@ -51,6 +55,7 @@
   },
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.65",
+    "@types/three": "^0.186.0",
     "typescript": "^5.9.2",
     "vite-tsconfig-paths": "^5.1.4"
   }

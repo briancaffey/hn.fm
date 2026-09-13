@@ -1097,6 +1097,85 @@ async def radio_bank_fill():
     return {"status": "queued", "task_id": t.id}
 
 
+@app.get("/api/radio/log", tags=["radio"])
+async def radio_log(limit: int = 60, after: int = None):
+    """The station's running commentary: what each component just did."""
+    _radio_on()
+    from ..db import repo as _repo
+
+    if after is not None:
+        return {"lines": _repo.radio_log_since(after_id=int(after), limit=min(int(limit), 500))}
+    return {"lines": _repo.radio_log_tail(limit=min(int(limit), 500))}
+
+
+@app.get("/api/radio/studio", tags=["radio"])
+async def radio_studio():
+    """Everything the studio scene needs in one frame (plans/21)."""
+    _radio_on()
+    from ..db import repo as _repo
+    from ..radio import director
+
+    st = director.status()
+    sheet = _repo.radio_current_sheet()
+    return {
+        **st,
+        "sheet_items": (sheet or {}).get("items") or [],
+        "sheet_cursor": (sheet or {}).get("cursor") or 0,
+        "log": _repo.radio_log_tail(limit=40),
+        "history": _repo.radio_recent_events(hours=2, limit=30),
+    }
+
+
+@app.get("/api/radio/stream", tags=["radio"])
+async def radio_stream(after: int = 0):
+    """Server-sent events: every new commentary line as it lands, and a
+    `snapshot` frame every few seconds with the station's state.
+
+    Same shape as /api/activity/stream, and the same reason it is SSE rather
+    than a websocket: it needs no client library and survives a proxy.
+    """
+    import asyncio
+    import json as _json
+
+    from fastapi.responses import StreamingResponse
+    from ..db import repo as _repo
+    from ..radio import director
+
+    _radio_on()
+    last = int(after or 0)
+
+    async def events():
+        nonlocal last
+        tick = 0
+        while True:
+            try:
+                for line in _repo.radio_log_since(after_id=last, limit=200):
+                    last = line["id"]
+                    yield f"event: log\ndata: {_json.dumps(line)}\n\n"
+                if tick % 4 == 0:
+                    snap = director.status()
+                    sheet = _repo.radio_current_sheet()
+                    snap["sheet_items"] = (sheet or {}).get("items") or []
+                    snap["sheet_cursor"] = (sheet or {}).get("cursor") or 0
+                    yield f"event: snapshot\ndata: {_json.dumps(snap, default=str)}\n\n"
+                else:
+                    yield ": keepalive\n\n"
+                tick += 1
+                await asyncio.sleep(1.0)
+            except asyncio.CancelledError:
+                raise
+            except Exception as e:
+                logger.warning(f"radio stream error: {e}")
+                yield f": error {str(e)[:80]}\n\n"
+                await asyncio.sleep(2)
+
+    return StreamingResponse(
+        events(), media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive",
+                 "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/radio/script", tags=["radio"])
 async def radio_script():
     """The Liquidsoap script the DJ container fetches at start."""

@@ -1583,3 +1583,51 @@ def radio_recent_events(hours: int = 3, limit: int = 200) -> List[dict]:
             for r in reversed(rows)
         ]
 
+
+def radio_log_write(component: str, message: str, meta: dict = None) -> Optional[int]:
+    from .orm import RadioLogRow
+
+    with db_session() as s:
+        row = RadioLogRow(at=datetime.utcnow(), component=component, message=message, meta=meta or {})
+        s.add(row)
+        s.commit()
+        return row.id
+
+
+def radio_log_since(after_id: int = 0, limit: int = 200) -> List[dict]:
+    """Rows newer than `after_id`, oldest first."""
+    from .orm import RadioLogRow
+
+    with db_session() as s:
+        rows = (
+            s.query(RadioLogRow)
+            .filter(RadioLogRow.id > int(after_id or 0))
+            .order_by(RadioLogRow.id.asc())
+            .limit(limit)
+            .all()
+        )
+        return [{"id": r.id, "at": r.at.isoformat(), "component": r.component,
+                 "message": r.message, "meta": r.meta or {}} for r in rows]
+
+
+def radio_log_tail(limit: int = 60) -> List[dict]:
+    """The newest rows, oldest first."""
+    from .orm import RadioLogRow
+
+    with db_session() as s:
+        rows = s.query(RadioLogRow).order_by(RadioLogRow.id.desc()).limit(limit).all()
+        return [{"id": r.id, "at": r.at.isoformat(), "component": r.component,
+                 "message": r.message, "meta": r.meta or {}} for r in reversed(rows)]
+
+
+def radio_log_prune(keep: int = 5000) -> int:
+    from .orm import RadioLogRow
+
+    with db_session() as s:
+        ids = [r.id for r in s.query(RadioLogRow.id).order_by(RadioLogRow.id.desc()).offset(keep).all()]
+        if not ids:
+            return 0
+        n = s.query(RadioLogRow).filter(RadioLogRow.id.in_(ids)).delete(synchronize_session=False)
+        s.commit()
+        return int(n or 0)
+

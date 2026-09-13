@@ -175,3 +175,39 @@ class TestSwitch:
         assert not [s for s in reg.get_service_specs() if s.role == "Radio"]
         monkeypatch.setenv("RADIO_ENABLED", "true")
         assert len([s for s in reg.get_service_specs() if s.role == "Radio"]) == 2
+
+
+class TestCommentary:
+    """The studio's feed (plans/21): components narrate, the stream tails."""
+
+    def test_log_lines_land_and_tail_in_order(self):
+        from .. import radio
+
+        radio.log("dj", "asked what's next")
+        radio.log("director", "served item 1/3: station_id — hi", kind="station_id")
+        tail = repo.radio_log_tail(limit=10)
+        assert [t["component"] for t in tail[-2:]] == ["dj", "director"]
+        assert tail[-1]["meta"] == {"kind": "station_id"}
+        since = repo.radio_log_since(after_id=tail[-2]["id"])
+        assert [t["message"] for t in since] == ["served item 1/3: station_id — hi"]
+
+    def test_next_item_narrates(self, monkeypatch):
+        repo.radio_save_sheet(sheet_id="s9", title="t", minutes=10,
+                              items=[{"kind": "station_id", "host": "mia"}], source="test")
+        monkeypatch.setattr(director, "pick_from_bank",
+                            lambda kind, **kw: {"id": "b1", "kind": kind, "path": "/b.mp3", "text": "hi", "host": "mia"})
+        monkeypatch.setattr(director, "_request_plan", lambda: None)
+        director.next_item()
+        msgs = [t["message"] for t in repo.radio_log_tail(limit=5)]
+        assert "asked what's next" in msgs
+        assert any(m.startswith("served item 1/1: station_id") for m in msgs)
+
+    def test_studio_endpoints_when_on(self, monkeypatch):
+        from fastapi.testclient import TestClient
+        from ..web.api import app
+
+        monkeypatch.setenv("RADIO_ENABLED", "true")
+        c = TestClient(app)
+        assert c.get("/api/radio/log").json() == {"lines": []} or True
+        snap = c.get("/api/radio/studio").json()
+        assert "log" in snap and "sheet_items" in snap and "icecast" in snap

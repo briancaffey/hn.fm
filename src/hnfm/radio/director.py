@@ -16,7 +16,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from . import radio_root
+from . import log, radio_root
 from .library import episode, episodes, pick_from_bank, parse_ref, safety_path
 
 logger = logging.getLogger(__name__)
@@ -70,6 +70,11 @@ def plan_now(minutes: int = None, reason: str = "manual", fast: bool = False) ->
         f"📻 planned block {row['sheet_id']} ({source}): {len(sheet.items)} items, "
         f"{usage.get('tokens_in', 0)}/{usage.get('tokens_out', 0)} tokens — {sheet.title}"
     )
+    log("producer",
+        f"planned a {minutes}-minute block, {len(sheet.items)} items"
+        + (f" ({usage.get('tokens_in', 0)} in / {usage.get('tokens_out', 0)} out tokens)"
+           if source == "llm" else " with the deterministic producer"),
+        sheet_id=row["sheet_id"], source=source, items=len(sheet.items), reason=reason)
     return row
 
 
@@ -85,6 +90,7 @@ def _request_plan() -> None:
         except Exception:
             pass
     repo.set_setting(SETTING_PLANNING, datetime.utcnow().isoformat())
+    log("director", "block running low; asked the producer for the next one")
     try:
         from ..web.tasks import radio_plan_block
 
@@ -112,6 +118,7 @@ def enqueue(ref: str) -> List[str]:
         raise ValueError(f"no finished episode {ref}")
     q = [r for r in queue() if r != ref] + [ref]
     repo.set_setting(SETTING_QUEUE, q)
+    log("director", f"someone queued {ref} to play next", ref=ref)
     return q
 
 
@@ -165,10 +172,12 @@ def next_item() -> dict:
     recent = repo.radio_recent_events(hours=1)
     recent_ids = [r.get("meta", {}).get("bank_id") for r in recent if r.get("meta", {}).get("bank_id")]
 
+    log("dj", "asked what's next")
     queued = _pop_queue()
     if queued:
         e = episode(queued)
         if e:
+            log("director", f"served the queued episode: {e['title'][:60]}", kind="episode", ref=e["ref"])
             return {"kind": "episode", "path": e["path"], "title": e["title"], "ref": e["ref"],
                     "item_id": e["item_id"], "run": e["run"], "seg": e["seg"], "queued": True}
 
@@ -189,8 +198,13 @@ def next_item() -> dict:
             _request_plan()
         if resolved:
             resolved["sheet_id"] = sheet["sheet_id"]
+            log("director",
+                f"served item {idx + 1}/{len(sheet['items'])}: {resolved['kind']} — {str(resolved.get('title'))[:60]}",
+                kind=resolved["kind"], index=idx, of=len(sheet["items"]), sheet_id=sheet["sheet_id"],
+                host=resolved.get("host"))
             return resolved
         logger.info(f"radio: item {idx} ({item.get('kind')}) unavailable, skipping")
+        log("director", f"item {idx + 1} ({item.get('kind')}) is not in the bank yet; skipped", kind=item.get("kind"))
 
     # Sheet exhausted before a replacement arrived: a fast block now, and
     # the model's block requested for after it.
@@ -228,6 +242,7 @@ def record_event(meta: dict) -> dict:
         "hnfm_kind", "hnfm_ref", "hnfm_host", "hnfm_bank_id", "hnfm_sheet", "filename", "title")}
     if keep.get("hnfm_bank_id"):
         keep["bank_id"] = keep.pop("hnfm_bank_id")
+    log("dj", f"on air: {kind} — {title[:60]}", kind=kind, ref=ref, host=meta.get("hnfm_host") or None)
     return repo.radio_record_event(kind=kind, title=title, ref=ref, meta=keep)
 
 

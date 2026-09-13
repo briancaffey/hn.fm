@@ -3158,6 +3158,15 @@ def radio_monitor() -> Dict[str, any]:
         actions.append(f"icecast down: {st['icecast'].get('error')}")
     repo.set_setting("radio.monitor", {"at": datetime.utcnow().isoformat(),
                                        "actions": actions, "icecast": st["icecast"]})
+    listeners = sum(m.get("listeners", 0) for m in (st["icecast"].get("mounts") or []))
+    radio.log("monitor",
+              "round complete: " + (", ".join(actions) if actions else "all quiet")
+              + f" · {listeners} listening",
+              actions=actions, listeners=listeners, icecast_up=bool(st["icecast"].get("up")))
+    try:
+        repo.radio_log_prune(keep=5000)
+    except Exception:
+        pass
     return {"status": "ok", "actions": actions}
 
 

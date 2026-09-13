@@ -505,3 +505,17 @@ class RadioEventRow(Base):
     ref: Mapped[str] = mapped_column(Text, nullable=True)
     meta: Mapped[dict] = mapped_column(JSONVariant, nullable=True)
 
+
+class RadioLogRow(Base):
+    """One line of the station's running commentary (plans/21)."""
+
+    __tablename__ = "radio_log"
+
+    id: Mapped[int] = mapped_column(
+        BigInteger().with_variant(Integer, "sqlite"), primary_key=True, autoincrement=True,
+    )
+    at: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    component: Mapped[str] = mapped_column(Text, nullable=False)
+    message: Mapped[str] = mapped_column(Text, nullable=False)
+    meta: Mapped[dict] = mapped_column(JSONVariant, nullable=True)
+

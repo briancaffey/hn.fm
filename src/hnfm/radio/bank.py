@@ -13,7 +13,7 @@ import os
 import uuid
 from typing import Dict, List, Optional
 
-from . import radio_root
+from . import log, radio_root
 from .library import add_to_bank, bank_counts, bank_dir, load_bank, safety_path, to_mp3
 from .music import STYLES, make_bed
 from .producer import STATION_IDS
@@ -51,6 +51,7 @@ def fill(targets: Optional[Dict[str, int]] = None, max_new: int = 6) -> Dict[str
             break
         add_to_bank({"id": uuid.uuid4().hex[:12], "kind": "station_id", "path": path,
                      "text": line, "host": host})
+        log("bank", f"recorded a station ID in {host}'s voice: “{line}”", kind="station_id", host=host)
         have["station_id"] = have.get("station_id", 0) + 1
         made["station_id"] = made.get("station_id", 0) + 1
         budget -= 1
@@ -64,6 +65,7 @@ def fill(targets: Optional[Dict[str, int]] = None, max_new: int = 6) -> Dict[str
             break
         add_to_bank({"id": uuid.uuid4().hex[:12], "kind": "music", "path": path,
                      "style": style, "seconds": 60})
+        log("bank", f"pressed a 60-second music bed: {style[:50]}", kind="music")
         have["music"] = have.get("music", 0) + 1
         made["music"] = made.get("music", 0) + 1
         budget -= 1
@@ -87,6 +89,8 @@ def ensure_safety() -> Optional[str]:
 
 def voice_sheet(sheet_id: str, items: List[dict]) -> int:
     """Speak the lines a producer wrote for one block. Returns how many."""
+    lines = [it for it in items if it.get("kind") in ("station_id", "coming_up", "time_check") and it.get("line")]
+    log("bank", f"voicing {len(lines)} lines the producer wrote for the block", sheet_id=sheet_id)
     made = 0
     for idx, it in enumerate(items):
         if it.get("kind") not in ("station_id", "coming_up", "time_check") or not it.get("line"):
@@ -97,6 +101,7 @@ def voice_sheet(sheet_id: str, items: List[dict]) -> int:
             continue
         add_to_bank({"id": f"{sheet_id}-{idx}", "kind": it["kind"], "path": path,
                      "text": it["line"], "host": host, "sheet_id": sheet_id})
+        log("bank", f"{host} recorded: “{it['line'][:70]}”", kind=it["kind"], host=host, sheet_id=sheet_id)
         made += 1
     return made
 

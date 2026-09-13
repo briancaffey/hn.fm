@@ -14,6 +14,7 @@ import logging
 from datetime import datetime
 from typing import Dict, List, Optional
 
+from . import log
 from .schemas import HOSTS, RunItem, RunSheet
 
 logger = logging.getLogger(__name__)
@@ -64,6 +65,8 @@ def plan_block(eps: List[dict], recent: List[dict], minutes: int = 30,
         fresh = eps  # everything has aired: the model may repeat the oldest
 
     svc = LLMService(task=TASK)
+    log("producer", f"thinking: asking {svc.model} for a {minutes}-minute block from {min(len(fresh), SHOW_EPISODES)} episodes",
+        model=svc.model, minutes=minutes)
     try:
         prompt = render(
             TASK, now=now.strftime("%A %-I:%M %p"), minutes=minutes,
@@ -83,8 +86,10 @@ def plan_block(eps: List[dict], recent: List[dict], minutes: int = 30,
             f"radio producer: only {n_eps} episode(s) in the plan (a cut-off or thin "
             f"answer); falling back"
         )
+        log("producer", f"the model's block had only {n_eps} episode(s); using the deterministic producer")
     except Exception as e:
         logger.warning(f"radio producer: model failed ({e}); falling back")
+        log("producer", f"the model did not answer ({str(e)[:60]}); using the deterministic producer")
     return fallback_block(eps, recent, minutes, now), "fallback", dict(svc.usage)
 
 
