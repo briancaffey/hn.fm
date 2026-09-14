@@ -17,6 +17,7 @@ import logging
 import os
 import re
 import subprocess
+import tempfile
 from typing import Optional
 
 logger = logging.getLogger(__name__)
@@ -68,16 +69,29 @@ def match(wav: bytes, target: float = None) -> bytes:
         gain = min(gain, PEAK_CEILING_DB - m["peak"])
     if abs(gain) < 0.5:
         return wav
+    # To a file, not a pipe: a WAV written to a pipe cannot have its sizes
+    # filled in, and the wave module refuses the result when turns are joined.
+    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+        out = f.name
     try:
         r = subprocess.run(
-            ["ffmpeg", "-hide_banner", "-nostats", "-i", "pipe:0",
-             "-af", f"volume={gain:.2f}dB", "-f", "wav", "pipe:1"],
+            ["ffmpeg", "-hide_banner", "-nostats", "-y", "-i", "pipe:0",
+             "-af", f"volume={gain:.2f}dB", "-c:a", "pcm_s16le", out],
             input=wav, capture_output=True, timeout=60,
         )
+        if r.returncode != 0:
+            return wav
+        with open(out, "rb") as f:
+            data = f.read()
     except Exception as e:
         logger.debug(f"levels: gain failed ({e})")
         return wav
-    if r.returncode != 0 or not r.stdout:
+    finally:
+        try:
+            os.unlink(out)
+        except OSError:
+            pass
+    if not data:
         return wav
     logger.debug(f"levels: {m['lufs']:.1f} LUFS -> {target:.0f} ({gain:+.1f} dB)")
-    return r.stdout
+    return data

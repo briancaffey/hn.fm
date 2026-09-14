@@ -39,3 +39,11 @@ class TestMatch:
         monkeypatch.setenv("TTS_NORMALIZE", "false")
         s = _tone(-30)
         assert levels.match(s) is s
+
+    def test_matched_clips_can_be_joined_by_the_wave_module(self):
+        from hnfm.audio.tts_api_service import TtsApiService
+        a, b = levels.match(_tone(-30)), levels.match(_tone(-6))
+        joined = TtsApiService._concat_wavs([a, b], gap_ms=100)
+        with wave.open(io.BytesIO(joined), "rb") as w:
+            assert w.getnframes() == 22050 * 6 + 2 * 2205  # two clips, a gap after each
+
