@@ -182,7 +182,11 @@ class TtsApiService:
             f"{self.base_url}/v1/audio/synthesize", data=form, timeout=self.timeout_seconds
         )
         if r.status_code == 200 and r.content:
-            return r.content
+            # Every voice at one level (audio/levels.py): Magpie's voices
+            # differ by up to thirteen decibels out of the server.
+            from .levels import match
+
+            return match(r.content)
         logger.error(f"Magpie synthesize {r.status_code}: {r.text[:200]}")
         return None
 

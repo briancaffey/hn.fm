@@ -1005,10 +1005,8 @@ def build_timeline(item_id: int, run: int, seg: int) -> List[dict]:
             )
             cumulative_start += d
 
-    # Add outro sequence (4 seconds)
-    outro_image_path = (
-        Path(__file__).parent.parent / "video" / "media" / "hnfm_square.png"
-    )
+    # Add outro sequence (4 seconds): the same card the episode opened on.
+    outro_image_path = intro_image_path
 
     if outro_image_path.exists():
         timeline.append(
