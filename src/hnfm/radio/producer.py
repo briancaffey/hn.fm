@@ -24,7 +24,9 @@ logger = logging.getLogger(__name__)
 TASK = "radio.plan"
 MAX_LINE_WORDS = 25
 # A block with fewer stories than this is not a block; use the fallback.
-MIN_STORIES = 4
+# One fresh story is a block. The station would rather say one new thing
+# than fill the gap with station IDs, which is what a rejected block became.
+MIN_STORIES = 1
 # How many episodes and stories the model is shown. More is tokens, not quality.
 SHOW_EPISODES = 8
 SHOW_STORIES = 18
@@ -309,6 +311,19 @@ def _next_host(items: List[RunItem]) -> str:
     return order[0]
 
 
+def hold_block(now: Optional[datetime] = None) -> RunSheet:
+    """Nothing fresh to say: two beds, no talking. A station ID between two
+    silences is the loop the listener heard — "You're listening to HNFM"
+    eleven times in a minute — so a hold is music until there is news."""
+    from .music import STYLES
+
+    now = now or datetime.now()
+    return RunSheet(title=f"HNFM · {now.strftime('%-I %p')} hold", items=[
+        RunItem(kind="music", music_style=STYLES[now.minute % len(STYLES)], seconds=40),
+        RunItem(kind="music", music_style=STYLES[(now.minute + 3) % len(STYLES)], seconds=40),
+    ])
+
+
 def fallback_block(eps: List[dict], stories: List[dict], recent: List[dict], planned: List[dict],
                    minutes: int = 30, now: Optional[datetime] = None) -> RunSheet:
     """A block with no model: ID, time check, then briefs with short beds
@@ -322,6 +337,8 @@ def fallback_block(eps: List[dict], stories: List[dict], recent: List[dict], pla
     now = now or datetime.now()
     used_eps, used_stories = used_refs(recent, planned)
     st_pool = [st for st in stories if st["item_id"] not in used_stories]
+    if not st_pool:
+        return hold_block(now)
     hosts = ["mia", "jason", "sofia", "leo", "aria", "ray"]
     items: List[RunItem] = [RunItem(kind="station_id", host="mia", mood="calm")]
     items.append(RunItem(kind="time_check", host="sofia", mood="calm",

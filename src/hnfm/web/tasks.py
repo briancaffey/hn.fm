@@ -3124,12 +3124,20 @@ def radio_plan_block(reason: str = "scheduled", minutes: int = None) -> Dict[str
 
     if not radio.enabled():
         return {"status": "skipped", "reason": "radio is off"}
+    from ..db import repo
+
     sheet = director.plan_now(minutes=minutes, reason=reason)
     voiced = 0
     try:
         voiced = bank.voice_sheet(sheet["sheet_id"], sheet["items"])
     except Exception as e:
         logger.warning(f"radio: voicing the block failed (non-fatal): {e}")
+    finally:
+        # Voiced or not, the block is released now: what is in the bank
+        # airs, the rest is skipped. Never leave a block parked forever.
+        repo.radio_mark_ready(sheet["sheet_id"])
+        radio.log("producer", f"block {sheet['sheet_id']} is voiced and ready to air",
+                  sheet_id=sheet["sheet_id"], voiced=voiced)
     return {"status": "ok", "sheet_id": sheet["sheet_id"], "items": len(sheet["items"]),
             "source": sheet["source"], "voiced": voiced}
 
@@ -3158,9 +3166,10 @@ def radio_monitor() -> Dict[str, any]:
         return {"status": "skipped", "reason": "radio is off"}
     st = director.status()
     actions = []
-    if not st["sheet"] and not director.planning_since():
-        director.plan_now(reason="monitor: no sheet")
-        actions.append("planned a block")
+    if not st["sheet"]:
+        # Through the task, so the block is voiced before it airs.
+        if director.request_plan("monitor: no sheet").get("status") == "queued":
+            actions.append("asked for a block")
     if (st["bank"].get("station_id", 0) < 2 or st["bank"].get("music", 0) < 2):
         radio_fill_bank.apply_async(kwargs={"max_new": 4})
         actions.append("filling the bank")

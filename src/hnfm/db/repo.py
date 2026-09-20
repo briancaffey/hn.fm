@@ -1503,12 +1503,15 @@ def _sheet_to_dict(r) -> dict:
         "title": r.title, "minutes": r.minutes, "items": list(r.items or []),
         "cursor": int(r.cursor or 0), "source": r.source, "model": r.model,
         "tokens_in": r.tokens_in, "tokens_out": r.tokens_out, "reason": r.reason,
+        "ready_at": r.ready_at.isoformat() if getattr(r, "ready_at", None) else None,
     }
 
 
 def radio_save_sheet(sheet_id: str, title: str, minutes: int, items: list, source: str,
                      model: str = None, tokens_in: int = 0, tokens_out: int = 0,
-                     reason: str = None) -> dict:
+                     reason: str = None, ready: bool = True) -> dict:
+    """`ready=False` parks the sheet until `radio_mark_ready`: the plan task
+    voices the lines first, then releases the block to the director."""
     from .orm import RadioSheetRow
 
     with db_session() as s:
@@ -1516,9 +1519,23 @@ def radio_save_sheet(sheet_id: str, title: str, minutes: int, items: list, sourc
             sheet_id=sheet_id, created_at=datetime.utcnow(), title=title, minutes=minutes,
             items=items, cursor=0, source=source, model=model,
             tokens_in=tokens_in, tokens_out=tokens_out, reason=reason,
+            ready_at=datetime.utcnow() if ready else None,
         )
         s.add(row)
         s.commit()
+        return _sheet_to_dict(row)
+
+
+def radio_mark_ready(sheet_id: str) -> Optional[dict]:
+    from .orm import RadioSheetRow
+
+    with db_session() as s:
+        row = s.get(RadioSheetRow, sheet_id)
+        if not row:
+            return None
+        if not row.ready_at:
+            row.ready_at = datetime.utcnow()
+            s.commit()
         return _sheet_to_dict(row)
 
 
@@ -1529,7 +1546,8 @@ def radio_open_sheets() -> List[dict]:
 
     with db_session() as s:
         rows = s.query(RadioSheetRow).order_by(RadioSheetRow.created_at.asc()).all()
-        return [_sheet_to_dict(r) for r in rows if int(r.cursor or 0) < len(r.items or [])]
+        return [_sheet_to_dict(r) for r in rows
+                if r.ready_at is not None and int(r.cursor or 0) < len(r.items or [])]
 
 
 def radio_current_sheet() -> Optional[dict]:

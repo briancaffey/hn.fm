@@ -106,6 +106,21 @@ class TestPlanBlockFallsBack:
             sheet, source, _ = producer.plan_block(_eps(), _stories(), [], [], minutes=10)
         assert source == "fallback" and sheet.items
 
+    def test_one_fresh_story_is_a_block_not_a_rejection(self):
+        svc = mock.Mock()
+        svc.usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0, "model": None}
+        svc.model = "m"
+        svc.generate_structured.return_value = RunSheet(title="x", items=[
+            RunItem(kind="station_id", host="mia"), RunItem(kind="brief", story=1, host="mia")])
+        with mock.patch("hnfm.content.llm_service.LLMService", return_value=svc):
+            sheet, source, _ = producer.plan_block([], _stories(1), [], [], minutes=10)
+        assert source == "llm"
+
+    def test_nothing_fresh_means_a_music_hold_not_station_ids(self):
+        sheet = producer.fallback_block(_eps(), [], [], [], minutes=10)
+        assert sheet.items and all(i.kind == "music" for i in sheet.items)
+        assert len({i.music_style for i in sheet.items}) == 2
+
 
 class TestBriefs:
     def test_spoken_reads_headline_then_bullets(self):
@@ -399,4 +414,38 @@ class TestPickFromBank:
         assert speakable("The time is 12:30 PM") == "The time is twelve thirty P.M."
         assert speakable("at 9:00") == "at nine o'clock"
         assert time_words(datetime(2026, 9, 13, 16, 5)) == "four oh five in the afternoon"
+
+
+class TestNoRepeats:
+    def test_strict_pick_skips_rather_than_repeats(self, monkeypatch):
+        from hnfm.radio import library
+        monkeypatch.setattr(library, "load_bank", lambda: [{"id": "a", "kind": "station_id", "created_at": "1"}])
+        assert library.pick_from_bank("station_id", avoid_ids=["a"], strict=True) is None
+        assert library.pick_from_bank("station_id", avoid_ids=["a"])["id"] == "a"
+
+    def test_an_unvoiced_time_check_is_skipped_not_replaced_by_an_id(self, monkeypatch):
+        calls = []
+        def pick(kind, **kw):
+            calls.append(kind); return None
+        monkeypatch.setattr(director, "pick_from_bank", pick)
+        assert director._resolve({"kind": "time_check", "host": "sofia"}, "s1", []) is None
+        assert calls == ["time_check"]
+
+    def test_no_sheet_holds_on_music_and_asks_for_a_block(self, monkeypatch):
+        asked = []
+        monkeypatch.setattr(director, "_request_plan", lambda: asked.append(1))
+        monkeypatch.setattr(director, "current_sheet", lambda: None)
+        monkeypatch.setattr(director, "pick_from_bank",
+                            lambda kind, **kw: {"id": "m1", "kind": "music", "path": "/m.mp3", "style": "lo-fi"})
+        item = director.next_item()
+        assert item["kind"] == "music" and item.get("hold") is True and asked == [1]
+
+
+class TestReadyGate:
+    def test_a_parked_sheet_is_not_current_until_marked_ready(self):
+        repo.radio_save_sheet(sheet_id="park1", title="t", minutes=10,
+                              items=[{"kind": "brief", "story": 1, "host": "mia"}], source="llm", ready=False)
+        assert all(sh["sheet_id"] != "park1" for sh in repo.radio_open_sheets())
+        repo.radio_mark_ready("park1")
+        assert any(sh["sheet_id"] == "park1" for sh in repo.radio_open_sheets())
 

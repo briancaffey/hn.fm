@@ -154,9 +154,10 @@ def bank_counts() -> Dict[str, int]:
 
 
 def pick_from_bank(kind: str, avoid_ids: List[str] = (), sheet_id: Optional[str] = None,
-                   host: Optional[str] = None) -> Optional[dict]:
+                   host: Optional[str] = None, strict: bool = False) -> Optional[dict]:
     """A bank item of `kind`, preferring one written for this sheet, then any
-    generic one not played recently."""
+    generic one not played recently. With `strict`, nothing in `avoid_ids`
+    is ever returned — the caller would rather skip than repeat."""
     items = load_bank()
     if sheet_id:
         for i in items:
@@ -175,6 +176,8 @@ def pick_from_bank(kind: str, avoid_ids: List[str] = (), sheet_id: Optional[str]
     fresh = [i for i in pool if i["id"] not in avoid]
     if fresh:
         return sorted(fresh, key=lambda i: i.get("created_at") or "")[0]
+    if strict:
+        return None
     return max(pool, key=lambda i: avoid.index(i["id"]))
 
 

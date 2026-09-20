@@ -489,6 +489,10 @@ class RadioSheetRow(Base):
     tokens_in: Mapped[int] = mapped_column(Integer, nullable=True)
     tokens_out: Mapped[int] = mapped_column(Integer, nullable=True)
     reason: Mapped[str] = mapped_column(Text, nullable=True)
+    # Set once the block's lines are voiced. The director serves only ready
+    # sheets: a block that aired while its briefs were still being voiced
+    # lost them as "not in the bank yet".
+    ready_at: Mapped[datetime] = mapped_column(DateTime, nullable=True)
 
 
 class RadioEventRow(Base):

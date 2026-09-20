@@ -25,7 +25,11 @@ BLOCK_MINUTES = int(os.getenv("RADIO_BLOCK_MINUTES", "30"))
 # Plan the next block when this many items remain on the current one.
 REPLAN_AT = 3
 # Don't re-air an episode within this window.
-NO_REPEAT_HOURS = int(os.getenv("RADIO_NO_REPEAT_HOURS", "12"))
+# Once a story has aired it is done: a week is "never" for news.
+NO_REPEAT_HOURS = int(os.getenv("RADIO_NO_REPEAT_HOURS", str(24 * 7)))
+# A generic line (station ID) is not repeated within this window; the
+# director skips it rather than say the same sentence twice in an hour.
+ID_WINDOW_HOURS = 1
 SETTING_QUEUE = "radio.queue"
 SETTING_PLANNING = "radio.planning_since"
 
@@ -41,17 +45,15 @@ def current_sheet() -> Optional[dict]:
     return repo.radio_current_sheet()
 
 
-def plan_now(minutes: int = None, reason: str = "manual", fast: bool = False) -> dict:
-    """Plan a block synchronously (the task and the API both call this).
-
-    `fast` skips the model and uses the deterministic producer. The director
-    uses it when Liquidsoap is waiting on the answer: the DJ gives the API
-    thirty seconds, and a model call can take longer than that. The model's
-    block is requested in the background right after.
+def plan_now(minutes: int = None, reason: str = "manual") -> dict:
+    """Plan a block synchronously. The plan task calls this and then voices
+    the block; nothing else should, because an unvoiced block airs as
+    skips. The director never plans inline any more: while it waits for
+    the task it holds on music (`_hold`).
     """
     from ..db import repo
     from .briefs import candidates
-    from .producer import fallback_block, plan_block
+    from .producer import plan_block
 
     minutes = minutes or BLOCK_MINUTES
     recent = repo.radio_recent_events(hours=NO_REPEAT_HOURS)
@@ -62,21 +64,17 @@ def plan_now(minutes: int = None, reason: str = "manual", fast: bool = False) ->
     planned = []
     for sh in repo.radio_list_sheets(limit=4):
         planned.extend(sh["items"][sh["cursor"]:])
-    if fast:
-        sheet, source, usage = fallback_block(eps, stories, recent, planned, minutes), "fallback", {}
-    else:
-        sheet, source, usage = plan_block(eps, stories, recent, planned, minutes)
+    sheet, source, usage = plan_block(eps, stories, recent, planned, minutes)
+    # A block with lines to voice is parked until the task has voiced them
+    # (`radio_mark_ready`); a hold of beds has nothing to wait for.
+    spoken = any(i.kind not in ("music", "episode") for i in sheet.items)
     row = repo.radio_save_sheet(
         sheet_id=uuid.uuid4().hex[:12], title=sheet.title, minutes=minutes,
         items=[i.model_dump() for i in sheet.items], source=source,
         model=usage.get("model"), tokens_in=usage.get("tokens_in", 0),
-        tokens_out=usage.get("tokens_out", 0), reason=reason,
+        tokens_out=usage.get("tokens_out", 0), reason=reason, ready=not spoken,
     )
-    # A fast block is a stopgap; the model's block is still owed, so only
-    # a model plan clears the request. (Clearing it here used to let the
-    # next low-sheet check dispatch a second model plan.)
-    if not fast:
-        repo.set_setting(SETTING_PLANNING, None)
+    repo.set_setting(SETTING_PLANNING, None)
     logger.info(
         f"📻 planned block {row['sheet_id']} ({source}): {len(sheet.items)} items, "
         f"{usage.get('tokens_in', 0)}/{usage.get('tokens_out', 0)} tokens — {sheet.title}"
@@ -127,7 +125,9 @@ def request_plan(reason: str = "sheet low", minutes: int = None, force: bool = F
         return {"status": "queued", "task_id": t.id}
     except Exception as e:
         logger.warning(f"radio: could not dispatch a plan ({e}); planning inline")
-        return {"status": "planned", "sheet_id": plan_now(reason=f"{reason} (inline)")["sheet_id"]}
+        row = plan_now(reason=f"{reason} (inline)")
+        repo.radio_mark_ready(row["sheet_id"])  # nobody will voice it; air what the bank has
+        return {"status": "planned", "sheet_id": row["sheet_id"]}
 
 
 def _request_plan() -> None:
@@ -205,12 +205,13 @@ def _resolve(item: dict, sheet_id: str, recent_ids: List[str]) -> Optional[dict]
             out["ref"] = f"story:{b['story']}"
             out["item_id"] = b["story"]
         return out
-    # A spoken line: the one written for this block if it was voiced in
-    # time, otherwise a generic station ID in the same host's voice.
-    b = pick_from_bank(kind, avoid_ids=recent_ids, sheet_id=sheet_id, host=item.get("host"))
-    if not b and kind != "station_id":
-        b = pick_from_bank("station_id", avoid_ids=recent_ids, host=item.get("host"))
-        kind = "station_id" if b else kind
+    # A spoken line: the one written for this block, if it was voiced in
+    # time. A time check or coming-up line that was not voiced is skipped —
+    # it used to become a station ID, which is how a block of nothing
+    # aired as the same two IDs over and over. A station ID is never
+    # repeated within the hour; the director would rather say nothing.
+    b = pick_from_bank(kind, avoid_ids=recent_ids, sheet_id=sheet_id, host=item.get("host"),
+                       strict=(kind == "station_id"))
     if not b:
         return None
     return {"kind": kind, "path": b["path"], "title": b.get("text") or kind,
@@ -235,8 +236,7 @@ def next_item() -> dict:
 
     sheet = current_sheet()
     if not sheet:
-        sheet = plan_now(reason="no sheet (fast)", fast=True)
-        _request_plan()
+        return _hold(recent_ids, "no block yet")
 
     for _ in range(len(sheet["items"]) + 1):
         idx = sheet["cursor"]
@@ -259,11 +259,44 @@ def next_item() -> dict:
         logger.info(f"radio: item {idx} ({item.get('kind')}) unavailable, skipping")
         log("director", f"item {idx + 1} ({item.get('kind')}) is not in the bank yet; skipped", kind=item.get("kind"))
 
-    # Sheet exhausted before a replacement arrived: a fast block now, and
-    # the model's block requested for after it.
-    sheet = plan_now(reason="exhausted (fast)", fast=True)
+    # Sheet exhausted before a replacement arrived: hold on music.
+    return _hold(recent_ids, "block exhausted")
+
+
+HOLD_FILL_SETTING = "radio.hold_fill_at"
+
+
+def _hold(recent_ids: List[str], why: str) -> dict:
+    """Music while the producer works: the bed that has waited longest,
+    never a spoken line. Asks for a block (once), and for fresh beds when
+    every bed has played this hour. This is the whole of what the station
+    does with nothing to say — it does not build a block of station IDs.
+    """
+    from ..db import repo
+
     _request_plan()
-    return next_item() if sheet["items"] else _safety()
+    b = pick_from_bank("music", avoid_ids=recent_ids)
+    if b and b["id"] in recent_ids:
+        # Every bed has played within the hour: ask for new ones, at most
+        # every ten minutes, and play the longest-ago meanwhile.
+        last = repo.get_setting(HOLD_FILL_SETTING)
+        try:
+            stale = not last or datetime.utcnow() - datetime.fromisoformat(last) > timedelta(minutes=10)
+        except Exception:
+            stale = True
+        if stale:
+            repo.set_setting(HOLD_FILL_SETTING, datetime.utcnow().isoformat())
+            try:
+                from ..web.tasks import radio_fill_bank
+
+                radio_fill_bank.apply_async(kwargs={"max_new": 2})
+            except Exception as e:
+                logger.debug(f"radio: could not ask for beds ({e})")
+    if not b:
+        return _safety()
+    log("director", f"holding on music ({why}): {b.get('style') or 'bed'}", kind="music", hold=True)
+    return {"kind": "music", "path": b["path"], "title": b.get("style") or "music",
+            "bank_id": b["id"], "seconds": b.get("seconds"), "hold": True}
 
 
 def _safety() -> dict:
