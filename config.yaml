@@ -96,6 +96,9 @@ llm:
     image.scene:
       temperature: 0.95     # scene variety is the whole point
       max_tokens: 300
+    image.direct:
+      temperature: 1.15     # the art director: range is the job, so it runs hot
+      max_tokens: 600
     media_plan.plan:
       temperature: 0.7
       max_tokens: 2000
@@ -424,13 +427,13 @@ schedule:
       task: hnfm.web.tasks.build_digest
       cron: "30 3 * * *"
       gate: generation
-      kwargs: { shape: punchline, send: true, score_first: true, edition: morning }
+      kwargs: { shape: punchline, send: true, score_first: true, edition: morning, illustrate_n: 1 }
       why: "The whole front page and /new, every story cut to its answer. Takes about five minutes; on the Kindle by 03:40."
     digest-daily:
       task: hnfm.web.tasks.build_digest
       cron: "0 4 * * *"
       gate: generation
-      kwargs: { shape: daily, send: true, score_first: true }
+      kwargs: { shape: daily, send: true, score_first: true, illustrate_n: 2 }
       why: "Five stories with a teaser and two deep dives, written from Story Briefs. The longer morning read; done by about 04:15."
     digest-narrative-audio:
       task: hnfm.web.tasks.build_digest
@@ -443,26 +446,27 @@ schedule:
       task: hnfm.web.tasks.build_digest
       cron: "30 12 * * 1-5"
       gate: generation
-      kwargs: { shape: punchline, send: true, score_first: true, edition: midday }
+      kwargs: { shape: punchline, send: true, score_first: true, edition: midday, illustrate_n: 1 }
       why: "Weekday lunch: a Punchline of only what arrived since the morning edition (the 7-day dedup keeps the morning's stories out)."
     digest-evening:
       task: hnfm.web.tasks.build_digest
       cron: "0 18 * * 1-5"
       gate: generation
-      kwargs: { shape: scan, send: true, score_first: true, edition: evening }
+      kwargs: { shape: scan, send: true, score_first: true, edition: evening, illustrate_n: 1 }
       why: "The ride home: eight quick hits from the afternoon. Short on purpose — the Deep and Daily reads are for mornings and weekends."
     # --- weekend --------------------------------------------------------
     digest-deep-weekend:
       task: hnfm.web.tasks.build_digest
       cron: "0 8 * * 6,0"
       gate: generation
-      kwargs: { shape: deep, send: true, score_first: true, exclude_recent_days: 3 }
+      kwargs: { shape: deep, send: true, score_first: true, exclude_recent_days: 3, illustrate_n: 3 }
       why: "Saturday and Sunday at a civilised hour: three stories at full depth, re-using the week's best rather than waiting for new ones."
     # --- video ------------------------------------------------------------
     produce-top-story:
       task: hnfm.web.tasks.produce_top_story
       every: 6h
       gate: generation
+      enabled: false        # paused 2026-09-19: the Kindle editions are the product for now
       kwargs: { limit: 1, mode: video }
       why: "One video for the top-ranked story that has none. The render lane is serial and a segment takes about an hour, so four a day is the ceiling anyway."
 

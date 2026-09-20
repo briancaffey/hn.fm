@@ -255,7 +255,10 @@ def _section_body(sec, illos=None) -> str:
             f'<a href="{_esc(href)}">{_esc(sec.title)}</a>' if href
             else _esc(sec.title)
         )
-        out.append(f'<div class="punch"><h2>{title}</h2><ul>')
+        out.append(f'<div class="punch"><h2>{title}</h2>')
+        if pics:
+            out.append(_figure(pics.pop(0)))
+        out.append("<ul>")
         for line in sec.body.splitlines():
             if line.strip():
                 out.append(f"<li>{_esc(line.strip())}</li>")

@@ -1,6 +1,7 @@
 """Celery tasks for Hacker News operations"""
 
 import os
+import random
 import time
 import logging
 from typing import Dict
@@ -2669,10 +2670,13 @@ def build_digest(
     fmt = (fmt or os.getenv("DIGEST_FORMAT", "html")).lower()
     outputs_root = os.getenv("OUTPUTS_ROOT", "/app/outputs")
 
-    if illustrate_n and rapid:
-        # The point of this edition is that it has no pictures.
-        logger.info("digest: punchline edition ignores illustrate_n")
-        illustrate_n = 0
+    # Pictures are part of every edition now, the punchline included: one
+    # per story there, since a story is a title and three lines. A seed of
+    # None means a fresh one per edition, so two issues never share a hand.
+    if rapid and illustrate_n:
+        illustrate_n = 1
+    if not illustrate_seed:
+        illustrate_seed = random.randrange(1, 10 ** 6)
 
     if score_first:
         # Score unscored stories so tonight's arrivals can appear tomorrow.
@@ -2718,10 +2722,6 @@ def build_digest(
         base = f"{base}-{shape}"
     if edition:
         base = f"{base}-{edition.strip().lower()}"
-    if illustrate_n:
-        # Keep the illustrated edition beside the plain one rather than
-        # replacing it, so the two can be compared.
-        base = f"{base}-illustrated"
 
     # Compose the edition — teaser, quick hits, feature, bonus. Falls back to
     # the flat per-story layout if composition yields nothing, so a model
@@ -2801,6 +2801,11 @@ def build_digest(
         # IMAGE, in a different register each time and told what the edition
         # has already used, produces three illustrations.
         used_nouns = []
+        # What the art director must not repeat: treatments and subjects
+        # already commissioned in this issue.
+        used_looks = []
+        _rng = random.Random(int(illustrate_seed))
+        _directed = _ill.directed()
         for story in digest.stories:
             want = budget.get(story.item_id, int(illustrate_n))
             styles = assignment.get(story.item_id, [])
@@ -2810,15 +2815,23 @@ def build_digest(
                 if len(made) >= want:
                     break
                 register = regs[i] if i < len(regs) else None
-                subject = _ill.subject_for(story, register=register,
-                                           avoid=used_nouns)
+                # The director invents the picture; the catalogue is what
+                # happens when the model is away.
+                direction = _ill.direct(story, register, used_looks + used_nouns, _rng) \
+                    if _directed else None
+                if direction:
+                    style, subject = direction
+                    used_looks.append(style.label)
+                else:
+                    subject = _ill.subject_for(story, register=register,
+                                               avoid=used_nouns)
                 subjects.append(subject)
                 used_nouns.extend(_ill.subject_nouns(subject))
                 got = _ill.render(subject, story.title, style,
-                                  # A per-image seed: one seed for the whole
-                                  # edition made flux repeat composition even
-                                  # where the prompt had genuinely changed.
-                                  seed=int(illustrate_seed or 7) + i,
+                                  # A fresh seed per image: one seed for the
+                                  # whole edition made flux repeat composition
+                                  # even where the prompt had changed.
+                                  seed=_rng.randrange(1, 2 ** 31),
                                   kind="digest", item_id=story.item_id,
                                   slug=base)
                 if got:
@@ -2828,7 +2841,8 @@ def build_digest(
             logger.info(
                 f"digest: {len(made)} illustration(s) for {story.item_id} — "
                 + " | ".join(
-                    f"{(regs[i][0] if i < len(regs) else '?')}: {sub[:44]}"
+                    f"{(regs[i][0] if i < len(regs) else '?')}"
+                    f"{' / ' + made[i].style.label if i < len(made) else ''}: {sub[:44]}"
                     for i, sub in enumerate(subjects)
                 )
             )

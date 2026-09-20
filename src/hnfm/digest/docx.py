@@ -285,12 +285,10 @@ def write_docx(digest, out_path: str, sections=None, illustrations=None,
             doc.para("  ·  ".join(bits), "Caption")
 
     def _figure(illo):
+        # The Kindle copy gets the picture and its treatment; the prompt and
+        # the numbers stay in the HTML, which is the review surface.
         doc.image(illo.data_uri, width_px=440, alt=illo.style.label)
-        doc.para(
-            f"{illo.style.label} — {illo.style.technique} · ink {illo.ink:.2f}",
-            "Caption",
-        )
-        doc.para(illo.prompt, "Mono")
+        doc.para(illo.style.label, "Caption")
 
     if sections:
         for sec in sections:
@@ -320,6 +318,8 @@ def write_docx(digest, out_path: str, sections=None, illustrations=None,
                 # Compact: a bold title, its bullets, the links. No kicker —
                 # the group heading above already says what these are.
                 doc.para(sec.title, "Heading2")
+                if pics:
+                    _figure(pics.pop(0))
                 for line in sec.body.splitlines():
                     if line.strip():
                         doc.para("• " + _plain(line.strip()), "Body")

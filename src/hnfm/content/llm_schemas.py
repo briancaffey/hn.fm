@@ -332,3 +332,14 @@ class StoryBrief(BaseModel):
     entities: List[Entity]
     numbers: List[Number]
     comment_insights: List[dict] = Field(default_factory=list)
+
+
+class ArtDirection(BaseModel):
+    """What the art director commissions for one picture (digest/illustrate.py)."""
+
+    subject: str = Field(description="The scene, under eighteen words")
+    treatment: str = Field(description="A two-to-six word name for the look")
+    prompt: str = Field(description="The full prompt for the image model")
+    steps: int = Field(default=28, description="Sampling steps, 20 to 36")
+    cfg: float = Field(default=4.0, description="Guidance, 3 to 5")
+

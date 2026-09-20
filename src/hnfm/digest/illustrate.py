@@ -14,6 +14,7 @@ file is the only kind that works.
 import base64
 import io
 import logging
+import os
 import random
 import re
 from dataclasses import dataclass
@@ -520,6 +521,78 @@ def plan_registers(stories, per_story: int = 2, seed: int = 7) -> dict:
             i += 1
         out[s.item_id] = picks
     return out
+
+
+# --- the art director ------------------------------------------------------
+#
+# The catalogue above is twenty recipes walked as a deck, and after a few
+# issues a reader can name the deck. The director replaces the deck: one
+# model call per picture, told the story, the register, everything the issue
+# has already used, and two words of chance, and asked to invent the
+# picture — medium, era, vantage, composition — and write the prompt itself.
+# The catalogue stays as the fallback when the model is down, and as the
+# floor of the range the director is shown.
+
+DIRECT_TASK = "image.direct"
+
+# Two of these ride along on every call. They are not subjects; they are a
+# nudge off the model's beaten path, the way a brief that says "think of
+# salt" gets a different picture than one that does not.
+SPARKS = [
+    "salt", "midnight", "brass", "flood", "orchard", "static", "harbour", "velvet", "rust",
+    "monsoon", "chalk", "lantern", "glacier", "circus", "cathedral", "kitchen", "tide",
+    "beehive", "quarry", "greenhouse", "railway", "lighthouse", "attic", "carnival", "desert",
+    "workshop", "opera", "swamp", "observatory", "bakery", "shipyard", "library", "volcano",
+    "market", "monastery", "playground", "laboratory", "vineyard", "junkyard", "aquarium",
+    "clocktower", "tundra", "foundry", "theatre", "canyon", "nursery", "dockside", "moor",
+]
+
+
+def directed() -> bool:
+    return os.getenv("DIGEST_ART_DIRECTOR", "true").lower() == "true"
+
+
+def direct(story, register: tuple, used: List[str], rng: random.Random):
+    """(Style, subject) invented for this picture, or None if the model is
+    unavailable — the caller then falls back to the catalogue."""
+    from ..content.llm_service import LLMService, LLMError
+    from ..content.llm_schemas import ArtDirection
+    from ..content.prompts import render as render_prompt
+
+    b = story.brief or {}
+    context = (b.get("thesis") or b.get("angle") or "")[:400]
+    name, gloss = register if register else ("any", "whatever this story most needs")
+    seen, distinct = set(), []
+    for u in reversed(used):
+        if u and u not in seen:
+            seen.add(u)
+            distinct.append(u)
+        if len(distinct) >= 30:
+            break
+    try:
+        d = LLMService(task=DIRECT_TASK).generate_structured(render_prompt(
+            DIRECT_TASK, title=story.title, context=context or "(no summary yet)",
+            register=f"{name} — {gloss}",
+            used=", ".join(distinct) if distinct else "nothing yet",
+            spark=" and ".join(rng.sample(SPARKS, 2)),
+        ), ArtDirection)
+    except (LLMError, Exception) as e:
+        logger.info(f"art director unavailable for {story.item_id}: {e}")
+        return None
+    prompt = " ".join((d.prompt or "").split())
+    subject = _norm(d.subject)
+    if len(prompt) < 20 or not subject:
+        return None
+    if "no colour" not in prompt.lower() and "no color" not in prompt.lower():
+        prompt += " Black ink on white paper, no colour."
+    treatment = " ".join((d.treatment or "directed").split())[:60]
+    style = Style(
+        key="directed:" + re.sub(r"[^a-z0-9]+", "-", treatment.lower()).strip("-")[:40],
+        label=treatment, technique="art-directed",
+        build=lambda _s, _t, _p=prompt: _p,
+        steps=max(20, min(36, int(d.steps or 28))), cfg=max(3.0, min(5.0, float(d.cfg or 4.0))),
+    )
+    return style, subject
 
 
 # --- edition furniture -----------------------------------------------------
