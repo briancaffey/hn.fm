@@ -34,7 +34,7 @@ def candidates(limit: int = 24, hours: int = 48) -> List[dict]:
 
     from ..db import repo
 
-    rows, _ = repo.list_triage(offset=0, limit=400, include_generated=True)
+    rows, _ = repo.list_triage(offset=0, limit=400, include_generated=True, since_hours=hours)
     out = []
     for r in rows:
         if r.get("source") != "new":

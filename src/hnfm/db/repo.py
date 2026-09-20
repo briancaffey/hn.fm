@@ -765,10 +765,13 @@ def list_triage(
     include_rejected: bool = False,
     q: str = None,
     bucket: str = None,
+    since_hours: int = None,
 ) -> Tuple[List[dict], int]:
     """The ranked triage queue: newest score per story, joined with the item,
     human feedback, and generation counts. Ordered by effective rank
-    (rank_score + human boost) descending."""
+    (rank_score + human boost) descending. `since_hours` keeps only stories
+    posted that recently — the radio wants today's, and by rank alone
+    today's never make the first four hundred."""
     # newest scored run per item
     latest = (
         select(
@@ -823,6 +826,10 @@ def list_triage(
 
     if verdict:
         query = query.where(TriageScoreRow.verdict == verdict)
+    if since_hours:
+        import time as _time
+
+        query = query.where(HNItemRow.time >= int(_time.time()) - int(since_hours) * 3600)
     if bucket == "needs_better_source":
         # High interest, low producibility — worth making, but the scrape was
         # too thin (plans/09). Thresholds live in config so this view tracks
