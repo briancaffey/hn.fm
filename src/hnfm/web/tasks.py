@@ -3136,6 +3136,7 @@ def radio_plan_block(reason: str = "scheduled", minutes: int = None) -> Dict[str
         # Voiced or not, the block is released now: what is in the bank
         # airs, the rest is skipped. Never leave a block parked forever.
         repo.radio_mark_ready(sheet["sheet_id"])
+        repo.set_setting(director.SETTING_PLANNING, None)
         radio.log("producer", f"block {sheet['sheet_id']} is voiced and ready to air",
                   sheet_id=sheet["sheet_id"], voiced=voiced)
     return {"status": "ok", "sheet_id": sheet["sheet_id"], "items": len(sheet["items"]),
@@ -3170,7 +3171,7 @@ def radio_monitor() -> Dict[str, any]:
         # Through the task, so the block is voiced before it airs.
         if director.request_plan("monitor: no sheet").get("status") == "queued":
             actions.append("asked for a block")
-    if (st["bank"].get("station_id", 0) < 2 or st["bank"].get("music", 0) < 2):
+    if (st["bank"].get("station_id", 0) < 2 or st["bank"].get("music", 0) < bank.TARGETS["music"]):
         radio_fill_bank.apply_async(kwargs={"max_new": 4})
         actions.append("filling the bank")
     # Blocks air oldest first, so an open sheet can be older than the newest

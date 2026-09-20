@@ -1526,6 +1526,19 @@ def radio_save_sheet(sheet_id: str, title: str, minutes: int, items: list, sourc
         return _sheet_to_dict(row)
 
 
+def radio_parked_sheets(max_age_minutes: int = 15) -> List[dict]:
+    """Sheets saved but not yet released (still being voiced). Older than
+    `max_age_minutes` they are treated as abandoned and not counted."""
+    from .orm import RadioSheetRow
+
+    cutoff = datetime.utcnow() - timedelta(minutes=max_age_minutes)
+    with db_session() as s:
+        rows = (s.query(RadioSheetRow)
+                .filter(RadioSheetRow.ready_at.is_(None), RadioSheetRow.created_at >= cutoff)
+                .order_by(RadioSheetRow.created_at.desc()).all())
+        return [_sheet_to_dict(r) for r in rows]
+
+
 def radio_mark_ready(sheet_id: str) -> Optional[dict]:
     from .orm import RadioSheetRow
 

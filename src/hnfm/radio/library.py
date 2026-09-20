@@ -159,9 +159,16 @@ def pick_from_bank(kind: str, avoid_ids: List[str] = (), sheet_id: Optional[str]
     generic one not played recently. With `strict`, nothing in `avoid_ids`
     is ever returned — the caller would rather skip than repeat."""
     items = load_bank()
+    # The same sentence is the same item, whichever block voiced it: the
+    # producer writes "You're listening to HNFM" into every block, and by
+    # id each copy was new.
+    avoid = set(avoid_ids)
+    if strict:
+        said = {i.get("text") for i in items if i["id"] in avoid and i.get("text")}
+        avoid |= {i["id"] for i in items if i.get("text") in said}
     if sheet_id:
         for i in items:
-            if i.get("sheet_id") == sheet_id and i["kind"] == kind and i["id"] not in avoid_ids:
+            if i.get("sheet_id") == sheet_id and i["kind"] == kind and i["id"] not in avoid:
                 return i
     pool = [i for i in items if i["kind"] == kind and not i.get("sheet_id")
             and (host is None or i.get("host") == host)]
@@ -172,13 +179,13 @@ def pick_from_bank(kind: str, avoid_ids: List[str] = (), sheet_id: Optional[str]
     # `avoid_ids` is what played lately, newest first. Prefer anything not
     # in it (oldest first, so the stock rotates); failing that, whatever
     # played longest ago — never the same one again because it is oldest.
-    avoid = list(avoid_ids)
     fresh = [i for i in pool if i["id"] not in avoid]
     if fresh:
         return sorted(fresh, key=lambda i: i.get("created_at") or "")[0]
     if strict:
         return None
-    return max(pool, key=lambda i: avoid.index(i["id"]))
+    order = list(avoid_ids)
+    return max(pool, key=lambda i: order.index(i["id"]) if i["id"] in order else -1)
 
 
 def safety_path() -> str:

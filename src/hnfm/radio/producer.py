@@ -98,7 +98,9 @@ def plan_block(eps: List[dict], stories: List[dict], recent: List[dict], planned
 
     now = now or datetime.now()
     used_eps, used_stories = used_refs(recent, planned)
-    fresh_eps = [e for e in eps if e["ref"] not in used_eps] or list(eps)
+    # Aired is aired: no falling back to the whole library when every
+    # episode has played this week.
+    fresh_eps = [e for e in eps if e["ref"] not in used_eps]
     fresh_stories = [st for st in stories if st["item_id"] not in used_stories]
 
     svc = LLMService(task=TASK)

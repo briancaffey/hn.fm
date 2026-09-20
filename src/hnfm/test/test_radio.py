@@ -423,13 +423,22 @@ class TestNoRepeats:
         assert library.pick_from_bank("station_id", avoid_ids=["a"], strict=True) is None
         assert library.pick_from_bank("station_id", avoid_ids=["a"])["id"] == "a"
 
-    def test_an_unvoiced_time_check_is_skipped_not_replaced_by_an_id(self, monkeypatch):
+    def test_an_unvoiced_coming_up_is_skipped_not_replaced_by_an_id(self, monkeypatch):
         calls = []
         def pick(kind, **kw):
             calls.append(kind); return None
         monkeypatch.setattr(director, "pick_from_bank", pick)
-        assert director._resolve({"kind": "time_check", "host": "sofia"}, "s1", []) is None
-        assert calls == ["time_check"]
+        assert director._resolve({"kind": "coming_up", "host": "sofia"}, "s1", []) is None
+        assert calls == ["coming_up"]
+
+    def test_the_same_sentence_from_another_block_counts_as_played(self, monkeypatch):
+        from hnfm.radio import library
+        monkeypatch.setattr(library, "load_bank", lambda: [
+            {"id": "s1-3", "kind": "station_id", "sheet_id": "s1", "text": "You're listening to HNFM", "created_at": "1"},
+            {"id": "s2-3", "kind": "station_id", "sheet_id": "s2", "text": "You're listening to HNFM", "created_at": "2"},
+            {"id": "g1", "kind": "station_id", "text": "HNFM. Made by machines", "created_at": "0"},
+        ])
+        assert library.pick_from_bank("station_id", avoid_ids=["s1-3"], sheet_id="s2", strict=True)["id"] == "g1"
 
     def test_no_sheet_holds_on_music_and_asks_for_a_block(self, monkeypatch):
         asked = []
@@ -460,4 +469,11 @@ class TestReadyGate:
                               items=[{"kind": "station_id", "host": "mia"}, {"kind": "station_id", "host": "leo"}])
         director.next_item(); director.next_item()
         assert "id-1" in picks[1]
+
+    def test_a_parked_block_counts_as_a_plan_in_flight(self, monkeypatch):
+        monkeypatch.setattr(director, "log", lambda *a, **k: None)
+        monkeypatch.setattr(director, "planning_since", lambda: None)
+        repo.radio_save_sheet(sheet_id="park2", title="t", minutes=10, source="llm", ready=False,
+                              items=[{"kind": "brief", "story": 1, "host": "mia"}])
+        assert director.request_plan("sheet low")["status"] == "already planning"
 

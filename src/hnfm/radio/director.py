@@ -62,7 +62,7 @@ def plan_now(minutes: int = None, reason: str = "manual") -> dict:
     # What is already on the belt: the unserved tail of every open sheet.
     # Two blocks planned minutes apart used to open on the same stories.
     planned = []
-    for sh in repo.radio_list_sheets(limit=4):
+    for sh in repo.radio_open_sheets() + repo.radio_parked_sheets():
         planned.extend(sh["items"][sh["cursor"]:])
     sheet, source, usage = plan_block(eps, stories, recent, planned, minutes)
     # A block with lines to voice is parked until the task has voiced them
@@ -74,7 +74,6 @@ def plan_now(minutes: int = None, reason: str = "manual") -> dict:
         model=usage.get("model"), tokens_in=usage.get("tokens_in", 0),
         tokens_out=usage.get("tokens_out", 0), reason=reason, ready=not spoken,
     )
-    repo.set_setting(SETTING_PLANNING, None)
     logger.info(
         f"📻 planned block {row['sheet_id']} ({source}): {len(sheet.items)} items, "
         f"{usage.get('tokens_in', 0)}/{usage.get('tokens_out', 0)} tokens — {sheet.title}"
@@ -116,6 +115,9 @@ def request_plan(reason: str = "sheet low", minutes: int = None, force: bool = F
     since = planning_since()
     if since and not force:
         return {"status": "already planning", "since": since.isoformat()}
+    parked = repo.radio_parked_sheets()
+    if parked and not force:
+        return {"status": "already planning", "parked": parked[0]["sheet_id"]}
     repo.set_setting(SETTING_PLANNING, datetime.utcnow().isoformat())
     log("director", f"asked the producer for the next block ({reason})")
     try:
@@ -127,6 +129,7 @@ def request_plan(reason: str = "sheet low", minutes: int = None, force: bool = F
         logger.warning(f"radio: could not dispatch a plan ({e}); planning inline")
         row = plan_now(reason=f"{reason} (inline)")
         repo.radio_mark_ready(row["sheet_id"])  # nobody will voice it; air what the bank has
+        repo.set_setting(SETTING_PLANNING, None)
         return {"status": "planned", "sheet_id": row["sheet_id"]}
 
 
@@ -205,6 +208,8 @@ def _resolve(item: dict, sheet_id: str, recent_ids: List[str]) -> Optional[dict]
             out["ref"] = f"story:{b['story']}"
             out["item_id"] = b["story"]
         return out
+    if kind == "time_check":
+        return _time_check_now(item)
     # A spoken line: the one written for this block, if it was voiced in
     # time. A time check or coming-up line that was not voiced is skipped —
     # it used to become a station ID, which is how a block of nothing
@@ -276,21 +281,19 @@ def _recently_played(hours: int = 1) -> List[str]:
     from ..db import repo
 
     cutoff = datetime.utcnow() - timedelta(hours=hours)
-    seen, out = set(), []
+    stamped = []
     for r in repo.radio_recent_events(hours=hours):
         bid = (r.get("meta") or {}).get("bank_id")
-        if bid and bid not in seen:
-            seen.add(bid)
-            out.append(bid)
-    served = [r for r in repo.radio_log_tail(limit=300)
-              if r.get("component") == "director" and (r.get("meta") or {}).get("bank_id")]
-    for r in reversed(served):
-        try:
-            if datetime.fromisoformat(r["at"]) < cutoff:
-                continue
-        except Exception:
-            pass
-        bid = r["meta"]["bank_id"]
+        if bid:
+            stamped.append((r.get("at") or "", bid))
+    for r in repo.radio_log_tail(limit=400):
+        bid = (r.get("meta") or {}).get("bank_id")
+        if r.get("component") == "director" and bid and (r.get("at") or "") >= cutoff.isoformat():
+            stamped.append((r["at"], bid))
+    # Newest first, so a caller that must repeat can take the last entry
+    # as the one that played longest ago.
+    seen, out = set(), []
+    for _at, bid in sorted(stamped, reverse=True):
         if bid not in seen:
             seen.add(bid)
             out.append(bid)
@@ -329,6 +332,28 @@ def _hold(recent_ids: List[str], why: str) -> dict:
         bank_id=b["id"])
     return {"kind": "music", "path": b["path"], "title": b.get("style") or "music",
             "bank_id": b["id"], "seconds": b.get("seconds"), "hold": True}
+
+
+def _time_check_now(item: dict) -> Optional[dict]:
+    """The time as it is when the line airs. Voiced at plan time it said
+    "four thirteen" at four sixteen; one short TTS call now (cached per
+    minute) says the right thing. None if the voice is away."""
+    from .copy import time_words
+    from .library import bank_dir
+    from .voice import say
+
+    now = datetime.now()
+    host = item.get("host") or "sofia"
+    line = item.get("line") or f"It's {time_words(now)}, on HNFM."
+    if item.get("line"):
+        # The planner's line carries a stale clock; keep its wording only
+        # if it has no time in it.
+        line = f"It's {time_words(now)}, on HNFM."
+    out = os.path.join(bank_dir(), f"time_{now.strftime('%H%M')}_{host}.mp3")
+    if not os.path.exists(out) and not say(line, host, out, mood=item.get("mood") or "calm"):
+        return None
+    return {"kind": "time_check", "path": out, "title": line, "host": host,
+            "bank_id": f"time-{now.strftime('%H%M')}"}
 
 
 def _safety() -> dict:

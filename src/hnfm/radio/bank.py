@@ -22,7 +22,9 @@ from .voice import HOSTS, say
 logger = logging.getLogger(__name__)
 
 # How much generic stock to keep.
-TARGETS = {"station_id": 10, "music": 8}
+# Two dozen beds: a hold can run for a while, and a bed is not repeated
+# within the hour, so eight was the same eight in every hold.
+TARGETS = {"station_id": 10, "music": 24}
 # Generic beds are short: the station changes topic every half minute.
 BED_SECONDS = int(os.getenv("RADIO_BED_SECONDS", "35"))
 
