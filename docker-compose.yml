@@ -11,16 +11,16 @@ x-common-app-config: &common-app-config
   # ingress IP instead (any node IP works; traefik routes by Host header).
   # Pointed at .174 since 2026-09-01: .173 is down. Any live node works.
   extra_hosts:
-    - "litellm.lan:192.168.5.174"
-    - "firecrawl.lan:192.168.5.174"
-    - "magpie.lan:192.168.5.174"
-    - "flux.lan:192.168.5.174"
-    - "ltx.lan:192.168.5.174"
-    - "asr.lan:192.168.5.174"
-    - "acestep.lan:192.168.5.174"
-    - "dia.lan:192.168.5.174"
-    - "studio-voice.lan:192.168.5.174"
-    - "omni.lan:192.168.5.174"
+    - "litellm.lan:192.168.4.25"
+    - "firecrawl.lan:192.168.4.25"
+    - "magpie.lan:192.168.4.25"
+    - "flux.lan:192.168.4.25"
+    - "ltx.lan:192.168.4.25"
+    - "asr.lan:192.168.4.25"
+    - "acestep.lan:192.168.4.25"
+    - "dia.lan:192.168.4.25"
+    - "studio-voice.lan:192.168.4.25"
+    - "omni.lan:192.168.4.25"
   volumes:
     - ./src:/app/src  # Mount source code for hot reloading
     - ./outputs:/app/outputs
