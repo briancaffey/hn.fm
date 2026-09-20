@@ -217,6 +217,7 @@ class LLMService:
         content = getattr(message, "content", None) or getattr(
             message, "reasoning_content", None
         )
+        content = _strip_reasoning(content)
         if not content or not content.strip():
             raise LLMError(f"{model} returned empty content")
         return content
@@ -374,6 +375,25 @@ class LLMService:
         raise LLMError(
             f"structured generation failed for {schema.__name__} — {'; '.join(errors)}"
         )
+
+
+def _strip_reasoning(text: Optional[str]) -> Optional[str]:
+    """The answer after the model's thinking, when the server left both in
+    `content`.
+
+    Since the September 2026 LM Studio update the omni model's reply arrives
+    as its reasoning, a bare `</think>`, then the answer — with no opening
+    tag and regardless of `enable_thinking` or `reasoning_effort` (measured:
+    all three variants, every time). The reasoning is not the answer, so
+    everything up to the last closing tag goes. A reply with no tag is
+    returned as it was.
+    """
+    if not text:
+        return text
+    for tag in ("</think>", "</thinking>"):
+        if tag in text:
+            text = text.rsplit(tag, 1)[1]
+    return text.lstrip("\n ")
 
 
 def _strip_fences(text: str) -> str:
