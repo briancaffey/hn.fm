@@ -70,6 +70,15 @@ llm:
     "spark-omni": "none"
     # Same model, reached directly rather than through the gateway.
     "nvidia/nemotron-3-nano-omni": "none"
+  # Routes served by LM Studio, where since the September 2026 update no
+  # flag turns thinking off (enable_thinking, reasoning_effort, /no_think
+  # and "detailed thinking off" all measured: still thinks). What works is
+  # starting the assistant turn with an empty think block; the server
+  # continues from there. Measured: 2 completion tokens for a one-word
+  # answer instead of 30, and a JSON schema still holds.
+  think_prefill:
+    - "spark-omni"
+    - "nvidia/nemotron-3-nano-omni"
 
   # Per-task profiles. One model at temperature 0.7 used to serve triage,
   # summaries, scripts, image prompts and the director alike; these want

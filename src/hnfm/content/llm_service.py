@@ -160,12 +160,15 @@ class LLMService:
         else:
             user_content = text
 
+        messages = [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_content},
+        ]
+        if self.use_local and _think_prefill_for(model):
+            messages.append({"role": "assistant", "content": THINK_PREFILL})
         kwargs = dict(
             model=model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user_content},
-            ],
+            messages=messages,
             max_tokens=self.max_tokens,
             temperature=self.temperature,
         )
@@ -444,6 +447,24 @@ def _profile_for(task: Optional[str]) -> dict:
     except Exception as e:
         logger.debug(f"profile lookup failed for {task!r} (non-fatal): {e}")
         return {}
+
+
+# An assistant turn that has already finished thinking. LM Studio continues
+# the turn, so the model answers without reasoning first (config.yaml
+# `llm.think_prefill` says which routes get it).
+THINK_PREFILL = "<think>\n\n</think>\n"
+
+
+def _think_prefill_for(model: str) -> bool:
+    try:
+        from fnmatch import fnmatch
+
+        from ..utils.config import config_manager
+
+        patterns = (config_manager.get("llm", {}) or {}).get("think_prefill") or []
+        return any(fnmatch(model or "", str(p)) for p in patterns)
+    except Exception:
+        return False
 
 
 def _reasoning_effort_for(model: str) -> Optional[str]:
