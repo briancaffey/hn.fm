@@ -222,8 +222,7 @@ def next_item() -> dict:
     """What Liquidsoap should play next. Always answers something."""
     from ..db import repo
 
-    recent = repo.radio_recent_events(hours=1)
-    recent_ids = [r.get("meta", {}).get("bank_id") for r in recent if r.get("meta", {}).get("bank_id")]
+    recent_ids = _recently_played(hours=ID_WINDOW_HOURS)
 
     log("dj", "asked what's next")
     queued = _pop_queue()
@@ -254,7 +253,7 @@ def next_item() -> dict:
             log("director",
                 f"served item {idx + 1}/{len(sheet['items'])}: {resolved['kind']} — {str(resolved.get('title'))[:60]}",
                 kind=resolved["kind"], index=idx, of=len(sheet["items"]), sheet_id=sheet["sheet_id"],
-                host=resolved.get("host"))
+                host=resolved.get("host"), bank_id=resolved.get("bank_id"))
             return resolved
         logger.info(f"radio: item {idx} ({item.get('kind')}) unavailable, skipping")
         log("director", f"item {idx + 1} ({item.get('kind')}) is not in the bank yet; skipped", kind=item.get("kind"))
@@ -264,6 +263,38 @@ def next_item() -> dict:
 
 
 HOLD_FILL_SETTING = "radio.hold_fill_at"
+
+
+def _recently_played(hours: int = 1) -> List[str]:
+    """Bank ids played or handed out in the window, newest first.
+
+    Two sources, because the DJ prefetches: its playback reports arrive a
+    track or two after the director served the item, so a list built from
+    reports alone let the same station ID be served twice a minute. What
+    the director itself served in the window counts as played.
+    """
+    from ..db import repo
+
+    cutoff = datetime.utcnow() - timedelta(hours=hours)
+    seen, out = set(), []
+    for r in repo.radio_recent_events(hours=hours):
+        bid = (r.get("meta") or {}).get("bank_id")
+        if bid and bid not in seen:
+            seen.add(bid)
+            out.append(bid)
+    served = [r for r in repo.radio_log_tail(limit=300)
+              if r.get("component") == "director" and (r.get("meta") or {}).get("bank_id")]
+    for r in reversed(served):
+        try:
+            if datetime.fromisoformat(r["at"]) < cutoff:
+                continue
+        except Exception:
+            pass
+        bid = r["meta"]["bank_id"]
+        if bid not in seen:
+            seen.add(bid)
+            out.append(bid)
+    return out
 
 
 def _hold(recent_ids: List[str], why: str) -> dict:
@@ -294,7 +325,8 @@ def _hold(recent_ids: List[str], why: str) -> dict:
                 logger.debug(f"radio: could not ask for beds ({e})")
     if not b:
         return _safety()
-    log("director", f"holding on music ({why}): {b.get('style') or 'bed'}", kind="music", hold=True)
+    log("director", f"holding on music ({why}): {b.get('style') or 'bed'}", kind="music", hold=True,
+        bank_id=b["id"])
     return {"kind": "music", "path": b["path"], "title": b.get("style") or "music",
             "bank_id": b["id"], "seconds": b.get("seconds"), "hold": True}
 

@@ -449,3 +449,15 @@ class TestReadyGate:
         repo.radio_mark_ready("park1")
         assert any(sh["sheet_id"] == "park1" for sh in repo.radio_open_sheets())
 
+    def test_what_the_director_served_counts_as_played(self, monkeypatch):
+        picks = []
+        def pick(kind, avoid_ids=(), **kw):
+            picks.append(list(avoid_ids))
+            return {"id": "id-" + str(len(picks)), "kind": kind, "path": "/x.mp3", "text": "hi", "host": "mia"}
+        monkeypatch.setattr(director, "pick_from_bank", pick)
+        monkeypatch.setattr(director, "_request_plan", lambda: None)
+        repo.radio_save_sheet(sheet_id="srv", title="t", minutes=10, source="test",
+                              items=[{"kind": "station_id", "host": "mia"}, {"kind": "station_id", "host": "leo"}])
+        director.next_item(); director.next_item()
+        assert "id-1" in picks[1]
+
