@@ -120,11 +120,11 @@ minio:
   # the `-minio` Service name is kept so nothing that talks S3 changes.
   enabled: true
   # Which pods the `-minio` Service selects: minio | rustfs.
-  server: minio
-  # Migration switches (2026-11-07): run both while the data is mirrored,
-  # then server=rustfs + runLegacy=false. The legacy MinIO image only exists
-  # in a2's containerd cache now.
-  runLegacy: true
+  server: rustfs
+  # Migration (2026-11-07, done): both ran while hnfm-media was mirrored +
+  # `rclone check`ed (1641 objects). The legacy MinIO image only exists
+  # in a2's containerd cache; drop the switches + PVC once settled.
+  runLegacy: false
   runRustfs: true
   image: minio/minio:RELEASE.2025-04-22T22-12-26Z
   rustfsImage: docker.io/rustfs/rustfs:1.0.4
