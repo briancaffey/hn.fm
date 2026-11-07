@@ -3,6 +3,11 @@
 # Durable media store. The app creates the bucket on first publish, and the
 # ingress exposes /<bucket> on the public host so presigned (path-style) URLs
 # work from the browser. Console is on :9001, cluster-internal only.
+#
+# The S3 server is RustFS since 2026-11-07 (rustfs.yaml) — upstream MinIO
+# images are gone. The Service keeps the `-minio` name so S3_ENDPOINT_URL and
+# the ingress route are unchanged; `minio.server` picks which pods it selects.
+# This PVC is the retired MinIO data, kept (never pruned) as a rollback.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata:
@@ -11,12 +16,15 @@ metadata:
     {{- include "hnfm.labels" . | nindent 4 }}
   annotations:
     argocd.argoproj.io/sync-wave: "-2"
+    argocd.argoproj.io/sync-options: Prune=false,Delete=false
+    helm.sh/resource-policy: keep
 spec:
   accessModes: [ReadWriteOnce]
   storageClassName: {{ .Values.storage.className }}
   resources:
     requests:
       storage: {{ .Values.storage.minio }}
+{{- if .Values.minio.runLegacy }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -77,6 +85,7 @@ spec:
         - name: data
           persistentVolumeClaim:
             claimName: {{ $name }}
+{{- end }}
 ---
 apiVersion: v1
 kind: Service
@@ -89,7 +98,7 @@ metadata:
     argocd.argoproj.io/sync-wave: "-2"
 spec:
   selector:
-    {{- include "hnfm.selectorLabels" (dict "root" . "name" "minio") | nindent 4 }}
+    {{- include "hnfm.selectorLabels" (dict "root" . "name" .Values.minio.server) | nindent 4 }}
   ports:
     - name: s3
       port: 9000

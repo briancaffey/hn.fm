@@ -116,15 +116,25 @@ redis:
     limits: { memory: 512Mi }
 
 minio:
+  # In-chart S3. Despite the key name the server is RustFS now (rustfs.yaml);
+  # the `-minio` Service name is kept so nothing that talks S3 changes.
   enabled: true
+  # Which pods the `-minio` Service selects: minio | rustfs.
+  server: minio
+  # Migration switches (2026-11-07): run both while the data is mirrored,
+  # then server=rustfs + runLegacy=false. The legacy MinIO image only exists
+  # in a2's containerd cache now.
+  runLegacy: true
+  runRustfs: true
   image: minio/minio:RELEASE.2025-04-22T22-12-26Z
+  rustfsImage: docker.io/rustfs/rustfs:1.0.4
   bucket: hnfm-media
   # Used only when enabled=false.
   externalEndpoint: ""
   externalPublicUrl: ""
   resources:
     requests: { cpu: 100m, memory: 256Mi }
-    limits: { memory: 1Gi }
+    limits: { memory: 2Gi } # RustFS buffers writes in RAM on a slow disk
 
 # --- App workloads -----------------------------------------------------------
 web:
