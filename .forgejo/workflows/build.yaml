@@ -70,8 +70,10 @@ jobs:
           TAG="${GITHUB_SHA::12}"
           git clone --depth 1 "https://forgejo-actions:${DEPLOY_TOKEN}@forgejo.lan/brian/home-lab.git" home-lab
           cd home-lab
-          # The tag line is the only thing CI owns in that file.
-          sed -i "s|^  tag: .*|  tag: ${TAG}|" clusters/home/hnfm/values.yaml
+          # The tag line is the only thing CI owns in that file. Quoted: a
+          # commit id made only of digits (816628088848 was one) is a number
+          # to YAML, and the chart then fails to render.
+          sed -i "s|^  tag: .*|  tag: \"${TAG}\"|" clusters/home/hnfm/values.yaml
           git config user.name "forgejo-actions"
           git config user.email "actions@forgejo.lan"
           git add clusters/home/hnfm/values.yaml
