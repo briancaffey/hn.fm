@@ -3281,10 +3281,18 @@ def radio_monitor() -> Dict[str, any]:
         if director.request_plan("monitor: no block").get("status") == "queued":
             actions.append("asked for a block")
     edition = housekeeping.edition_due()
-    if edition and director.request_plan(f"edition: {edition}", force=True).get("status") == "queued":
+    if edition:
+        # A scheduled edition is a whole hour of the show on at that hour,
+        # made for the archive; it does not go to air.
+        from ..radio.format import station_now
+
+        radio_make_episode.apply_async(kwargs={"hour": station_now().hour, "reason": f"edition {edition}"})
         housekeeping.mark_edition(edition)
-        actions.append(f"asked for the {edition} edition")
-    if bank.wanted():
+        actions.append(f"asked for the {edition} episode")
+    # With production off the shelf is stocked only for an episode that
+    # was asked for (which stocks its own show first): off means the
+    # models are left alone.
+    if director.produce_mode() != "off" and bank.wanted():
         radio_fill_bank.apply_async(kwargs={"max_new": 4})
         actions.append("stocking the shelf")
     pruned = bank.prune() + housekeeping.prune_blocks()

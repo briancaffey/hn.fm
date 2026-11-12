@@ -114,6 +114,18 @@ function isActive(item: NavItem): boolean {
           <span class="truncate">Overview</span>
         </NuxtLink>
 
+        <NuxtLink
+          to="/desk"
+          class="flex items-center gap-2.5 rounded-md px-2.5 py-2 text-sm font-medium transition-colors"
+          :class="route.path === '/desk'
+            ? 'bg-primary/10 text-primary'
+            : 'text-muted-foreground hover:bg-muted hover:text-foreground'"
+          title="Make the next digest, episode or video, and turn each tap on or off."
+        >
+          <Icon name="lucide:sliders-horizontal" class="h-4 w-4 shrink-0" />
+          <span class="truncate">The desk</span>
+        </NuxtLink>
+
         <div v-for="group in navGroups" :key="group.label" class="space-y-1">
           <p class="px-2.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/60">
             {{ group.label }}

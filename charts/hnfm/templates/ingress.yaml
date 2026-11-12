@@ -114,6 +114,28 @@ spec:
                 name: {{ $full }}-web
                 port:
                   number: 8000
+          # Cover art, the cast and the effects: read-only, for the listen pages.
+          - path: /api/radio/art/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-web
+                port:
+                  number: 8000
+          - path: /api/radio/cast
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $full }}-web
+                port:
+                  number: 8000
+          - path: /api/radio/fx/
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-web
+                port:
+                  number: 8000
           - path: /listen
             pathType: Prefix
             backend:

@@ -1184,7 +1184,7 @@ async def radio_archive_video(edition_id: str):
     return FileResponse(e["video_path"], media_type="video/mp4", filename=f"hnfm-{edition_id}.mp4")
 
 
-@app.post("/api/radio/archive/{edition_id}/video", tags=["radio"])
+@app.post("/api/radio/editions/{edition_id}/video", tags=["radio"])
 async def radio_archive_make_video(edition_id: str):
     """Ask for a video of an edition: its cover, its words, its levels."""
     _radio_on()
@@ -1197,9 +1197,11 @@ async def radio_archive_make_video(edition_id: str):
     return {"status": "queued", "task_id": t.id}
 
 
-@app.patch("/api/radio/archive/{edition_id}", tags=["radio"])
+@app.patch("/api/radio/editions/{edition_id}", tags=["radio"])
 async def radio_archive_update(edition_id: str, request: dict = Body(default={})):
-    """Feature an edition, or rename it: {"featured": true, "title": "..."}."""
+    """Feature an edition, or rename it: {"featured": true, "title": "..."}.
+    Changes to an edition are under /editions, not /archive: a public
+    host exposes the /archive prefix read-only, and must not expose these."""
     _radio_on()
     from ..radio import archive
 
@@ -1211,7 +1213,7 @@ async def radio_archive_update(edition_id: str, request: dict = Body(default={})
     return e
 
 
-@app.delete("/api/radio/archive/{edition_id}", tags=["radio"])
+@app.delete("/api/radio/editions/{edition_id}", tags=["radio"])
 async def radio_archive_delete(edition_id: str):
     _radio_on()
     from ..radio import archive
