@@ -10,7 +10,9 @@ Hacker News, turned into things to listen to and watch by models that run at hom
 4. **Makes** things from the briefs:
    - **Episodes**: a two-host script, voiced, illustrated and cut to video.
    - **Digests**: written editions, sent to an e-reader on a schedule.
-   - **HNFM**: a radio station with six shows a day. See [`src/hnfm/radio/README.md`](src/hnfm/radio/README.md).
+   - **HNFM**: a radio station with six shows, a cast of ten and its own sound effects. It makes episodes: a whole hour of a show with chapters, a transcript, cover art and a video. See [`src/hnfm/radio/README.md`](src/hnfm/radio/README.md).
+
+All three are run from one page, **the desk** (`/desk`): what was last made, a button to make the next one, and the switch for each. The public pages are under `/listen`.
 
 Every step is recorded with its inputs and can be looked at and run again.
 
@@ -77,4 +79,5 @@ an object in the store.
 
 The radio keeps its own files under `outputs/radio/`: stock in `bank/`, each
 block's pieces in `blocks/<sheet>/`, finished blocks in `archive/<date>/`, fact
-sheets in `sheets/` and spoken lines in `cache/voice/`.
+sheets in `sheets/`, spoken lines in `cache/voice/`, sound effects in `fx/`
+and cover art in `art/`.

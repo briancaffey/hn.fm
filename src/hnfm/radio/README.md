@@ -18,10 +18,22 @@ before turning it on: what runs, what it costs, what is exposed, how to stop it.
   an ordered list of slots; a slot names a segment type. A model cannot
   change the running order.
 - **Segments** (`segments.py`) are one spec each: headline, two-hander, The
-  Comment Line (callers on a phone line), the bulletin, Show HN desk, Ask
-  HN, Front Page Forecast, a mock sponsor read, four short bits, the show
-  open, the handoff, and the song of the hour. Add a segment by adding a
-  spec and a worked example.
+  Comment Line (callers on a phone line), a report from a correspondent,
+  the bulletin, Show HN desk, Ask HN, Front Page Forecast, the front page
+  five (a countdown), a mock sponsor read, four short bits, the cold open,
+  the show open, sweepers, the handoff, and the song of the hour. Add a
+  segment by adding a spec and a worked example.
+- **The cast** (`cast.py`) is six hosts, three correspondents, an announcer
+  and twelve caller voices. A character has a voice, a role and a short
+  sheet about manner that the writer is given for the people in the piece.
+  Moods are per character; one a voice lacks is put back to the plain
+  voice in code. `evals/radio_voices.py` measures what each voice and mood
+  actually does.
+- **Sound design** (`fx.py`) is twelve effects synthesised by ffmpeg and
+  six voice treatments (studio, big voice, phone, field line, fine print,
+  archive tape). A segment names its effects in its spec and the booth
+  places them; where a voice is treated follows from who is speaking. The
+  model never chooses a sound.
 - **The planner** asks the model one thing per block: which story goes in
   which story slot. Picks are checked against each slot's rule and gaps are
   filled by freshness, so a block has the same shape with the model away.
@@ -33,6 +45,12 @@ before turning it on: what runs, what it costs, what is exposed, how to stop it.
   phone line, ducks a bed under the voice, and checks loudness.
 - **The director** serves finished files. With nobody tuned in it plays
   from the library and makes nothing.
+- **Editions** (`archive.py`, `art.py`, `video.py`). A block, or a whole
+  hour of a show made as one episode, is kept as one MP3 with its running
+  order, the words, and the second each line starts. From that come
+  chapter marks, a transcript, a page where the line being spoken is lit,
+  and a video (cover art, captions, waveform) made in one ffmpeg pass.
+  Covers are drawn by the image model, one per show in one house style.
 
 ## Off by default, at every layer
 
@@ -45,17 +63,21 @@ before turning it on: what runs, what it costs, what is exposed, how to stop it.
 
 ## What it costs, and when
 
-The station makes new programming only when it has a reason to
-(`RADIO_PRODUCE`, chart `radio.produce`):
+The station makes new programming only when it has a reason to. The mode
+is a setting changed at the desk (`/desk`) while the station runs;
+`RADIO_PRODUCE` (chart `radio.produce`) is only the default.
 
 | Mode | Makes a block when |
 |---|---|
-| `listeners` (default) | someone is tuned in, or was in the last ten minutes; and at the edition hours |
+| `listeners` (default) | someone is tuned in, or was in the last ten minutes |
 | `always` | a block is running low, around the clock |
-| `off` | someone presses "Plan a block" |
+| `off` | never on its own; the shelf is not stocked on a timer either |
 
-Edition hours (`RADIO_EDITION_HOURS`, default `8,13,19`) make one block
-each whoever is listening, so the archive has something every day.
+In any mode an episode can be asked for at the desk: a whole hour of one
+show, made for the archive and not put on air. Edition hours (also set at
+the desk; `RADIO_EDITION_HOURS` is the default) make one such episode a
+day at each hour named. The home cluster runs with production off and no
+edition hours: nothing is made unless someone asks.
 
 Measured on the home cluster (Nemotron 3.5 Lightning, Magpie, ACE-Step):
 
