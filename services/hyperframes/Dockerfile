@@ -5,7 +5,7 @@
 # standard image, so it drops straight into k3s later (no host coupling).
 FROM node:22-bookworm-slim
 
-ARG HYPERFRAMES_VERSION=0.8.30
+ARG HYPERFRAMES_VERSION=0.9.40
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates curl unzip ffmpeg chromium \
@@ -20,6 +20,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 ENV PUPPETEER_SKIP_CHROMIUM_DOWNLOAD=true
 ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium
 ENV CONTAINER=true
+# The CLI updates itself in the background the first time it runs, replacing
+# its own files under a render in progress (seen: a render failing on a
+# missing manifest, then the command gone). The version is the one built
+# here, and nothing is reported home.
+ENV HYPERFRAMES_NO_UPDATE_CHECK=1
+ENV HYPERFRAMES_NO_TELEMETRY=1
+ENV DO_NOT_TRACK=1
 
 RUN npm install -g hyperframes@${HYPERFRAMES_VERSION}
 

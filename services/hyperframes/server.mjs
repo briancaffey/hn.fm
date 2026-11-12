@@ -1,6 +1,8 @@
-// Tiny HTTP wrapper around `hyperframes render`.
+// Tiny HTTP wrapper around the `hyperframes` CLI and a headless browser.
 //
 // POST /render { project, output, format?, fps?, quality? }
+// POST /check  { project }                 lint + runtime + layout, as JSON
+// POST /frames { project, at: [seconds], output }   PNG stills of the timeline
 // POST /card   { html, output, width?, height? }   HTML string -> PNG still
 //   project: absolute path to a composition project dir (an index.html lives here)
 //   output:  absolute path to write the rendered file
@@ -196,8 +198,122 @@ async function card({ html, output, width = 1280, height = 720, timeout = 25 }) 
   }
 }
 
+// The CLI, run to completion. Renders are serialised with the same gate as
+// the screenshots: each one is a browser, and two full renders at once on
+// this container's memory is how both die.
+function cli(args, { timeout = 900 } = {}) {
+  return new Promise((resolve) => {
+    const p = spawn("hyperframes", args, { stdio: ["ignore", "pipe", "pipe"] });
+    let out = "";
+    let err = "";
+    const timer = setTimeout(() => p.kill("SIGKILL"), timeout * 1000);
+    p.stdout.on("data", (d) => (out += d));
+    p.stderr.on("data", (d) => (err += d));
+    p.on("close", (code) => {
+      clearTimeout(timer);
+      resolve({ code, out, err });
+    });
+    p.on("error", (e) => {
+      clearTimeout(timer);
+      resolve({ code: -1, out, err: String(e) });
+    });
+  });
+}
+
+async function render({ project, output, format = "mp4", fps = 30, quality = "standard", timeout = 1500 }) {
+  if (!project || !existsSync(project)) return { ok: false, error: `project not found: ${project}` };
+  if (!output) return { ok: false, error: "output required" };
+  await acquire();
+  try {
+    mkdirSync(dirname(output), { recursive: true });
+    const started = Date.now();
+    const r = await cli(
+      [
+        "render", project, "-o", output,
+        "--format", String(format), "--fps", String(fps), "--quality", String(quality),
+      ],
+      { timeout: Number(timeout) },
+    );
+    // The trace lines are for a person watching a terminal; the tail of what
+    // is left says what went wrong.
+    const log = (r.out + r.err)
+      .split("\n")
+      .filter((l) => !l.includes("[Render:trace]") && !l.startsWith("@hf-progress") && !l.includes("█"))
+      .join("\n")
+      .slice(-3000);
+    return {
+      ok: r.code === 0 && existsSync(output), code: r.code, output,
+      seconds: Math.round((Date.now() - started) / 100) / 10, log,
+    };
+  } finally {
+    release();
+  }
+}
+
+// The CLI prints its JSON report after a few lines of its own; the report is
+// the last top-level object on stdout.
+function lastJson(text) {
+  const at = text.lastIndexOf("\n{");
+  const start = at >= 0 ? at + 1 : text.indexOf("{");
+  if (start < 0) return null;
+  try {
+    return JSON.parse(text.slice(start));
+  } catch {
+    return null;
+  }
+}
+
+async function check({ project, lintOnly = false }) {
+  if (!project || !existsSync(project)) return { ok: false, error: `project not found: ${project}` };
+  if (lintOnly) {
+    const r = await cli(["lint", project, "--json"], { timeout: 120 });
+    const report = lastJson(r.out);
+    return report ? { ok: true, report } : { ok: false, error: (r.err || r.out).slice(-1500) };
+  }
+  await acquire();
+  try {
+    const r = await cli(["check", project, "--json"], { timeout: 600 });
+    const report = lastJson(r.out);
+    return report ? { ok: true, report } : { ok: false, error: (r.err || r.out).slice(-1500) };
+  } finally {
+    release();
+  }
+}
+
+async function frames({ project, at = [], output }) {
+  if (!project || !existsSync(project)) return { ok: false, error: `project not found: ${project}` };
+  if (!output) return { ok: false, error: "output required" };
+  await acquire();
+  try {
+    mkdirSync(output, { recursive: true });
+    const args = ["snapshot", project, "-o", output, "--no-end", "--describe", "false"];
+    if (at.length) args.push("--at", at.map((t) => Number(t).toFixed(2)).join(","));
+    const r = await cli(args, { timeout: 600 });
+    return { ok: r.code === 0, code: r.code, output, log: (r.out + r.err).slice(-1500) };
+  } finally {
+    release();
+  }
+}
+
+function route(req, res, fn) {
+  let data = "";
+  req.on("data", (c) => (data += c));
+  req.on("end", async () => {
+    try {
+      const result = await fn(JSON.parse(data));
+      res.writeHead(result.ok ? 200 : 500, { "content-type": "application/json" });
+      res.end(JSON.stringify(result));
+    } catch (e) {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false, error: String(e) }));
+    }
+  });
+}
+
 http
   .createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/check") return route(req, res, check);
+    if (req.method === "POST" && req.url === "/frames") return route(req, res, frames);
     if (req.method === "GET" && req.url === "/health") {
       res.writeHead(200);
       return res.end("ok");
