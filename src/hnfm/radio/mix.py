@@ -132,6 +132,13 @@ def concat(paths: Sequence[str], dst: str) -> bool:
     return _run(cmd, dst)
 
 
+def silence(dst: str, seconds: float = 15.0) -> bool:
+    """A file of nothing, for the moment the station has nothing: better
+    one quiet file than a DJ asking for a missing one every three seconds."""
+    return _run(["ffmpeg", "-nostdin", "-y", "-v", "error", "-f", "lavfi", "-i",
+                 f"anullsrc=r={RATE}:cl=stereo", "-t", str(seconds), *MP3, dst], dst)
+
+
 def measure(path: str) -> Optional[dict]:
     """{seconds, lufs, peak} of a finished file, from ffmpeg's own meter."""
     import json

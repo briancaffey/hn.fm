@@ -463,9 +463,19 @@ class TestDirector:
         spoken = [g for g in got if g["kind"] != "music"]
         assert len(spoken) <= 2 and all(g["segment"] == "ident" for g in spoken)
 
-    def test_an_empty_shelf_is_the_safety_file(self, monkeypatch):
+    def test_an_empty_shelf_is_the_safety_file_or_quiet_never_a_missing_file(self, monkeypatch, tmp_path):
         monkeypatch.setattr(director, "pick_from_bank", lambda kind, **kw: None)
-        assert director.next_item().get("safety") is True
+        import os
+
+        def fake_silence(dst, seconds=15.0):
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            open(dst, "wb").write(b"x" * 2000)
+            return True
+
+        monkeypatch.setattr(mix, "silence", fake_silence)
+        got = director.next_item()
+        assert got.get("safety") is True and got["path"].endswith("quiet.mp3")
+        assert os.path.exists(got["path"])
 
     def test_idle_repeats_an_evergreen_piece_from_an_earlier_block(self, tmp_path, monkeypatch):
         s = self._sheet([{"segment": "sponsor", "kind": "bit", "status": "ready", "path": _file(tmp_path),

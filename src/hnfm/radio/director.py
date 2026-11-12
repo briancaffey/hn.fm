@@ -401,7 +401,17 @@ def _time_check_now(item: dict) -> Optional[dict]:
 
 
 def _safety() -> dict:
-    return {"kind": "music", "path": safety_path(), "title": "HNFM", "safety": True}
+    """The shelf is empty: the safety bed if there is one, else quiet. On a
+    first start there is neither bed nor safety file, and handing the DJ a
+    path that does not exist made it ask again every three seconds."""
+    path = safety_path()
+    if not os.path.exists(path):
+        from . import mix
+
+        quiet = os.path.join(radio_root(), "quiet.mp3")
+        if os.path.exists(quiet) or mix.silence(quiet):
+            path = quiet
+    return {"kind": "music", "path": path, "title": "HNFM", "safety": True}
 
 
 # ---------------------------------------------------------------------------
