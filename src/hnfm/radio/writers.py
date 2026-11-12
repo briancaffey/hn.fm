@@ -38,7 +38,7 @@ RECITED = (
     # Notes about the input, said to the listener.
     "the source does not", "by the source", "the article does not specify", "a caller might",
     "a caller could", "remains unspecified", "remain unspecified", "the objection from", "a correspondent reports", "here is the doubt",
-    "is not specified", "are not specified", "not disclosed", "does not establish", "the mystery remains",
+    "is not specified", "are not specified", "not disclosed", "does not establish", "the mystery remains", "the editor sent",
 )
 # Notes that keep a piece off the air if they still stand after repair.
 HARD = ("You read your instructions", "Only these speakers", "You reused the example",
