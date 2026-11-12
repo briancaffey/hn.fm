@@ -158,6 +158,17 @@ def produce(sheet: dict, save=None, at=None) -> dict:
                     next_show=show_by_key(item["next_show"]) if item.get("next_show") else None,
                     stories=story_rows, coming_up=story_titles, now=at,
                 )
+                if mat is None and seg.fallback and segment(seg.fallback).written:
+                    # Nothing to write this from (no front page readings yet,
+                    # say): make the segment it falls back to instead.
+                    simpler = segment(seg.fallback)
+                    mat = material.for_segment(simpler, story_id=item.get("story"),
+                                               seed=hash((sheet_id, item["n"])) % 9973, show=sh, now=at)
+                    if mat is not None:
+                        seg = simpler
+                        item.update(segment=seg.key, kind=seg.kind, name=seg.name, demoted_from=item["segment"])
+                        if seg.voices == "cast" or len(item.get("speakers") or []) > 1 and seg.voices != "duo":
+                            item["speakers"] = (item.get("speakers") or [sh.anchor])[:1]
                 if mat is None:
                     _skip(item, "no material")
                     continue
