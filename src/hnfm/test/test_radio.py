@@ -161,6 +161,17 @@ class TestAssign:
         mid = datetime(2026, 11, 12, 12, 50)
         assert planner._slots_to_items(fmt.rundown(mid, 3), fmt.show_at(mid), mid, 3)[-1]["segment"] == "ident"
 
+    def test_used_stories_are_skipped_before_the_pool_is_counted(self, monkeypatch):
+        from ..radio import sheets
+
+        pool = [{"item_id": i, "title": f"S{i}", "age_hours": i} for i in range(1, 101)]
+        monkeypatch.setattr(planner, "recent_stories", lambda limit=60, hours=48: pool[:limit])
+        monkeypatch.setattr(sheets, "sheet_for", lambda iid: {
+            "title": f"S{iid}", "kind": "story", "score": 1, "comments": 0,
+            "sheet": {"what": "w", "callers": []}})
+        got = planner.candidates(limit=5, exclude=set(range(1, 61)))
+        assert [c["item_id"] for c in got] == [61, 62, 63, 64, 65]
+
     def test_plan_without_the_model_is_deterministic(self):
         now = datetime(2026, 11, 12, 12, 5)
         a = planner.plan(now, 0, stories=_stories(discussed=True), ask_model=False)

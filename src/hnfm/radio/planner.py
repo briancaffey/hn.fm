@@ -60,7 +60,10 @@ def candidates(limit: int = SHOW_STORIES, hours: int = 48, exclude: Optional[set
 
     exclude = exclude or set()
     out = []
-    for st in recent_stories(limit=limit * 3, hours=hours):
+    # Used stories are skipped before counting, not after: taking the
+    # freshest forty-eight and then removing the used ones left nothing
+    # once forty-eight stories had aired.
+    for st in recent_stories(limit=400, hours=hours):
         if st["item_id"] in exclude:
             continue
         s = sheet_for(st["item_id"])
