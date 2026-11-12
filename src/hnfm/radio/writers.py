@@ -1,0 +1,351 @@
+"""The writers' room: draft, check, edit, rewrite (issue #30).
+
+A piece of copy is written once, checked by rules that cost nothing, read
+by an editor prompt against a rubric, and rewritten once if it falls
+short. What comes out is a `Piece`: the lines, the scores, and what it
+cost. Nothing here speaks or mixes; that is the booth.
+
+    produce(seg, ...)   the whole loop, or None if nothing airable came out
+    lint(seg, copy)     the rules, as a list of notes for the writer
+"""
+
+import logging
+import os
+import re
+from dataclasses import dataclass, field
+from typing import List, Optional, Sequence
+
+from .copy import speakable
+from .schemas import CALLERS, MOODS, Copy, Line, Review, copy_schema
+from .segments import SEGMENTS, Segment
+
+logger = logging.getLogger(__name__)
+
+# Phrases the station does not say. The prompt asks; this checks.
+BANNED = (
+    "dive in", "deep dive", "delve", "game changer", "game-changer", "buckle up", "stay tuned",
+    "let's unpack", "fast-paced world", "it turns out", "time will tell", "the future of",
+    "revolutionary", "folks", "welcome back", "without further ado", "in a recent post",
+    "in conclusion", "at the end of the day",
+)
+# The assignment read out on air: the commonest way the local model fails.
+RECITED = (
+    "the story is about", "this story is about", "the headline", "the hook", "the tension",
+    "the catch is", "the one detail", "the detail a curious", "a mock sponsor", "the product nobody sells",
+    "the material", "the discussion notes", "the discussion also", "a commenter notes", "a commenter reflects",
+    "not established", "does not name", "old-time radio", "the assignment", "the producer's angle",
+)
+# Pieces that are meant to sound the same every time.
+FORMULAIC = ("theme", "handoff", "bulletin")
+MAX_SENTENCE_WORDS = 32
+# A piece may run this far under or over its target before it is sent back.
+LENGTH_BAND = (0.55, 1.45)
+
+
+def editor_on() -> bool:
+    return os.getenv("RADIO_EDITOR", "true").strip().lower() != "false"
+
+
+@dataclass
+class Piece:
+    segment: str
+    lines: List[dict]                      # [{speaker, mood, text}] — text is speakable
+    review: Optional[dict] = None          # scores, passes, what was unsupported, notes
+    plan: Optional[dict] = None            # the writer's hook, facts and ending
+    repaired: bool = False                 # True if sentences were cut by the rules
+    attempts: int = 1
+    lint: List[str] = field(default_factory=list)   # what the rules still object to
+    usage: dict = field(default_factory=lambda: {"calls": 0, "tokens_in": 0, "tokens_out": 0})
+    prompt_version: Optional[str] = None
+
+    def text(self) -> str:
+        return " ".join(l["text"] for l in self.lines)
+
+    def words(self) -> int:
+        return len(self.text().split())
+
+
+def opener(text: str, n: int = 3) -> str:
+    """The first few words, lower-cased: how two pieces are told to start
+    differently."""
+    return " ".join(re.sub(r"[^a-z' ]", " ", (text or "").lower()).split()[:n])
+
+
+def lint(seg: Segment, copy: Copy, speakers: Sequence[str], earlier_openers: Sequence[str] = ()) -> List[str]:
+    """What the rules object to, phrased as notes to the writer. Empty is a pass."""
+    notes: List[str] = []
+    lines = [l for l in copy.lines if (l.text or "").strip()]
+    if not lines:
+        return ["The piece is empty. Write it."]
+
+    strangers = sorted({l.speaker for l in lines if l.speaker not in speakers})
+    if strangers:
+        notes.append(f"Only these speakers may talk: {', '.join(speakers)}. Remove {', '.join(strangers)}.")
+
+    words = sum(len(l.text.split()) for l in lines)
+    lo, hi = int(seg.words * LENGTH_BAND[0]), int(seg.words * LENGTH_BAND[1])
+    if words < lo:
+        notes.append(f"Too short: {words} words, the slot wants about {seg.words}. Add the detail, not padding.")
+    if words > hi:
+        notes.append(f"Too long: {words} words, the slot wants about {seg.words}. Cut the weakest sentence.")
+
+    whole = " ".join(l.text for l in lines).lower()
+    said = [b for b in BANNED if b in whole]
+    if said:
+        notes.append("Do not use: " + ", ".join(f'"{b}"' for b in said) + ".")
+
+    recited = [r for r in RECITED if r in whole]
+    if recited:
+        notes.append("You read your instructions out loud. Never say: "
+                     + ", ".join(f'"{r}"' for r in recited[:3]) + ". Just tell the listener the thing.")
+
+    # Formulaic pieces share their shape with the example on purpose.
+    copied = None if seg.key in FORMULAIC else copied_from_examples(seg.key, " ".join(l.text for l in lines))
+    if copied:
+        notes.append(f'You reused the example\'s words ("{copied}"). Write your own line there.')
+
+    for sentence in re.split(r"(?<=[.!?])\s+", " ".join(l.text for l in lines)):
+        if len(sentence.split()) > MAX_SENTENCE_WORDS:
+            notes.append(f'Break up the long sentence starting "{" ".join(sentence.split()[:6])}…".')
+            break
+
+    first = opener(lines[0].text)
+    if first and first in set(earlier_openers):
+        notes.append(f'Another item this hour already opened with "{first}". Open differently.')
+
+    if seg.voices in ("duo", "callers") and len({l.speaker for l in lines}) < 2:
+        notes.append("This is a piece for more than one voice. Give the other speaker their lines.")
+    if seg.voices == "callers" and not any(l.speaker in CALLERS for l in lines):
+        notes.append("No caller speaks. The callers make the points; the host reacts.")
+    if re.search(r"[\[\]<>*_#]|https?://", " ".join(l.text for l in lines)):
+        notes.append("Remove brackets, markup, stage directions and links: only spoken words.")
+    return notes
+
+
+def _sentences(text: str) -> List[str]:
+    return [x for x in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if x]
+
+
+def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = ()) -> List[dict]:
+    """What the rules can fix without the writer: a sentence that reads
+    the notes aloud is cut, a sentence said twice is said once, and a
+    piece that runs long loses sentences from the end until it fits.
+    The last guard before the booth; a prompt asks, this removes."""
+    # A sentence another piece in this block already said is cut too: shown
+    # what aired earlier, the model lifted whole sentences from it.
+    seen = {" ".join(_norm(x)) for text in said_before for x in _sentences(text)}
+    seen = {k for k in seen if len(k.split()) > 3}
+    out = []
+    for l in lines:
+        kept = []
+        for sent in _sentences(l["text"]):
+            low = sent.lower()
+            key = " ".join(_norm(sent))
+            if any(r in low for r in RECITED) or (key in seen and len(key.split()) > 3):
+                continue
+            seen.add(key)
+            kept.append(sent)
+        if kept:
+            out.append({**l, "text": " ".join(kept)})
+    # Too long: drop whole sentences from the end, never the last line of a
+    # dialogue (that is the punchline) and never below two sentences.
+    limit = int(seg.words * LENGTH_BAND[1])
+    while sum(len(l["text"].split()) for l in out) > limit:
+        idx = len(out) - 1 if seg.voices not in ("duo", "callers") else max(0, len(out) - 2)
+        sents = _sentences(out[idx]["text"])
+        if len(sents) > 1:
+            out[idx] = {**out[idx], "text": " ".join(sents[:-1])}
+        elif len(out) > 2:
+            out.pop(idx)
+        else:
+            break
+    return out
+
+
+def _clean(copy: Copy, speakers: Sequence[str]) -> List[dict]:
+    """The lines as the booth will speak them: known speakers, known moods,
+    text made speakable. A stranger's line is dropped rather than given to
+    a host who did not say it."""
+    out = []
+    for l in copy.lines:
+        text = speakable(" ".join((l.text or "").split()))
+        if not text or l.speaker not in speakers:
+            continue
+        mood = (l.mood or "default").strip().lower()
+        out.append({"speaker": l.speaker, "mood": mood if mood in MOODS else "default", "text": text})
+    return out
+
+
+def _render_piece(lines: Sequence[Line]) -> str:
+    return "\n".join(f"{l.speaker} ({l.mood}): {l.text}" for l in lines)
+
+
+def _add_usage(total: dict, svc) -> None:
+    for k in ("calls", "tokens_in", "tokens_out"):
+        total[k] = total.get(k, 0) + int(svc.usage.get(k) or 0)
+
+
+_EXAMPLES: Optional[dict] = None
+
+
+def _examples() -> dict:
+    global _EXAMPLES
+    if _EXAMPLES is None or os.getenv("PROMPTS_NO_CACHE", "").lower() in ("1", "true", "yes"):
+        import yaml
+
+        from ..content.prompts import prompts_dir
+
+        try:
+            _EXAMPLES = yaml.safe_load((prompts_dir() / "examples" / "radio.yaml").read_text(encoding="utf-8")) or {}
+        except Exception as e:
+            logger.warning(f"radio: no examples file ({e})")
+            _EXAMPLES = {}
+    return _EXAMPLES
+
+
+def _norm(text: str) -> List[str]:
+    return re.sub(r"[^a-z' ]", " ", (text or "").lower()).split()
+
+
+def copied_from_examples(key: str, text: str, run: int = 5) -> Optional[str]:
+    """The first run of `run` words the piece shares with its example, if
+    any. Station furniture ("this is H.N.F.M.", "the lines are open") is
+    exempt: those are meant to recur."""
+    run = min(run, 4) if key in ("joke", "sketch") else run
+    furniture = _norm("this is h n f m and this is. h n f m is brought to you by nobody. the lines are open "
+                      "line one. line two go ahead. line three go ahead. thank you both. this is the bulletin. "
+                      "that is the bulletin on h n f m. the front page forecast. the word of the hour is. but if it "
+                      "were it would be. good "
+                      "morning good afternoon good evening")
+    ours = {" ".join(furniture[i:i + 3]) for i in range(len(furniture) - 2)}
+    theirs = set()
+    for ex in _examples().get(key) or []:
+        w = _norm(" ".join(l["text"] for l in ex.get("lines") or []))
+        theirs |= {" ".join(w[i:i + run]) for i in range(len(w) - run + 1)}
+    w = _norm(text)
+    for i in range(len(w) - run + 1):
+        gram = w[i:i + run]
+        if " ".join(gram) not in theirs:
+            continue
+        # Shares three words in a row with the station's furniture: allowed.
+        if any(" ".join(gram[k:k + 3]) in ours for k in range(run - 2)):
+            continue
+        return " ".join(gram)
+    return None
+
+
+def examples_for(key: str, limit: int = 1) -> str:
+    """The worked example for a segment, as the writer prompt shows it."""
+    pieces = (_examples().get(key) or [])[:limit]
+    if not pieces:
+        return "(no example for this kind of piece; follow the form)"
+    import json
+
+    out = []
+    for ex in pieces:
+        answer = {"plan": ex.get("plan") or {}, "lines": ex.get("lines") or []}
+        out.append("EXAMPLE MATERIAL:\n" + (ex.get("material") or "").strip()
+                   + "\nEXAMPLE ANSWER:\n" + json.dumps(answer, ensure_ascii=False))
+    return "\n\n".join(out)
+
+
+def draft(seg: Segment, *, show, speakers: Sequence[str], material: str,
+          notes: Sequence[str] = (), usage: Optional[dict] = None):
+    """One call to the writer. Returns (Copy, prompt version)."""
+    from ..content.llm_service import LLMService
+    from ..content.prompts import render
+
+    note_block = ""
+    if notes:
+        note_block = "\nTHE EDITOR SENT YOUR LAST DRAFT BACK. Fix exactly these:\n" + \
+            "\n".join(f"- {n}" for n in notes) + "\n"
+    prompt = render(
+        "radio.write", show_name=show.name, show_tone=show.tone, segment_name=seg.name,
+        brief=seg.brief, form=seg.form, speakers=", ".join(speakers), words=seg.words,
+        material=(material or "(none)")[:6000],
+        notes=note_block, examples=examples_for(seg.key),
+    )
+    svc = LLMService(task="radio.write")
+    try:
+        made = svc.generate_structured(prompt, copy_schema(speakers))
+        return Copy.model_validate(made.model_dump()), prompt.version
+    finally:
+        if usage is not None:
+            _add_usage(usage, svc)
+
+
+def review(seg: Segment, material: str, copy: Copy, usage: Optional[dict] = None) -> Optional[Review]:
+    """The editor's read, or None if the editor is away (the piece then
+    stands on the rules alone)."""
+    from ..content.llm_service import LLMService
+    from ..content.prompts import render
+
+    svc = LLMService(task="radio.edit")
+    try:
+        return svc.generate_structured(render(
+            "radio.edit", segment_name=seg.name, brief=seg.brief, form=seg.form, words=seg.words,
+            written=copy.words(), material=(material or "(none)")[:6000],
+            piece=_render_piece(copy.lines),
+        ), Review)
+    except Exception as e:
+        logger.warning(f"radio editor unavailable for {seg.key}: {e}")
+        return None
+    finally:
+        if usage is not None:
+            _add_usage(usage, svc)
+
+
+def produce(seg: Segment, *, show, speakers: Sequence[str], material: str,
+            earlier: Sequence[str] = (), earlier_openers: Sequence[str] = (),
+            max_rewrites: int = 1) -> Optional[Piece]:
+    # `earlier` is the full text of the pieces already made for this block.
+    # It is never shown to the writer (it copied from it); it is what the
+    # repair pass checks against.
+    """Draft, check, edit, and rewrite at most `max_rewrites` times.
+
+    A piece airs if the rules pass and the editor passes it (or is away).
+    After the last rewrite a piece that still breaks only soft rules airs
+    with its notes recorded; one with no usable lines does not.
+    """
+    usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0}
+    notes: List[str] = []
+    last: Optional[Piece] = None
+    for attempt in range(1, max_rewrites + 2):
+        try:
+            copy, version = draft(seg, show=show, speakers=speakers, material=material,
+                                  notes=notes, usage=usage)
+        except Exception as e:
+            logger.warning(f"radio writer failed on {seg.key} (attempt {attempt}): {e}")
+            break
+        problems = lint(seg, copy, speakers, earlier_openers)
+        rev = None
+        if not problems and editor_on():
+            rev = review(seg, material, copy, usage=usage)
+        lines = _clean(copy, speakers)
+        if lines:
+            last = Piece(segment=seg.key, lines=lines, attempts=attempt, lint=problems, usage=usage,
+                         review=None if rev is None else {
+                             **rev.scores(), "passes": rev.passes(), "heard": rev.heard,
+                             "unsupported": rev.unsupported[:3], "notes": rev.to_notes()},
+                         plan=copy.plan.model_dump() if copy.plan else None,
+                         prompt_version=version)
+        if not problems and (rev is None or rev.passes()):
+            last.lines = repair(seg, last.lines, said_before=earlier)
+            return last if last.lines else None
+        notes = problems or (rev.to_notes() if rev else [])
+        if not notes:
+            notes = ["The editor did not pass this. Tighten the opening and check every claim against the material."]
+    if last is None:
+        return None
+    # Out of rewrites with the rules still unhappy: fix what can be fixed
+    # by cutting, and check again. A piece that is still wrong is not aired.
+    last.lines = repair(SEGMENTS[last.segment], last.lines, said_before=earlier)
+    fixed = Copy(lines=[Line(**l) for l in last.lines])
+    last.lint = [n for n in lint(seg, fixed, speakers, earlier_openers) if not n.startswith("Too short")
+                 or fixed.words() < seg.words * 0.35]
+    last.repaired = True
+    hard = [n for n in last.lint if n.startswith(("You read your instructions", "Only these speakers",
+                                                  "You reused the example",
+                                                  "The piece is empty", "This is a piece for more than one",
+                                                  "No caller speaks", "Too short"))]
+    return None if hard or not last.lines else last

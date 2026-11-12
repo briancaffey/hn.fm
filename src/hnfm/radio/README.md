@@ -1,58 +1,89 @@
 # HNFM on air — the operator's page
 
-The internet radio station built from the pipeline (plans/20). Read this
-before turning it on; it says what runs, what is exposed, and how to stop it.
+An internet radio station made from Hacker News by local models. Read this
+before turning it on: what runs, what it costs, what is exposed, how to stop it.
 
-## What it is, in one picture
+## What it is
 
 ```
-outputs/  (episode MP3s, the bank)
-    │ file paths
-    ▼
-hn.fm API ──"what's next?"──▶ Liquidsoap ──MP3 128k──▶ Icecast ──HTTP──▶ listeners
- /api/radio/next   ◀──"now playing"────┘              /radio/hnfm.mp3
- /api/radio/events
+ format clock ──▶ planner ──▶ writers' room ──▶ booth ──▶ block (files + sheet)
+ (code: shows,    (1 call:    (fact sheet,      (voice,        │
+  quarters,        stories     draft, rules,     listen-back,  ├──▶ archive (one MP3 + feed)
+  slots)           to slots)   editor, rewrite)  mix)          ▼
+                                                 director ──"what's next?"──▶ Liquidsoap ──▶ Icecast ──▶ listeners
 ```
 
-- **Icecast** is the transmitter. One feed in, any number of listeners out.
-- **Liquidsoap** is the DJ. It asks the API what to play next, crossfades,
-  never lets the stream drop (safety bed, then silence), pushes one MP3 to
-  Icecast, and reports every track change. Its script is `radio.liq` here:
-  compose bind-mounts it; the chart's init container fetches it from
-  `GET /api/radio/script` at pod start, so it deploys with the backend.
-- **The producer** (`producer.py`) plans a block of programming — about
-  thirty minutes — with one structured call to the local model. The
-  station's sound is quick: six to nine **briefs** (thirty seconds on a
-  story that just landed on /new — headline, then the two or three things
-  worth knowing, written by the Punchline prompt and read by a host over a
-  quiet bed), short music beds between every two or three items, a station
-  ID every few items, a time check near the top, and at most one deep-dive
-  episode in the middle. It never repeats a story or episode that aired in
-  the last twelve hours or is already on the belt. If the model is down, a
-  deterministic fallback plans the same shape.
-- **Voices** (`voice.py`): Mia, Jason, Sofia, Leo, Aria and Ray on Magpie,
-  each with moods the server lists (calm is the house mood; neutral and sad
-  when a line wants them), plus Dia. Spoken items end in a beat of silence
-  and the DJ's crossfade is short, so nothing steps on the last word.
-- **The director** (`director.py`) serves the block one item at a time,
-  honours the queue ("play this next"), keeps history, and asks for the
-  next block when the current one runs low.
-- **The bank** (`bank.py`) keeps station IDs and music beds ready, and
-  voices the lines the producer wrote for each block, so the air never
-  waits on TTS or the music model.
+- **The format** (`format.py`) is code. Six shows cover the day, each with
+  hosts, a tone, a music palette and a clock of four quarters. A quarter is
+  an ordered list of slots; a slot names a segment type. A model cannot
+  change the running order.
+- **Segments** (`segments.py`) are one spec each: headline, two-hander, The
+  Comment Line (callers on a phone line), the bulletin, Show HN desk, Ask
+  HN, Front Page Forecast, a mock sponsor read, four short bits, the show
+  open, the handoff, and the song of the hour. Add a segment by adding a
+  spec and a worked example.
+- **The planner** asks the model one thing per block: which story goes in
+  which story slot. Picks are checked against each slot's rule and gaps are
+  filled by freshness, so a block has the same shape with the model away.
+- **The writers' room** writes each piece from a per-story fact sheet (made
+  once, kept on disk), checks it with rules, has an editor prompt read it,
+  rewrites once, and finally cuts any sentence the rules still reject.
+- **The booth** speaks each line, transcribes it back and compares it with
+  the script, re-takes a line that came out wrong, puts callers down a
+  phone line, ducks a bed under the voice, and checks loudness.
+- **The director** serves finished files. With nobody tuned in it plays
+  from the library and makes nothing.
 
 ## Off by default, at every layer
 
 | Layer | Switch | Off means |
 |---|---|---|
-| compose | `docker compose --profile radio up -d` | `docker compose up` never starts Icecast or Liquidsoap |
-| API, beat, nav | `RADIO_ENABLED=true` | `/api/radio/*` answer 404; no beat jobs; no menu entry. `/api/radio/status` says `{enabled: false}` |
+| compose | `docker compose --profile radio up -d` | Icecast and Liquidsoap never start |
+| API, beat, nav | `RADIO_ENABLED=true` | `/api/radio/*` answer 404; no beat jobs; no menu entry |
 | chart | `radio.enabled: true` | no Deployments, Services or ingress paths are rendered |
-| public host | `radio.publicHost: radio.example.com` | no second host rule at all |
+| public host | `radio.publicHost` | no second host rule at all |
 
-Both switches are needed locally: the profile starts the containers, the
-env flag makes the API answer them. With the flag on and the profile off,
-Liquidsoap is simply not running and the page says the transmitter is down.
+## What it costs, and when
+
+The station makes new programming only when it has a reason to
+(`RADIO_PRODUCE`, chart `radio.produce`):
+
+| Mode | Makes a block when |
+|---|---|
+| `listeners` (default) | someone is tuned in, or was in the last ten minutes; and at the edition hours |
+| `always` | a block is running low, around the clock |
+| `off` | someone presses "Plan a block" |
+
+Edition hours (`RADIO_EDITION_HOURS`, default `8,13,19`) make one block
+each whoever is listening, so the archive has something every day.
+
+Measured on the home cluster (Nemotron 3.5 Lightning, Magpie, ACE-Step):
+
+| | per block (one quarter) |
+|---|---|
+| Air time | 5 to 9 minutes |
+| Wall time to make | 70 to 170 seconds |
+| Model calls | 13 to 29 (a fact sheet per new story, two per piece, one plan) |
+| Tokens | 19,000 to 47,000, most of it the unchanging system prompt (prefix-cached) |
+| Speech | 2.5 to 7 minutes synthesised; a repeated line is read from the cache |
+| Music | none per block; beds, tracks and jingles are stocked per show and reused |
+
+Stocking a show's shelf (four beds, six two-minute tracks, two sung
+jingles, three station IDs) takes the music model a few minutes, once.
+
+## Turn it on in the cluster
+
+In the environment overlay:
+
+```yaml
+radio:
+  enabled: true
+```
+
+Nothing else. The transmitter's passwords are derived inside the pods from
+a secret the release already has (`radio.passwords`). Listeners use
+`https://<host>/radio/hnfm.mp3`; the page is `/listen`, the control room
+`/radio`, the studio `/studio`.
 
 ## Turn it on locally
 
@@ -62,99 +93,54 @@ RADIO_ENABLED=true
 ICECAST_SOURCE_PASSWORD=<something>
 ICECAST_ADMIN_PASSWORD=<something else>
 
-docker compose up -d --no-deps web celery-worker celery-worker-ingest celery-worker-triage celery-beat   # re-read .env
-docker compose --profile radio up -d                                                                     # icecast + liquidsoap
-curl -s -X POST localhost:8000/api/radio/bank/fill                                                       # first station IDs and beds
+docker compose up -d --no-deps web celery-worker celery-worker-ingest celery-worker-triage celery-beat
+docker compose --profile radio up -d
+curl -s -X POST localhost:8000/api/radio/bank/fill
+curl -s -X POST localhost:8000/api/radio/plan -H 'content-type: application/json' -d '{"force": true}'
 ```
 
-Listen at `http://localhost:8010/hnfm.mp3`. The control room is `/radio`
-in the dashboard; the public page is `/listen`.
-
-## Turn it on in the cluster
-
-In the home-lab values overlay:
-
-```yaml
-radio:
-  enabled: true
-  publicHost: ""            # or radio.inference.club, see below
-```
-
-and add `ICECAST_SOURCE_PASSWORD` and `ICECAST_ADMIN_PASSWORD` to the
-Vaultwarden item (and to `externalSecret.keys`). Listeners use
-`https://hnfm.lan/radio/hnfm.mp3`.
+Listen at `http://localhost:8010/hnfm.mp3`.
 
 ## The public host
 
-Setting `radio.publicHost` adds a second hostname rule that exposes exactly:
+Setting `radio.publicHost` adds a second hostname that exposes exactly: the
+stream (`/radio/`), the listen page (`/listen`, `/_nuxt`), and the read-only
+`/api/radio/status`, `/now`, `/history` and `/archive`. Nothing else on that
+host resolves. Getting traffic to the cluster from the internet is outside
+this chart.
 
-- `/radio/` — the stream (Icecast)
-- `/listen` and `/_nuxt` — the public listen page (player, now playing, recent)
-- `/api/radio/status`, `/api/radio/now`, `/api/radio/history` — read-only
+## Changing how it sounds
 
-Nothing else on that host resolves. The dashboard, every other API route,
-the queue and skip controls stay on the LAN host. Getting traffic to the
-cluster from the internet (tunnel, TLS, bandwidth) is outside this chart.
+| To change | Edit |
+|---|---|
+| The shows, their hours, hosts, music | `format.py` (`SHOWS`) |
+| What a quarter hour contains | `format.py` (`_DAY`, `_NIGHT`) |
+| What a segment is | `segments.py` |
+| How a kind of piece is written | its worked example in `prompts/examples/radio.yaml` — the local model follows the example far more closely than any rule |
+| The station's rules for writers | `prompts/radio.write.yaml` (system); enforced by `writers.lint` |
+| What the editor checks | `prompts/radio.edit.yaml` |
+| The mix | `mix.py` |
 
-## How to check it is actually off
+Things learned the hard way, all encoded in tests:
 
-```sh
-docker compose ps | grep -c "icecast\|liquidsoap"      # 0
-curl -s localhost:8000/api/radio/status                # {"enabled": false}
-curl -s -o /dev/null -w "%{http_code}\n" localhost:8000/api/radio/next   # 404
-helm template hnfm charts/hnfm | grep -c icecast       # 0
-```
-
-## What a block sounds like
-
-A thirty-minute block is a run sheet of about twenty items, planned by
-the model (`prompts/radio.plan.yaml`) and repaired by the producer so it
-always has the shape below, whatever the model wrote:
-
-- **Briefs** — the bulk. A quick read of one new story, twenty to forty
-  seconds, over a music bed at minus twenty decibels. At least six a
-  block, each read by a different host in turn, no story twice in twelve
-  hours.
-- **A feature** — sixty to ninety seconds on one story, mid-block,
-  announced by a "coming up" line. The station's long form; there is one.
-- **Bits** — one or two from the library in `bits.py`: *Under the hood*
-  (a shout-out to the models in the stack), *One from Leo* (a dry joke on
-  a tech trope), *Two engineers* (a two-voice sketch), *Word of the hour*
-  (a piece of jargon explained). Each is a card — who reads it, how long,
-  on a bed or not — and a copywriter prompt (`prompts/radio.bit.yaml`)
-  turns the card and its material into copy. Add a bit by adding a card.
-- **Music** — a bed of twenty to forty-five seconds after every second
-  spoken item, a different style each time, all from ACE-Step.
-- Station IDs, the time, and the odd full episode.
-
-Everything spoken passes through `copy.speakable()` on its way to the
-voice, so the house style is a guarantee and not a request: numbers
-become words, acronyms become letters with periods (A.I., G.P.U.),
-symbols become words, dashes become pauses, markdown and URLs go.
-
-One plan is in flight at a time. The director asks for one when a sheet
-runs low, the monitor asks if there is no sheet at all, and
-`POST /api/radio/plan` asks by hand; all three go through
-`director.request_plan`, which refuses a second within five minutes
-unless told `{"force": true}`.
-
-## Costs
-
-- One LLM call per block, measured at about 1,900 tokens in and 700 out
-  for a thirty-minute block — a few thousand tokens an hour, on the local
-  model, and about thirty-five seconds of its time.
-- TTS for the block's lines (a handful of short sentences) and, now and
-  then, a 60 s music bed from ACE-Step to keep the bank stocked.
-- Liquidsoap encodes continuously: about a third of a core.
-- 58 MB per listener-hour of bandwidth.
+- The local model reads its instructions aloud. Labels in the material
+  ("The hook:") were read out, so fact sheets carry none, and a sentence
+  that recites is cut before the booth.
+- It cannot think and return schema-constrained JSON at once, and its
+  thinking does not stop on a long prompt. Everything runs with thinking
+  off; the writer plans in three short JSON fields before the lines.
+- It follows an example over a rule. A test checks that every example
+  obeys the station's own rules.
+- Speakers and moods are enums in the response schema, so a line cannot be
+  given to a host who is not in the piece.
 
 ## Inspecting
 
-- `/radio` — now playing, last three hours, the planned blocks with their
-  token cost, listener count, queue, skip.
-- `GET /api/radio/sheets` — the blocks, with `source: llm | fallback`.
-- `GET /api/radio/history` — every track change the DJ reported.
-- Services page — Icecast and Liquidsoap health, listed only when on.
-- `liquidsoap --check src/hnfm/radio/radio.liq` (via the
-  `savonet/liquidsoap:v2.4.5` image) type-checks the script without
-  running it; CI should run it.
+- `/radio` — now playing, history, blocks with their token cost, stock, skip.
+- `/studio` — the station at work, with its running commentary.
+- `GET /api/radio/sheets` — each block with every item's words, editor
+  scores (`review`), listen-back (`qa`) and the writer's plan.
+- `GET /api/radio/archive` and `/api/radio/archive/feed.xml`.
+- `GET /api/radio/schedule` — the day and the current quarter's slots.
+- `liquidsoap --check src/hnfm/radio/radio.liq` (image
+  `savonet/liquidsoap:v2.4.5`) type-checks the DJ's script.

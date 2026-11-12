@@ -3116,51 +3116,65 @@ def scheduled_job(name: str, force: bool = False) -> Dict[str, any]:
 # ---------------------------------------------------------------------------
 
 
-@celery_app.task(name="hnfm.web.tasks.radio_plan_block", time_limit=300, soft_time_limit=240)
+@celery_app.task(name="hnfm.web.tasks.radio_plan_block", time_limit=1500, soft_time_limit=1380)
 def radio_plan_block(reason: str = "scheduled", minutes: int = None) -> Dict[str, any]:
-    """Plan the next block of programming, then voice its lines."""
+    """Plan the next block, make it, archive it, and release it to air."""
     from .. import radio
-    from ..radio import bank, director
+    from ..radio import archive, director, production
 
     if not radio.enabled():
         return {"status": "skipped", "reason": "radio is off"}
     from ..db import repo
 
-    sheet = director.plan_now(minutes=minutes, reason=reason)
-    voiced = 0
+    sheet = None
     try:
-        voiced = bank.voice_sheet(sheet["sheet_id"], sheet["items"])
-    except Exception as e:
-        logger.warning(f"radio: voicing the block failed (non-fatal): {e}")
+        sheet = director.plan_now(minutes=minutes, reason=reason)
+        if not sheet:
+            return {"status": "nothing new"}
+        sid = sheet["sheet_id"]
+        stats = production.produce(sheet, save=lambda items: repo.radio_update_sheet(sid, items=items))
+        repo.radio_update_sheet(
+            sid, items=sheet["items"],
+            tokens_in=(sheet.get("tokens_in") or 0) + stats.get("tokens_in", 0),
+            tokens_out=(sheet.get("tokens_out") or 0) + stats.get("tokens_out", 0))
+        edition = None
+        try:
+            edition = archive.render(sheet, stats)
+        except Exception as e:
+            logger.warning(f"radio: archiving the block failed (non-fatal): {e}")
+        radio.log("producer", f"block {sid} is made and ready to air"
+                  + (f"; archived as {edition['id']}" if edition else ""),
+                  sheet_id=sid, **{k: v for k, v in stats.items() if k != "calls"})
+        return {"status": "ok", "sheet_id": sid, "items": len(sheet["items"]),
+                "source": sheet["source"], "edition": edition and edition["id"], **stats}
     finally:
-        # Voiced or not, the block is released now: what is in the bank
-        # airs, the rest is skipped. Never leave a block parked forever.
-        repo.radio_mark_ready(sheet["sheet_id"])
+        # Made or not, the block is released: what exists airs, the rest
+        # is skipped. Never leave a block parked, or the planner locked.
+        if sheet:
+            repo.radio_mark_ready(sheet["sheet_id"])
         repo.set_setting(director.SETTING_PLANNING, None)
-        radio.log("producer", f"block {sheet['sheet_id']} is voiced and ready to air",
-                  sheet_id=sheet["sheet_id"], voiced=voiced)
-    return {"status": "ok", "sheet_id": sheet["sheet_id"], "items": len(sheet["items"]),
-            "source": sheet["source"], "voiced": voiced}
 
 
 @celery_app.task(name="hnfm.web.tasks.radio_fill_bank", time_limit=900, soft_time_limit=840)
 def radio_fill_bank(max_new: int = 4) -> Dict[str, any]:
-    """Top up the generic stock: station IDs and music beds."""
+    """Top up the stock: beds, jingles and station IDs for the shows on now and next."""
     from .. import radio
     from ..radio import bank
+    from ..radio.library import bank_counts
 
     if not radio.enabled():
         return {"status": "skipped", "reason": "radio is off"}
     made = bank.fill(max_new=max_new)
-    return {"status": "ok", "made": made, "have": __import__("hnfm.radio.library", fromlist=["bank_counts"]).bank_counts()}
+    return {"status": "ok", "made": made, "have": bank_counts()}
 
 
 @celery_app.task(name="hnfm.web.tasks.radio_monitor", time_limit=120, soft_time_limit=100)
 def radio_monitor() -> Dict[str, any]:
     """The station manager's round: is the transmitter up, is there a
-    block ready, is the bank stocked. Fixes what it can, records the rest."""
+    block ready, is the shelf stocked, is an edition due. Fixes what it
+    can, records the rest."""
     from .. import radio
-    from ..radio import bank, director
+    from ..radio import bank, director, housekeeping
     from ..db import repo
 
     if not radio.enabled():
@@ -3168,28 +3182,27 @@ def radio_monitor() -> Dict[str, any]:
     st = director.status()
     actions = []
     if not st["sheet"]:
-        # Through the task, so the block is voiced before it airs.
-        if director.request_plan("monitor: no sheet").get("status") == "queued":
+        # Granted only if someone is listening (or the mode is "always").
+        if director.request_plan("monitor: no block").get("status") == "queued":
             actions.append("asked for a block")
-    if (st["bank"].get("station_id", 0) < 2 or st["bank"].get("music", 0) < bank.TARGETS["music"]):
+    edition = housekeeping.edition_due()
+    if edition and director.request_plan(f"edition: {edition}", force=True).get("status") == "queued":
+        housekeeping.mark_edition(edition)
+        actions.append(f"asked for the {edition} edition")
+    if bank.wanted():
         radio_fill_bank.apply_async(kwargs={"max_new": 4})
-        actions.append("filling the bank")
-    # Blocks air oldest first, so an open sheet can be older than the newest
-    # three; pruning its lines used to empty the block mid-air.
-    keep = {sh["sheet_id"] for sh in repo.radio_list_sheets(limit=3)}
-    keep |= {sh["sheet_id"] for sh in repo.radio_open_sheets()}
-    keep = list(keep)
-    pruned = bank.prune(keep_sheets=keep)
+        actions.append("stocking the shelf")
+    pruned = bank.prune() + housekeeping.prune_blocks()
     if pruned:
-        actions.append(f"pruned {pruned} bank files")
+        actions.append(f"pruned {pruned} old files")
     if not st["icecast"].get("up"):
         actions.append(f"icecast down: {st['icecast'].get('error')}")
     repo.set_setting("radio.monitor", {"at": datetime.utcnow().isoformat(),
                                        "actions": actions, "icecast": st["icecast"]})
-    listeners = sum(m.get("listeners", 0) for m in (st["icecast"].get("mounts") or []))
+    listeners = st["audience"]["listeners"]
     radio.log("monitor",
               "round complete: " + (", ".join(actions) if actions else "all quiet")
-              + f" · {listeners} listening",
+              + f" · {listeners} listening · producing: {'yes' if st['produce']['producing'] else 'no'}",
               actions=actions, listeners=listeners, icecast_up=bool(st["icecast"].get("up")))
     try:
         repo.radio_log_prune(keep=5000)

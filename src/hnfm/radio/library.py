@@ -1,10 +1,11 @@
-"""What the station can play (plans/20).
+"""What the station keeps in stock.
 
 Two shelves. Episodes are the finished podcast MP3s the pipeline already
-makes (`build_segment_episode`), so the radio never re-renders anything.
-The bank is the station's own material — station IDs, time checks, music
-beds, and the lines a producer wrote for a specific block — kept as MP3s
-under `outputs/radio/bank/` with one JSON manifest beside them.
+makes (`build_segment_episode`). The bank is the station's imaging and
+music — spoken station IDs, sung jingles, and beds in each show's palette
+— kept as MP3s under `outputs/radio/bank/` with one JSON manifest beside
+them. What is written for one block does not live here: it lives with the
+block (production.py), and the block's sheet names every file.
 """
 
 import json
@@ -144,41 +145,36 @@ def add_to_bank(item: dict) -> dict:
     return item
 
 
-def bank_counts() -> Dict[str, int]:
+def bank_counts(show: Optional[str] = None) -> Dict[str, int]:
+    """How much stock there is by kind, for the whole station or one show."""
     counts: Dict[str, int] = {}
     for i in load_bank():
-        if i.get("sheet_id"):
-            continue  # block-specific lines are not the generic stock
+        if show and i.get("show") != show:
+            continue
         counts[i["kind"]] = counts.get(i["kind"], 0) + 1
     return counts
 
 
-def pick_from_bank(kind: str, avoid_ids: List[str] = (), sheet_id: Optional[str] = None,
+def pick_from_bank(kind: str, avoid_ids: List[str] = (), show: Optional[str] = None,
                    host: Optional[str] = None, strict: bool = False) -> Optional[dict]:
-    """A bank item of `kind`, preferring one written for this sheet, then any
-    generic one not played recently. With `strict`, nothing in `avoid_ids`
-    is ever returned — the caller would rather skip than repeat."""
-    items = load_bank()
-    # The same sentence is the same item, whichever block voiced it: the
-    # producer writes "You're listening to HNFM" into every block, and by
-    # id each copy was new.
+    """A stock item of `kind`: one made for `show` if there is one, the
+    one that has waited longest among those not played lately, and — unless
+    `strict` — whatever played longest ago when everything has played.
+    With `strict`, nothing in `avoid_ids` is returned: the caller would
+    rather skip than repeat."""
+    items = [i for i in load_bank() if i["kind"] == kind]
+    # The same sentence is the same item, whichever take it is.
     avoid = set(avoid_ids)
     if strict:
         said = {i.get("text") for i in items if i["id"] in avoid and i.get("text")}
         avoid |= {i["id"] for i in items if i.get("text") in said}
-    if sheet_id:
-        for i in items:
-            if i.get("sheet_id") == sheet_id and i["kind"] == kind and i["id"] not in avoid:
-                return i
-    pool = [i for i in items if i["kind"] == kind and not i.get("sheet_id")
-            and (host is None or i.get("host") == host)]
-    if not pool and host is not None:
-        pool = [i for i in items if i["kind"] == kind and not i.get("sheet_id")]
+    pool = items
+    if show and any(i.get("show") == show for i in items):
+        pool = [i for i in items if i.get("show") == show]
+    if host is not None and any(i.get("host") == host for i in pool):
+        pool = [i for i in pool if i.get("host") == host]
     if not pool:
         return None
-    # `avoid_ids` is what played lately, newest first. Prefer anything not
-    # in it (oldest first, so the stock rotates); failing that, whatever
-    # played longest ago — never the same one again because it is oldest.
     fresh = [i for i in pool if i["id"] not in avoid]
     if fresh:
         return sorted(fresh, key=lambda i: i.get("created_at") or "")[0]
@@ -253,27 +249,3 @@ def to_mp3(src: str, dst: str, seconds: Optional[float] = None, fade: float = 1.
         logger.warning(f"radio: mp3 encode failed: {res.stderr[-200:]}")
         return False
     return True
-
-
-def mix_under(voice_src: str, bed_src: str, dst: str, bed_db: float = -17.0,
-              lead: float = 1.2, tail: float = 2.0) -> bool:
-    """A voice over a quiet music bed: the bed leads in, ducks under the
-    voice, and runs on after it with a fade. One 128k MP3 at broadcast
-    loudness. `bed_db` is how far under the voice the bed sits."""
-    graph = (
-        f"[1:a]volume={bed_db}dB,afade=t=in:st=0:d=1.0[bed];"
-        f"[0:a]adelay={int(lead * 1000)}|{int(lead * 1000)},apad=pad_dur={tail}[v];"
-        f"[v][bed]amix=inputs=2:duration=first:dropout_transition=2,"
-        f"afade=t=out:st=9999:d=1[mix0];"
-        f"[mix0]loudnorm=I=-16:TP=-1.5:LRA=11,apad=pad_dur={TAIL_PAD}[out]"
-    )
-    cmd = ["ffmpeg", "-y", "-i", voice_src, "-stream_loop", "-1", "-i", bed_src,
-           "-filter_complex", graph, "-map", "[out]",
-           "-ac", "2", "-ar", "44100", "-c:a", "libmp3lame", "-b:a", "128k", dst]
-    os.makedirs(os.path.dirname(dst) or ".", exist_ok=True)
-    res = subprocess.run(cmd, capture_output=True, text=True)
-    if res.returncode != 0 or not os.path.exists(dst):
-        logger.warning(f"radio: mix failed: {res.stderr[-240:]}")
-        return False
-    return True
-

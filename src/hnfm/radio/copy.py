@@ -1,34 +1,14 @@
-"""Radio copy: how the station writes, and how text is made speakable.
+"""Text a voice can read.
 
-Two jobs. `house_style()` is the paragraph every writer prompt carries —
-lighthearted, clear, short sentences, nothing a voice model would trip on.
 `speakable()` is the last pass before any text reaches a voice: numbers
 become words, acronyms become letters with periods (A.I., G.P.U.), symbols
 become words, markdown and emoji go. It runs on everything the station
 says, including copy the model wrote, because a rule in a prompt is a
-request and this is a guarantee.
+request and this is a guarantee. The house style itself is the system
+prompt of `prompts/radio.write.yaml`.
 """
 
 import re
-
-HOUSE_STYLE = """\
-House style for HNFM radio copy — this will be read aloud by a voice model:
-- Lighthearted, warm, quick. Radio, not an essay. Short sentences. Talk to
-  one listener.
-- Spell everything out. Numbers as words ("two thousand twenty-six",
-  "forty percent"). Acronyms as letters with periods ("A.I.", "G.P.U.",
-  "C.P.U."), except words people say as words ("NASA", "RAM").
-- No symbols, no markdown, no bullet points, no tables, no emoji, no
-  URLs, no hashtags. Say "percent", "dollars", "and".
-- Units in words: gigabytes, milliseconds, kilometres.
-- Name the station as "H.N.F.M." when it is said.
-- Never a lecture. If it is a story, get to the point in the first
-  sentence and stop before it drags.
-"""
-
-
-def house_style() -> str:
-    return HOUSE_STYLE
 
 
 # --- numbers to words ------------------------------------------------------
@@ -106,8 +86,10 @@ _SYMBOLS = [
     (re.compile(r"\b(\d{1,2}):(\d{2})\s*(AM|PM|am|pm|a\.m\.|p\.m\.)?\b"), _clock),
     # URLs go first, whole, before the slash rule can take them apart.
     (re.compile(r"https?://\S+|www\.\S+"), lambda m: ""),
-    (re.compile(r"\$(\d[\d,]*(?:\.\d+)?)\s*(billion|million|thousand|[bmk])?\b", re.I),
-     lambda m: m.group(1) + " " + ({"b": "billion", "m": "million", "k": "thousand"}.get((m.group(2) or "").lower(), m.group(2) or "")) + " dollars"),
+    # The unit is optional and so is the space before it; the space is only
+    # consumed with a unit, or "$2.11 one run" becomes "dollarsone run".
+    (re.compile(r"\$(\d[\d,]*(?:\.\d+)?)(?:\s*(billion|million|thousand|[bmk])\b)?", re.I),
+     lambda m: m.group(1) + (" " + {"b": "billion", "m": "million", "k": "thousand"}.get(m.group(2).lower(), m.group(2).lower()) if m.group(2) else "") + " dollars"),
     (re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*%"), lambda m: m.group(1) + " percent"),
     (re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(GB|MB|KB|TB)\b"), lambda m: m.group(1) + " " + {"GB": "gigabytes", "MB": "megabytes", "KB": "kilobytes", "TB": "terabytes"}[m.group(2)]),
     (re.compile(r"(\d[\d,]*(?:\.\d+)?)\s*(ms)\b"), lambda m: m.group(1) + " milliseconds"),
@@ -151,6 +133,9 @@ def speakable(text: str) -> str:
     for pattern, repl in _SYMBOLS:
         t = pattern.sub(repl, t)
     t = _ACRONYM.sub(_acronym, t)
+    # "arm64" and "30B" are a word and a number; without the space they
+    # came out as "armsixty-four".
+    t = re.sub(r"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])", " ", t)
     t = _NUMBER.sub(_num, t)
     # "G.P.U." at the end of a sentence would otherwise read "G.P.U..", and
     # an ellipsis is just a full stop to a voice.

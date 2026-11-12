@@ -32,9 +32,27 @@ spec:
           ports:
             - name: http
               containerPort: 8000
+          {{- if .Values.radio.passwords.derive }}
+          # Both passwords come from a secret the release already has: the
+          # DJ's init container derives the same source password.
+          command: ["/bin/sh", "-c"]
+          args:
+            - >
+              S=$(printf '%s' "icecast-source:$SEED" | sha256sum | cut -c1-32);
+              A=$(printf '%s' "icecast-admin:$SEED" | sha256sum | cut -c1-32);
+              export ICECAST_SOURCE_PASSWORD=$S ICECAST_ADMIN_PASSWORD=$A ICECAST_RELAY_PASSWORD=$A;
+              exec docker-entrypoint icecast -c /etc/icecast.xml
+          {{- end }}
           env:
             - name: ICECAST_HOSTNAME
               value: {{ .Values.host | quote }}
+            {{- if .Values.radio.passwords.derive }}
+            - name: SEED
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hnfm.secretName" . }}
+                  key: {{ .Values.radio.passwords.seedKey }}
+            {{- else }}
             - name: ICECAST_SOURCE_PASSWORD
               valueFrom:
                 secretKeyRef:
@@ -50,6 +68,7 @@ spec:
                 secretKeyRef:
                   name: {{ include "hnfm.secretName" . }}
                   key: ICECAST_ADMIN_PASSWORD
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /status-json.xsl
@@ -105,6 +124,17 @@ spec:
             - >
               until curl -sf "http://{{ $full }}-web:8000/api/radio/script" -o /script/radio.liq; do
                 echo "waiting for the API (is RADIO_ENABLED=true?)"; sleep 5; done
+              {{- if .Values.radio.passwords.derive }};
+              printf '%s' "icecast-source:$SEED" | sha256sum | cut -c1-32 | tr -d '\n' > /script/source-password
+              {{- end }}
+          {{- if .Values.radio.passwords.derive }}
+          env:
+            - name: SEED
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "hnfm.secretName" . }}
+                  key: {{ .Values.radio.passwords.seedKey }}
+          {{- end }}
           volumeMounts:
             - name: script
               mountPath: /script
@@ -119,11 +149,16 @@ spec:
               value: {{ $full }}-icecast
             - name: ICECAST_PORT
               value: "8000"
+            {{- if .Values.radio.passwords.derive }}
+            - name: ICECAST_SOURCE_PASSWORD_FILE
+              value: /script/source-password
+            {{- else }}
             - name: ICECAST_SOURCE_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ include "hnfm.secretName" . }}
                   key: ICECAST_SOURCE_PASSWORD
+            {{- end }}
             # Behind the ingress the mount carries the /radio prefix, so no
             # rewrite is needed anywhere.
             - name: RADIO_MOUNT

@@ -1,0 +1,243 @@
+# Worked examples for the writers' room, one per segment type (issue #30).
+#
+# Each is what the writer is shown before its own assignment: the material,
+# the plan (the hook found in the material, the facts it will use, how the
+# piece ends), and the piece. The stories are invented on purpose, so that
+# nothing in them can leak into a real item as a fact. The writer follows
+# these far more closely than it follows any rule, so an example is where
+# a change to the station's sound is made. The eval round (issue #34)
+# proposes replacements from the best-scoring pieces that aired.
+version: 2
+
+headline:
+  - material: |
+      STORY: "pg_turbo: an extension that makes ORDER BY queries 36x faster"
+      - A Postgres extension that keeps a second, already-sorted copy of the busiest rows.
+      - A benchmark query went from 400 milliseconds to 11.
+      - Sorted queries skip the sort step because the copy is already in order.
+      - The author wrote the first version in a weekend.
+      - Keeping the sorted copy in step when data is written is not implemented yet.
+      BUT: The benchmark only covers tables nobody is writing to.
+      PEOPLE SAID:
+      - The weekend got them the easy half. Keeping two copies in sync on writes is the real work.
+    plan:
+      hook: "A query that took four hundred milliseconds now takes eleven."
+      facts: ["second pre-sorted copy of the busiest rows", "written in a weekend", "write sync not implemented yet"]
+      ending: "The weekend was the easy part."
+    lines:
+      - {speaker: sofia, mood: default, text: "Eleven milliseconds. That is what one Postgres query takes now, with a new extension. It used to take four hundred."}
+      - {speaker: sofia, mood: default, text: "The trick is not glamorous. The extension keeps a second copy of the busiest rows, already sorted, so the database never has to sort them again."}
+      - {speaker: sofia, mood: default, text: "The author built it in a weekend. The thread points out why: keeping both copies in step when the data changes is not written yet. The weekend was the easy part."}
+
+show_hn:
+  - material: |
+      STORY: "Show HN: Sheetsh – a spreadsheet in your terminal where every cell is a shell command"
+      - A terminal spreadsheet, built by one person, where every cell runs a shell command.
+      - Change a file on disk and the whole sheet recalculates.
+      - One developer built it over six months.
+      - Cells re-run when a file they watch changes.
+      BUT: It has no pivot tables.
+      PEOPLE SAID:
+      - Someone asked if it does pivot tables and the author said, please don't ask me that.
+    plan:
+      hook: "A spreadsheet where every cell is a shell command."
+      facts: ["one person, six months", "recalculates when a file changes", "pivot tables question"]
+      ending: "Please do not ask me that."
+    lines:
+      - {speaker: mia, mood: default, text: "Okay, somebody built a spreadsheet that lives in the terminal, and every cell in it is a shell command."}
+      - {speaker: mia, mood: default, text: "One person, six months. Change a file on disk and the whole sheet works itself out again, like a spreadsheet should."}
+      - {speaker: mia, mood: default, text: "The first question in the thread was, does it do pivot tables. The answer, from the author, was: please do not ask me that."}
+
+ask_hn:
+  - material: |
+      STORY: "Ask HN: What is the oldest code you wrote that is still running?"
+      - Someone asks what the longest-lived code people have shipped is.
+      - A billing script from 1998 still runs every night at a regional water utility.
+      - The person asking has a cron job from 2009 still running.
+      - One reply: a one-line shell loop that restarts a server every hour.
+      - That loop went in as a temporary fix eleven years ago.
+    plan:
+      hook: "What is the oldest thing you wrote that is still running?"
+      facts: ["1998 billing script at a water utility, nightly", "hourly restart loop, temporary, eleven years"]
+      ending: "A temporary fix. Eleven years ago."
+    lines:
+      - {speaker: aria, mood: default, text: "Someone asks the room: what is the oldest code you wrote that is still running somewhere?"}
+      - {speaker: aria, mood: default, text: "One answer is a billing script from nineteen ninety-eight. A regional water company still runs it every night."}
+      - {speaker: aria, mood: default, text: "Another is one line of shell that restarts a server every hour. It went in as a temporary fix. Eleven years ago."}
+
+two_hander:
+  - material: |
+      STORY: "We rewrote our build system in an afternoon and builds went from 9 minutes to 40 seconds"
+      - A team replaced its build scripts with a cache shared by every developer's laptop.
+      - Builds went from nine minutes to forty seconds after one afternoon's work.
+      - Most of the old nine minutes went on rebuilding code that had not changed.
+      - The new system remembers what it has already built.
+      - The cache is shared across every laptop in the company.
+      - The post is four days old.
+      BUT: The post does not say whether the cache has ever served a stale build.
+      PEOPLE SAID:
+      - Shared caches are great until one hands you a stale build and you lose a day working out why.
+    plan:
+      hook: "Nine minutes to forty seconds, in one afternoon."
+      facts: ["old time was rebuilding unchanged things", "cache shared across every laptop", "stale build risk from the thread", "post is four days old"]
+      ending: "The post is four days old."
+    lines:
+      - {speaker: aria, mood: default, text: "A team rewrote their whole build system in one afternoon. Builds went from nine minutes to forty seconds."}
+      - {speaker: leo, mood: default, text: "In one afternoon."}
+      - {speaker: aria, mood: default, text: "Most of the old nine minutes went on rebuilding things that had not changed. The new one remembers what it already built."}
+      - {speaker: leo, mood: default, text: "So it is a cache. They have discovered the cache."}
+      - {speaker: aria, mood: default, text: "A cache shared by every laptop in the company. That is the part that is hard to get right."}
+      - {speaker: leo, mood: default, text: "Hard to get right, or hard to notice when it is wrong?"}
+      - {speaker: aria, mood: default, text: "The post does not say it has ever served a stale build."}
+      - {speaker: leo, mood: calm, text: "The post is four days old."}
+
+comment_line:
+  - material: |
+      STORY: "City replaces all parking meters with a phone app"
+      - A city removed its coin parking meters and replaced them with a phone app.
+      - The app needs a mobile signal, and several of the car parks do not have one.
+      - The coin meters were removed, not kept as a fallback.
+      BUT: Nobody from the city has said why coins had to go.
+      CALLERS (one point each, in these words or close to them):
+      - caller1: The old meter never needed a firmware update. It took coins and it worked underground.
+      - caller2: I worked on one of these systems. The city gets to see who parks where and when. That's the reason, not convenience.
+    plan:
+      hook: "The app needs a phone signal. The car park does not have one."
+      facts: ["caller1: coins needed no updates", "caller2: worked on one, it is about usage data"]
+      ending: "The meter was not broken. It was just quiet."
+    lines:
+      - {speaker: jason, mood: default, text: "A city has swapped its parking meters for an app. The app needs a phone signal. Several of the car parks do not have one. The lines are open. Line one."}
+      - {speaker: caller1, mood: default, text: "Yeah, hi. I just think, the old meter never needed an update. It took coins. It worked underground."}
+      - {speaker: jason, mood: default, text: "A vote for coins. Line two, go ahead."}
+      - {speaker: caller2, mood: default, text: "So, I actually worked on one of these systems. The city gets to see who parks where, and when. They never had that with coins. That is the reason."}
+      - {speaker: jason, mood: calm, text: "So the meter was not broken. It was just quiet. Thank you both."}
+
+bulletin:
+  - material: |
+      The stories, in order:
+      - "A browser engine by three people passes the web compatibility tests"
+        what it is: A three-person team's independent browser engine now passes the same compatibility suite as major engines.
+      - "Friday pull requests merge fastest and get reverted most"
+        what it is: A study of 40,000 pull requests finds Friday PRs are merged quickest and reverted most often.
+      - "Measuring the speed of light with a microwave and chocolate"
+        what it is: A hobbyist measured the speed of light within 3% using a microwave oven and a chocolate bar.
+    plan:
+      hook: "Good afternoon. This is the bulletin."
+      facts: ["three-person browser engine passes the tests", "40,000 PRs, Friday merged fastest, reverted most", "speed of light within three percent, chocolate"]
+      ending: "That is the bulletin, on H.N.F.M."
+    lines:
+      - {speaker: sofia, mood: neutral, text: "Good afternoon. This is the bulletin."}
+      - {speaker: sofia, mood: neutral, text: "A browser engine written by three people now passes the same compatibility tests as the big ones."}
+      - {speaker: sofia, mood: neutral, text: "A study of forty thousand pull requests finds that the ones opened on a Friday are merged fastest, and reverted most."}
+      - {speaker: sofia, mood: neutral, text: "And a hobbyist has measured the speed of light with a microwave oven and a bar of chocolate, to within three percent."}
+      - {speaker: sofia, mood: neutral, text: "That is the bulletin, on H.N.F.M."}
+
+forecast:
+  - material: |
+      New stories arriving: about 90 an hour (faster than earlier).
+      Front page turnover: 7 of thirty places changed hands in the last hour.
+      On top right now:
+      - "Why we moved back from microservices to Postgres"
+      - "SQLite as an application file format"
+      - "Show HN: a database in 500 lines of C"
+    plan:
+      hook: "The front page forecast. Conditions are busy."
+      facts: ["ninety an hour, up", "seven of thirty changed", "three database stories on top"]
+      ending: "Scattered Show H.N.s, with a chance of someone rewriting it in Rust."
+    lines:
+      - {speaker: leo, mood: default, text: "The front page forecast. Conditions are busy: about ninety new stories an hour, and rising."}
+      - {speaker: leo, mood: default, text: "A large system of database posts has settled over the top of the page. Postgres, SQLite, and one written in five hundred lines of C. It is not expected to move."}
+      - {speaker: leo, mood: default, text: "Turnover is light. Seven of the top thirty places changed hands this hour, so what you saw earlier is mostly still there."}
+      - {speaker: leo, mood: calm, text: "Outlook: scattered Show H.N.s, with a chance of someone rewriting it in Rust."}
+
+sponsor:
+  - material: |
+      The product nobody sells: the undo button
+    plan:
+      hook: "Has this ever happened to you?"
+      facts: ["you change one line and wish you had not", "undo was there the whole time"]
+      ending: "Brought to you by nobody. But if it were, it would be Undo."
+    lines:
+      - {speaker: ray, mood: default, text: "Has this ever happened to you? You change one line. And you would like, very much, to not have changed it."}
+      - {speaker: ray, mood: default, text: "Then you need Undo. One key. No subscription. Undo: it was there the whole time."}
+      - {speaker: ray, mood: calm, text: "H.N.F.M. is brought to you by nobody. But if it were, it would be Undo."}
+
+theme:
+  - material: |
+      Station: H.N.F.M., Hacker News on the radio.
+      Show: Cold Start. Its promise: Everything that shipped while you slept.
+      The time: seven oh two in the morning, Thursday.
+      Coming up this half hour (titles; say at most one, in your own words):
+      - "Running a neural network on a 1980s calculator"
+    plan:
+      hook: "This is H.N.F.M., and this is Cold Start."
+      facts: ["everything that shipped while you slept", "a very small computer doing a very large trick"]
+      ending: "Let us go."
+    lines:
+      - {speaker: mia, mood: default, text: "This is H.N.F.M., and this is Cold Start: everything that shipped while you were asleep, before your coffee gets a say."}
+      - {speaker: mia, mood: default, text: "This half hour, somebody has taught a very old calculator a very new trick. Let us go."}
+
+handoff:
+  - material: |
+      Ending now: Main Thread, hosted by sofia. Its promise was: The working day, one story at a time.
+      Starting next: The Diff, hosted by aria. Its promise: What changed, and who is arguing about it.
+      The time: two o'clock in the afternoon.
+    plan:
+      hook: "That is Main Thread done for the day."
+      facts: ["The Diff: what changed and who is arguing about it"]
+      ending: "No promises."
+    lines:
+      - {speaker: sofia, mood: default, text: "That is Main Thread done for the day. Aria, the building is yours."}
+      - {speaker: aria, mood: default, text: "Thank you, Sofia. This is The Diff: what changed today, and who is cross about it."}
+      - {speaker: sofia, mood: default, text: "Be kind to the comment section."}
+      - {speaker: aria, mood: default, text: "No promises."}
+
+joke:
+  - material: |
+      Trope: the todo comment from twenty nineteen
+    plan:
+      hook: "There is a comment in our code that says, temporary fix."
+      facts: ["it has a date on it"]
+      ending: "It can vote."
+    lines:
+      - {speaker: leo, mood: default, text: "There is a comment in our code that says, temporary fix. It has a date on it. I will not tell you the year. I will tell you that it can vote."}
+
+sketch:
+  - material: |
+      Trope: it works on my machine
+    plan:
+      hook: "It works on my machine!"
+      facts: ["ship your machine", "something in production: users"]
+      ending: "Yes. Users."
+    lines:
+      - {speaker: mia, mood: default, text: "It works on my machine!"}
+      - {speaker: leo, mood: default, text: "Wonderful. We will ship your machine."}
+      - {speaker: mia, mood: default, text: "No, I mean, there must be something different in production."}
+      - {speaker: leo, mood: default, text: "There is."}
+      - {speaker: mia, mood: default, text: "What?"}
+      - {speaker: leo, mood: calm, text: "Users."}
+
+word:
+  - material: |
+      Term: bikeshedding
+    plan:
+      hook: "The word of the hour is bikeshedding."
+      facts: ["a committee approves a reactor in minutes, argues an hour over the bike shed colour", "when a database meeting becomes a naming meeting"]
+      ending: "a meeting about a variable name."
+    lines:
+      - {speaker: sofia, mood: default, text: "The word of the hour is bikeshedding. A committee approves a nuclear reactor in two minutes, because nobody in the room understands it. Then it argues for an hour about what colour to paint the bike shed. Everybody understands a bike shed."}
+      - {speaker: sofia, mood: default, text: "You say it when a meeting about a database has turned into a meeting about a variable name."}
+
+stack:
+  - material: |
+      - Nemotron writes every word. It runs on a small computer in the house.
+      - Magpie voices every host.
+      - ACE-Step makes the music.
+    plan:
+      hook: "Nobody is in this building."
+      facts: ["Nemotron writes", "Magpie speaks", "ACE-Step plays"]
+      ending: "It mostly works, which still surprises us."
+    lines:
+      - {speaker: ray, mood: default, text: "Nobody is in this building. A model called Nemotron wrote this sentence, on a small computer in somebody's house."}
+      - {speaker: ray, mood: default, text: "A model called Magpie is saying it. And the music you are about to hear was made, a minute ago, by one called ACE-Step."}
+      - {speaker: ray, mood: calm, text: "It mostly works. That still surprises us."}

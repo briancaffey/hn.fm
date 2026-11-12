@@ -1088,6 +1088,67 @@ async def radio_plan(request: dict = Body(default={})):
                                  force=bool(request.get("force")))
 
 
+@app.get("/api/radio/schedule", tags=["radio"])
+async def radio_schedule():
+    """The day's shows, the one on air, and the shape of its current half hour."""
+    _radio_on()
+    from ..radio import director
+    from ..radio.format import rundown, schedule
+    from ..radio.segments import SEGMENTS
+
+    return {
+        "on_air": director.on_air(),
+        "shows": schedule(),
+        "clock": [{"segment": sl.segment, "name": SEGMENTS[sl.segment].name if sl.segment in SEGMENTS else "A bit"}
+                  for sl in rundown()],
+    }
+
+
+@app.get("/api/radio/archive", tags=["radio"])
+async def radio_archive(limit: int = 50):
+    """Finished blocks kept as single files, newest first."""
+    _radio_on()
+    from ..radio import archive
+
+    return {"editions": archive.editions(limit=min(int(limit), 200))}
+
+
+@app.get("/api/radio/archive/feed.xml", tags=["radio"])
+async def radio_archive_feed(request: Request):
+    """The archive as a podcast feed."""
+    _radio_on()
+    from fastapi.responses import Response
+    from ..radio import archive
+
+    base = os.getenv("PUBLIC_API_BASE") or str(request.base_url)
+    return Response(content=archive.feed(base), media_type="application/rss+xml")
+
+
+@app.get("/api/radio/archive/{edition_id}.mp3", tags=["radio"])
+async def radio_archive_audio(edition_id: str):
+    _radio_on()
+    from fastapi.responses import FileResponse
+    from ..radio import archive
+
+    e = archive.edition(edition_id)
+    if not e or not os.path.exists(e["path"]):
+        raise HTTPException(status_code=404, detail="no such edition")
+    return FileResponse(e["path"], media_type="audio/mpeg", filename=f"hnfm-{edition_id}.mp3")
+
+
+@app.get("/api/radio/archive/{edition_id}", tags=["radio"])
+async def radio_archive_edition(edition_id: str):
+    """One finished block with its running order and the words."""
+    _radio_on()
+    from ..radio import archive
+
+    e = archive.edition(edition_id)
+    if not e:
+        raise HTTPException(status_code=404, detail="no such edition")
+    e.pop("path", None)
+    return e
+
+
 @app.post("/api/radio/bank/fill", tags=["radio"])
 async def radio_bank_fill():
     _radio_on()

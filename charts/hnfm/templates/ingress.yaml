@@ -106,6 +106,14 @@ spec:
                 name: {{ $full }}-web
                 port:
                   number: 8000
+          # The archive of finished blocks and its podcast feed: read-only.
+          - path: /api/radio/archive
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $full }}-web
+                port:
+                  number: 8000
           - path: /listen
             pathType: Prefix
             backend:

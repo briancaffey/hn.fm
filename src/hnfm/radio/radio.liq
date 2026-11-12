@@ -19,7 +19,16 @@ api = environment.get("HNFM_API_BASE")
 mount = environment.get("RADIO_MOUNT")
 icecast_host = environment.get("ICECAST_HOST")
 icecast_port = int_of_string(environment.get("ICECAST_PORT"))
-icecast_pass = environment.get("ICECAST_SOURCE_PASSWORD")
+# The source password: from a file when one is named (the chart derives it
+# into the pod at start, so no secret has to be added for the radio), else
+# from the environment (compose).
+pass_file = environment.get("ICECAST_SOURCE_PASSWORD_FILE")
+icecast_pass =
+  if pass_file != "" and file.exists(pass_file) then
+    string.trim(file.contents(pass_file))
+  else
+    environment.get("ICECAST_SOURCE_PASSWORD")
+  end
 safety_file = environment.get("RADIO_SAFETY")
 
 # 1. What's next. hn.fm answers with a path and the metadata to attach.
@@ -29,12 +38,16 @@ def next_item() =
   answer = http.get("#{api}/api/radio/next", timeout=30.0)
   let json.parse (j : {
     path: string, title: string, kind: string,
-    ref: string?, host: string?, bank_id: string?, sheet_id: string?
+    ref: string?, host: string?, bank_id: string?, sheet_id: string?,
+    n: string?, segment: string?
   }) = answer
+  # `n` is the item's place in its block: with the sheet id it is how the
+  # listen page finds the words being spoken.
   meta = [
     ("title", j.title), ("hnfm_kind", j.kind),
     ("hnfm_ref", j.ref ?? ""), ("hnfm_host", j.host ?? ""),
     ("hnfm_bank_id", j.bank_id ?? ""), ("hnfm_sheet", j.sheet_id ?? ""),
+    ("hnfm_n", j.n ?? ""), ("hnfm_segment", j.segment ?? ""),
   ]
   # Metadata rides on the request as an annotate: URI, the standard way to
   # attach it to a file before it plays.

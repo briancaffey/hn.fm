@@ -1,18 +1,32 @@
-"""HNFM on air — the internet radio station (plans/20).
+"""HNFM on air — the internet radio station.
 
 Off by default. `enabled()` is the one switch the API, the beat table and
 the UI all consult; when it is false nothing here runs, nothing is exposed,
-and nothing is required.
+and nothing is required. README.md is the operator's page.
 
-    schemas.py    the run sheet: what a block of programming is
-    library.py    what is playable — finished episodes, the interstitial bank
-    producer.py   plans a block: one LLM call, or the deterministic fallback
-    director.py   serves the next item to Liquidsoap; queue, history, replans
-    voice.py      speaks a line in a host's voice (Magpie or Dia) to MP3
-    music.py      a music bed of a given length from ACE-Step
-    bank.py       keeps generic station IDs, time checks and beds ready
-    radio.liq     the Liquidsoap script (served by the API, run by the DJ)
-    README.md     the operator's page: what is exposed, how to turn it on
+What a block is, and who decides it:
+    format.py       the day's shows and the shape of each quarter hour (code)
+    segments.py     one spec per segment type: material, voices, mix, length
+    planner.py      stories into the story slots: one model call, checked
+
+How a block is made:
+    sheets.py       a fact sheet per story, made once and kept
+    material.py     what each segment is written from
+    writers.py      draft, rules, editor, rewrite, repair
+    booth.py        speak each line, listen back, join, mix
+    mix.py          the mix recipes, as ffmpeg graphs
+    qa.py           the listen-back: transcript match and levels
+    voice.py        hosts and callers; every spoken line cached by content
+    music.py        beds, tracks, jingles and songs from the music model
+    production.py   runs all of the above over a planned block
+    archive.py      each finished block as one file, and the podcast feed
+
+How it gets to air:
+    bank.py         stock per show: beds, tracks, jingles, station IDs
+    library.py      the stock shelf and finished episodes
+    director.py     what plays next; produces only for a listener
+    housekeeping.py editions that are due, files that are done
+    radio.liq       the Liquidsoap script (served by the API, run by the DJ)
 """
 
 import os

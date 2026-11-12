@@ -1526,6 +1526,71 @@ def radio_save_sheet(sheet_id: str, title: str, minutes: int, items: list, sourc
         return _sheet_to_dict(row)
 
 
+def radio_get_sheet(sheet_id: str) -> Optional[dict]:
+    from .orm import RadioSheetRow
+
+    with db_session() as s:
+        row = s.get(RadioSheetRow, sheet_id)
+        return _sheet_to_dict(row) if row else None
+
+
+def radio_update_sheet(sheet_id: str, items: list = None, tokens_in: int = None,
+                       tokens_out: int = None) -> Optional[dict]:
+    """Write a block's items back as production fills them in: the sheet is
+    the record of what was made, not only of what was planned."""
+    from sqlalchemy.orm.attributes import flag_modified
+
+    from .orm import RadioSheetRow
+
+    with db_session() as s:
+        row = s.get(RadioSheetRow, sheet_id)
+        if not row:
+            return None
+        if items is not None:
+            row.items = list(items)
+            flag_modified(row, "items")
+        if tokens_in is not None:
+            row.tokens_in = tokens_in
+        if tokens_out is not None:
+            row.tokens_out = tokens_out
+        s.commit()
+        return _sheet_to_dict(row)
+
+
+def radio_front_page_readings(hours: int = 3) -> Optional[dict]:
+    """What the Front Page Forecast reads: arrivals on /new and turnover on
+    /top from the list samples, and the newest high-scoring titles."""
+    since = datetime.utcnow() - timedelta(hours=hours)
+    new = list_samples("new", since)
+    top = list_samples("top", since)
+    if not new and not top:
+        return None
+
+    def per_hour(rows):
+        secs = sum(r.get("seconds_since_prev") or 0 for r in rows)
+        return round(sum(r.get("new_count") or 0 for r in rows) * 3600 / secs) if secs else 0
+
+    half = len(new) // 2
+    early, late = per_hour(new[:half]), per_hour(new[half:])
+    last_hour = [r for r in top if r.get("seconds_since_prev")][-6:]
+    with db_session() as s:
+        import time as _time
+
+        rows = s.execute(
+            select(HNItemRow.title)
+            .where(HNItemRow.time >= int(_time.time()) - 24 * 3600, HNItemRow.title.isnot(None))
+            .order_by(func.coalesce(HNItemRow.score, 0).desc())
+            .limit(5)
+        ).all()
+    return {
+        "samples": len(new) + len(top),
+        "new_per_hour": per_hour(new),
+        "new_trend": (late > early) - (late < early),
+        "front_changed": min(30, max((r.get("front_changed") or 0) for r in last_hour) if last_hour else 0),
+        "top": [r[0] for r in rows],
+    }
+
+
 def radio_parked_sheets(max_age_minutes: int = 15) -> List[dict]:
     """Sheets saved but not yet released (still being voiced). Older than
     `max_age_minutes` they are treated as abandoned and not counted."""

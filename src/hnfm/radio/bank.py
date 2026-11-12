@@ -1,11 +1,12 @@
-"""The bank: material the station keeps ready (plans/20).
+"""The bank: imaging and music the station keeps ready (issue #31).
 
-Two kinds of stock. Generic: station IDs in every host's voice, time
-checks are made on demand, and a handful of music beds — enough that the
-director always has something to play between episodes without waiting on
-a model. Block-specific: the lines the producer wrote for one run sheet,
-voiced right after the sheet is planned so they exist by the time they are
-needed. Anything not ready in time is substituted from the generic stock.
+Stock, per show: beds in the show's palette, a couple of sung jingles in
+its style, and spoken station IDs from its anchor. Kept ahead of need so
+the air never waits on the music model. The current show is stocked
+first, then the one after it; a show at four in the morning is not
+stocked at noon.
+
+Nothing written for one block is here. That lives with the block.
 """
 
 import logging
@@ -14,67 +15,110 @@ import uuid
 from typing import Dict, List, Optional
 
 from . import log, radio_root
-from .library import add_to_bank, bank_counts, bank_dir, load_bank, safety_path, to_mp3
-from .music import STYLES, make_bed
-from .producer import STATION_IDS
-from .voice import HOSTS, say
+from .format import SHOWS, Show, show_at, station_now
+from .library import add_to_bank, bank_counts, bank_dir, load_bank, safety_path, save_bank, to_mp3
+from .music import make_bed, make_song
+from .voice import say
 
 logger = logging.getLogger(__name__)
 
-# How much generic stock to keep.
-# Two dozen beds: a hold can run for a while, and a bed is not repeated
-# within the hour, so eight was the same eight in every hold.
-TARGETS = {"station_id": 10, "music": 24}
-# Generic beds are short: the station changes topic every half minute.
-BED_SECONDS = int(os.getenv("RADIO_BED_SECONDS", "35"))
+# What each show should have on the shelf.
+PER_SHOW = {"music": int(os.getenv("RADIO_BEDS_PER_SHOW", "4")),
+            "track": int(os.getenv("RADIO_TRACKS_PER_SHOW", "6")),
+            "jingle": int(os.getenv("RADIO_JINGLES_PER_SHOW", "2")),
+            "station_id": 3}
+BED_SECONDS = int(os.getenv("RADIO_BED_SECONDS", "40"))
+# A track is a piece of music in its own right, between the talk.
+TRACK_SECONDS = int(os.getenv("RADIO_TRACK_SECONDS", "120"))
+JINGLE_SECONDS = 10
+
+STATION_IDS = [
+    "You're listening to H.N.F.M.",
+    "This is H.N.F.M. Hacker News, on the radio.",
+    "H.N.F.M. Made by machines, about what people are building.",
+    "You're on H.N.F.M., where the comment section gets a voice.",
+    "H.N.F.M. Nobody is in the building.",
+    "Stay where you are. This is H.N.F.M.",
+]
+
+# What a jingle sings. Short lines the music model can land in ten seconds.
+JINGLE_LYRICS = [
+    "[chorus]\nH N F M\n{name}",
+    "[chorus]\n{name}\nOn H N F M",
+    "[chorus]\nH N F M\nHacker News on the radio",
+]
 
 
 def _new_path(kind: str) -> str:
     return os.path.join(bank_dir(), f"{kind}_{uuid.uuid4().hex[:10]}.mp3")
 
 
-def fill(targets: Optional[Dict[str, int]] = None, max_new: int = 6) -> Dict[str, int]:
-    """Top the generic stock up to the targets. Returns what was made.
+def _order() -> List[Show]:
+    """Shows in the order they need stock: on air now, then up next, then
+    the rest of the day."""
+    now = station_now()
+    i = SHOWS.index(show_at(now))
+    return [SHOWS[(i + k) % len(SHOWS)] for k in range(len(SHOWS))]
 
-    Capped per call so a beat tick never runs the TTS or music service for
-    long; the next tick continues.
-    """
-    targets = targets or TARGETS
-    have = bank_counts()
-    made: Dict[str, int] = {}
-    budget = max_new
 
-    hosts = [h for h in HOSTS if h != "dia"]
-    n = 0
-    while budget and have.get("station_id", 0) < targets["station_id"]:
-        line = STATION_IDS[n % len(STATION_IDS)]
-        host = hosts[n % len(hosts)]
-        path = say(line, host, _new_path("station_id"), mood="calm")
-        n += 1
-        if not path:
-            break
-        add_to_bank({"id": uuid.uuid4().hex[:12], "kind": "station_id", "path": path,
-                     "text": line, "host": host})
-        log("bank", f"recorded a station ID in {host}'s voice: “{line}”", kind="station_id", host=host)
-        have["station_id"] = have.get("station_id", 0) + 1
-        made["station_id"] = made.get("station_id", 0) + 1
-        budget -= 1
+def wanted() -> List[tuple]:
+    """(show, kind) for each missing item, most urgent first."""
+    out = []
+    for kind in ("music", "track", "station_id", "jingle"):
+        for sh in _order()[:2]:
+            have = bank_counts(sh.key).get(kind, 0)
+            out += [(sh, kind)] * max(0, PER_SHOW[kind] - have)
+    for sh in _order()[2:]:
+        for kind in ("music", "track", "station_id", "jingle"):
+            have = bank_counts(sh.key).get(kind, 0)
+            out += [(sh, kind)] * max(0, PER_SHOW[kind] - have)
+    return out
 
-    n = have.get("music", 0)
-    while budget and have.get("music", 0) < targets["music"]:
-        style = STYLES[n % len(STYLES)]
-        log("bank", f"prompting the jukebox: {style}", kind="music", prompt=style)
+
+def _make(sh: Show, kind: str) -> Optional[dict]:
+    n = bank_counts(sh.key).get(kind, 0)
+    if kind == "music":
+        style = sh.palette[n % len(sh.palette)]
+        log("bank", f"asking the jukebox for a {sh.name} bed: {style[:60]}", kind="music", show=sh.key)
         path = make_bed(style, BED_SECONDS, _new_path("music"))
-        n += 1
-        if not path:
-            break
-        add_to_bank({"id": uuid.uuid4().hex[:12], "kind": "music", "path": path,
-                     "style": style, "seconds": BED_SECONDS})
-        log("bank", f"pressed a {BED_SECONDS}-second music bed: {style[:50]}", kind="music")
-        have["music"] = have.get("music", 0) + 1
-        made["music"] = made.get("music", 0) + 1
-        budget -= 1
+        return path and {"kind": "music", "path": path, "style": style, "seconds": BED_SECONDS}
+    if kind == "track":
+        style = sh.palette[(n + 1) % len(sh.palette)]
+        log("bank", f"asking the jukebox for a {sh.name} track: {style[:60]}", kind="music", show=sh.key)
+        path = make_song(style, "[instrumental]", TRACK_SECONDS, _new_path("track"), fade=4.0)
+        return path and {"kind": "track", "path": path, "style": style, "seconds": TRACK_SECONDS}
+    if kind == "jingle":
+        lyrics = JINGLE_LYRICS[n % len(JINGLE_LYRICS)].format(name=sh.name)
+        style = f"radio station jingle, {sh.song_style}, short, catchy, vocal harmonies"
+        log("bank", f"asking the jukebox to sing a {sh.name} jingle", kind="jingle", show=sh.key)
+        path = make_song(style, lyrics, JINGLE_SECONDS, _new_path("jingle"), fade=0.8)
+        return path and {"kind": "jingle", "path": path, "style": style, "text": lyrics.replace("[chorus]\n", ""),
+                         "seconds": JINGLE_SECONDS}
+    if kind == "station_id":
+        line = STATION_IDS[(n + SHOWS.index(sh)) % len(STATION_IDS)]
+        host = (sh.anchor, sh.cohost, *sh.cast)[n % (2 + len(sh.cast))]
+        path = say(line, host, _new_path("station_id"))
+        return path and {"kind": "station_id", "path": path, "text": line, "host": host}
+    return None
 
+
+def fill(max_new: int = 6) -> Dict[str, int]:
+    """Make up to `max_new` missing items, most urgent first. Capped so a
+    beat tick never holds the music model for long; the next tick goes on."""
+    made: Dict[str, int] = {}
+    failed = set()
+    for sh, kind in wanted():
+        if sum(made.values()) >= max_new:
+            break
+        if kind in failed:
+            continue  # that model is away; do not ask it five more times
+        item = _make(sh, kind)
+        if not item:
+            failed.add(kind)
+            continue
+        add_to_bank({"id": uuid.uuid4().hex[:12], "show": sh.key, **item})
+        log("bank", f"stocked a {kind.replace('_', ' ')} for {sh.name}", kind=kind, show=sh.key)
+        made[kind] = made.get(kind, 0) + 1
     ensure_safety()
     return made
 
@@ -92,98 +136,21 @@ def ensure_safety() -> Optional[str]:
     return dst if to_mp3(beds[0]["path"], dst, loudnorm=False) else None
 
 
-def voice_sheet(sheet_id: str, items: List[dict]) -> int:
-    """Make the block's spoken items: the lines the producer wrote, and the
-    briefs on new stories (written from the story, then read over a quiet
-    bed). Returns how many were made."""
-    from .bits import write as write_bit
-    from .briefs import brief_for, spoken
-    from .voice import say_lines
-
-    spoken_kinds = ("station_id", "coming_up", "time_check", "brief", "feature", "bit")
-    todo = [it for it in items if it.get("kind") in spoken_kinds and (it.get("line") or it.get("kind") in ("brief", "feature", "bit"))]
-    log("bank", f"voicing {len(todo)} items for the block", sheet_id=sheet_id)
-    made = 0
-    beds = [b for b in load_bank() if b["kind"] == "music" and not b.get("sheet_id")]
-    for idx, it in enumerate(items):
-        kind = it.get("kind")
-        if kind not in spoken_kinds:
+def prune(keep_per_show: int = 12) -> int:
+    """Cap the stock per show and kind, oldest out first."""
+    items = sorted(load_bank(), key=lambda i: i.get("created_at") or "", reverse=True)
+    keep, seen, dropped = [], {}, 0
+    for i in items:
+        key = (i.get("show"), i["kind"])
+        seen[key] = seen.get(key, 0) + 1
+        if seen[key] <= keep_per_show:
+            keep.append(i)
             continue
-        host = it.get("host") or "mia"
-        mood = it.get("mood") or "calm"
-        if kind in ("feature", "bit"):
-            bit = write_bit("feature" if kind == "feature" else it.get("bit"),
-                            story=it.get("story"), host=it.get("host"))
-            if not bit:
-                log("bank", f"could not write the {kind} ({it.get('bit') or it.get('story')}); skipped", kind=kind)
-                continue
-            bed = beds[(idx * 7) % len(beds)]["path"] if (beds and bit["bed"]) else None
-            out = _new_path(kind)
-            if len(bit["lines"]) > 1:
-                path = say_lines(bit["lines"], out, mood=bit["mood"], bed=bed)
-            else:
-                path = say(bit["lines"][0][1], bit["lines"][0][0], out, mood=bit["mood"], bed=bed)
-            if not path:
-                continue
-            title = bit["name"] if kind == "bit" else (__import__("hnfm.db.repo", fromlist=["get_item"]).get_item(int(it["story"])).title if it.get("story") else bit["name"])
-            add_to_bank({"id": f"{sheet_id}-{idx}", "kind": kind, "path": path, "text": title,
-                         "host": bit["host"], "sheet_id": sheet_id, "bit": bit["key"],
-                         "story": it.get("story"), "mood": bit["mood"]})
-            log("bank", f"{bit['host']} recorded {bit['name']}" + (f": {title[:50]}" if kind == "feature" else ""),
-                kind=kind, host=bit["host"], sheet_id=sheet_id, bit=bit["key"])
-            made += 1
-            continue
-        if kind == "brief":
-            b = brief_for(int(it["story"])) if it.get("story") else None
-            if not b:
-                log("bank", f"no brief could be written for story {it.get('story')}; skipped", kind="brief")
-                continue
-            text = spoken(b)
-            bed = beds[(idx * 7) % len(beds)]["path"] if beds else None
-            path = say(text, host, _new_path("brief"), mood=mood, bed=bed)
-            if not path:
-                continue
-            add_to_bank({"id": f"{sheet_id}-{idx}", "kind": "brief", "path": path,
-                         "text": b["title"], "host": host, "sheet_id": sheet_id,
-                         "story": int(it["story"]), "mood": mood})
-            log("bank", f"{host} ({mood}) read a brief on: {b['title'][:60]}", kind="brief", host=host,
-                sheet_id=sheet_id, story=int(it["story"]))
-            made += 1
-            continue
-        if not it.get("line"):
-            continue
-        path = say(it["line"], host, _new_path(kind), mood=mood)
-        if not path:
-            continue
-        add_to_bank({"id": f"{sheet_id}-{idx}", "kind": kind, "path": path,
-                     "text": it["line"], "host": host, "sheet_id": sheet_id, "mood": mood})
-        log("bank", f"{host} ({mood}) recorded: “{it['line'][:70]}”", kind=kind, host=host, sheet_id=sheet_id)
-        made += 1
-    return made
-
-
-def prune(keep_sheets: List[str], keep_generic: int = 40) -> int:
-    """Drop block lines for sheets that are gone, and cap the generic stock."""
-    items = load_bank()
-    keep, dropped = [], 0
-    generic = 0
-    for i in sorted(items, key=lambda i: i.get("created_at") or "", reverse=True):
-        if i.get("sheet_id"):
-            if i["sheet_id"] in keep_sheets:
-                keep.append(i)
-                continue
-        else:
-            generic += 1
-            if generic <= keep_generic:
-                keep.append(i)
-                continue
         dropped += 1
         try:
             os.unlink(i["path"])
         except OSError:
             pass
     if dropped:
-        from .library import save_bank
-
         save_bank(keep)
     return dropped

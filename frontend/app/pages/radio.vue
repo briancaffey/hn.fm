@@ -26,6 +26,9 @@ interface Status {
   episodes: number
   icecast: { up: boolean, error?: string, mounts?: { mount: string, listeners: number, peak: number, title: string | null, bitrate: string | null }[], server_start?: string }
   root: string
+  show?: { name: string, tagline: string, anchor: string, cohost: string }
+  produce?: { mode: string, producing: boolean }
+  audience?: { listeners: number, present: boolean }
 }
 
 const config = useRuntimeConfig()
@@ -129,7 +132,7 @@ const KIND_LABEL: Record<string, string> = { episode: 'Episode', station_id: 'St
               <Button size="sm" variant="outline" @click="act('/api/radio/skip', undefined, 'Skipped.')">
                 <Icon name="lucide:skip-forward" class="mr-1.5 h-3.5 w-3.5" />Skip
               </Button>
-              <Button size="sm" variant="outline" @click="act('/api/radio/plan', {}, 'Planning a new block.')">
+              <Button size="sm" variant="outline" @click="act('/api/radio/plan', { force: true }, 'Making a new block. It takes a minute or two.')">
                 <Icon name="lucide:list-music" class="mr-1.5 h-3.5 w-3.5" />Plan a block
               </Button>
               <Button size="sm" variant="outline" @click="act('/api/radio/bank/fill', {}, 'Filling the bank.')">
@@ -157,8 +160,8 @@ const KIND_LABEL: Record<string, string> = { episode: 'Episode', station_id: 'St
           <div class="grid grid-cols-2 gap-3">
             <StatTile label="Listeners" :value="listeners" :hint="status.icecast.up ? 'right now' : 'icecast down'" />
             <StatTile label="Episodes" :value="status.episodes" hint="ready to air" />
-            <StatTile label="Station IDs" :value="status.bank.station_id || 0" hint="in the bank" />
-            <StatTile label="Music beds" :value="status.bank.music || 0" hint="in the bank" />
+            <StatTile label="Idents" :value="(status.bank.station_id || 0) + (status.bank.jingle || 0)" :hint="`${status.bank.jingle || 0} sung`" />
+            <StatTile label="Music" :value="(status.bank.music || 0) + (status.bank.track || 0)" :hint="`${status.bank.track || 0} tracks, ${status.bank.music || 0} beds`" />
           </div>
 
           <div class="rounded-lg border bg-card p-4">

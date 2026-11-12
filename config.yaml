@@ -50,6 +50,11 @@ llm:
       - "nvidia-nemotron-super"
       - "openrouter-nemotron-ultra"
       - "nemotron-omni"
+      # Nemotron 3.5 Lightning on vLLM (the spark box): the gateway route,
+      # and the id the inference.club gateway uses for the same model.
+      - "nemotron-lightning"
+      - "nvidia/nvidia-nemotron-3.5-lightning-*"
+      - "nvidia/NVIDIA-Nemotron-3.5-Lightning-*"
     deny:
       - "groq*"
       - "*/groq*"
@@ -146,16 +151,36 @@ llm:
     # LM Studio leaves the model's thinking in front of the answer and it
     # counts against max_tokens (a sketch spent all 500 reasoning about
     # which host speaks last).
-    radio.bit:
-      # The copywriter: one short bit at a time, read aloud.
+    # --- the radio (issues #28, #30, #31) ---------------------------------
+    # `system_once`: the station bible is the system prompt and is not
+    # repeated in the user turn, so it is paid for once and prefix-cached.
+    radio.assign:
+      # The producer: stories to slots, with an angle. One call per block.
+      temperature: 0.5
+      max_tokens: 1500
+      system_once: true
+    radio.facts:
+      # The researcher: a fact sheet per story, made once and kept.
+      temperature: 0.2
+      max_tokens: 900
+      system_once: true
+    radio.write:
+      # The writers' room: one piece of copy per call.
       temperature: 0.9
       max_tokens: 1500
-    radio.plan:
-      # The producer: one call per block of air. Cheap and local. The cap is
-      # generous because a cut-off answer is a one-item block; the model is
-      # shown sixteen episodes so the prompt stays around two thousand tokens.
-      temperature: 0.7
-      max_tokens: 4000
+      system_once: true
+    radio.edit:
+      # The editor: checks a piece against its material. Low temperature.
+      # Thinking stays off: on this model it does not stop (measured: 4,000
+      # tokens and no answer, whatever budget was asked for), so the
+      # prompt makes the editor write its observations before its scores.
+      temperature: 0.2
+      max_tokens: 900
+      system_once: true
+    radio.lyrics:
+      temperature: 1.0
+      max_tokens: 800
+      system_once: true
     # The two halves of the Story Brief run at deliberately different
     # temperatures — that difference is the main reason they are separate
     # calls (see content/story_brief.py).

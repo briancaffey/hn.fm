@@ -69,9 +69,6 @@ secrets:
     BREVO_API_KEY: ""
     DIGEST_FROM_EMAIL: ""
     KINDLE_EMAIL: ""
-    # The radio (plans/20); only read when radio.enabled.
-    ICECAST_SOURCE_PASSWORD: hackme
-    ICECAST_ADMIN_PASSWORD: hackme-admin
 externalSecret:
   enabled: false
   storeRef:
@@ -213,8 +210,24 @@ radio:
   # A second hostname that exposes ONLY the listen page and the stream —
   # never the dashboard. Empty = no public host. e.g. radio.inference.club
   publicHost: ""
-  # Icecast passwords come from the app Secret (ICECAST_SOURCE_PASSWORD,
-  # ICECAST_ADMIN_PASSWORD); set them in secrets.values or the Vaultwarden item.
+  # The transmitter's passwords. The source password only ever travels
+  # between the DJ and the transmitter, inside the namespace, so by default
+  # both are derived from a secret the release already has and nothing new
+  # needs adding by hand (issue #37). Set derive to false to supply
+  # ICECAST_SOURCE_PASSWORD and ICECAST_ADMIN_PASSWORD in the app Secret.
+  passwords:
+    derive: true
+    seedKey: POSTGRES_PASSWORD
+  # The station keeps one clock, for the shows and the time checks.
+  timezone: America/New_York
+  # When the station makes new programming:
+  #   listeners  while someone is tuned in, plus the editions below (default)
+  #   always     around the clock
+  #   off        only when asked from the control room
+  produce: listeners
+  # Hours (station time) at which one block is made whoever is listening,
+  # so the archive has something every day. "" for none.
+  editionHours: "8,13,19"
   icecast:
     image: libretime/icecast:2.4.4
     resources:
@@ -228,8 +241,6 @@ radio:
   # Fetches the DJ's script from the API at pod start (the Liquidsoap image
   # has no curl).
   curlImage: curlimages/curl:8.10.1
-  # Minutes of air the producer plans per block (one LLM call each).
-  blockMinutes: 30
 
 # --- Inference services ------------------------------------------------------
 # In-cluster DNS of the inference-club fleet. Override to point elsewhere
@@ -237,15 +248,18 @@ radio:
 inference:
   llm:
     baseUrl: http://litellm.observability.svc.cluster.local:4000/v1
-    # Gateway route names. spark-omni is LM Studio's nvidia/nemotron-3-nano-omni
-    # on the spark box with no fallbacks (nemotron-omni falls through to paid
-    # cloud routes). If baseUrl points at LM Studio directly, use the model id
-    # LM Studio reports instead (nvidia/nemotron-3-nano-omni).
-    model: spark-omni
+    # Gateway route names. nemotron-lightning is Nemotron 3.5 Lightning on
+    # vLLM on the spark box: local, about a second for a short answer with
+    # thinking off. The previous route (spark-omni, LM Studio on the same
+    # box) stopped answering and had no fallback, so every text call in the
+    # cluster failed (issue #27).
+    model: nemotron-lightning
     # Applied to triage and the vision-driven sequence planner, which pin
     # their model in config.yaml and only take an override from env.
-    triageModel: spark-omni
-    visionModel: spark-omni
+    triageModel: nemotron-lightning
+    # Lightning is a text model. The picture-reading steps (source images,
+    # the frame critic) need a multimodal route and have none at present.
+    visionModel: nemotron-lightning
     provider: local
   tts:
     baseUrl: http://magpie-tts.inference-club.svc.cluster.local:9000
@@ -254,10 +268,11 @@ inference:
   asr:
     baseUrl: http://nemotron-asr.inference-club.svc.cluster.local:8105
   image:
-    baseUrl: http://flux2-klein.inference-club.svc.cluster.local:8000
+    baseUrl: http://flux3-klein-4090.inference-club.svc.cluster.local:8000
     backend: NIM
   ltx:
-    baseUrl: http://ltx2.inference-club.svc.cluster.local:8023
+    # LTX 2.5. Health-gated: when the server is stopped, clips are skipped.
+    baseUrl: http://ltx25.inference-club.svc.cluster.local:8025
   acestep:
     baseUrl: http://acestep.inference-club.svc.cluster.local:8015
   firecrawl:

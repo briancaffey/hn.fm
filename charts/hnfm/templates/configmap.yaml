@@ -82,7 +82,9 @@ data:
   {{- if .Values.radio.enabled }}
   ICECAST_BASE_URL: http://{{ include "hnfm.fullname" . }}-icecast:8000
   LIQUIDSOAP_BASE_URL: http://{{ include "hnfm.fullname" . }}-liquidsoap:8080
-  RADIO_BLOCK_MINUTES: {{ .Values.radio.blockMinutes | quote }}
+  RADIO_TZ: {{ .Values.radio.timezone | quote }}
+  RADIO_PRODUCE: {{ .Values.radio.produce | quote }}
+  RADIO_EDITION_HOURS: {{ .Values.radio.editionHours | quote }}
   {{- end }}
   {{- range $k, $v := .Values.env }}
   {{ $k }}: {{ $v | quote }}

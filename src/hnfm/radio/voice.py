@@ -1,36 +1,42 @@
-"""A line, spoken by one of the station's hosts (plans/20).
+"""A line, spoken by one of the station's voices.
 
-Hosts are presets over the two engines the pipeline already runs: NVIDIA
-Magpie voices, and Dia with a cloned sample. Magpie voices come in moods —
-Neutral, Calm, Sad, Angry — served as sub-voices ("…Mia.Calm"). Calm is
-the station's house mood: it is what radio sounds like at night. The
-producer may ask for another; anything the server does not have falls
-back to the base voice.
+Six hosts and a pool of callers, all NVIDIA Magpie voices. Hosts come in
+moods the server lists as sub-voices ("…Mia.Calm"); a mood the server
+does not have falls back to the plain voice. Every spoken line is kept on
+disk under a name made from the voice and the words, so nothing is
+synthesised twice.
 """
 
 import logging
 import os
-import tempfile
-from typing import Dict, List, Optional
+from typing import List, Optional
 
 from .copy import speakable
-from .library import mix_under, to_mp3
 
 logger = logging.getLogger(__name__)
 
-# name -> (engine, base voice, how it sounds — the producer reads the description)
+# name -> (engine, base voice, how it sounds)
 HOSTS = {
-    "mia":   ("magpie", "Magpie-Multilingual.EN-US.Mia",   "warm, quick, the morning host"),
-    "jason": ("magpie", "Magpie-Multilingual.EN-US.Jason", "low, unhurried, the evening host"),
-    "sofia": ("magpie", "Magpie-Multilingual.EN-US.Sofia", "bright, precise, reads the time and the news"),
-    "leo":   ("magpie", "Magpie-Multilingual.EN-US.Leo",   "dry, amused, the one for the odd story"),
-    "aria":  ("magpie", "Magpie-Multilingual.EN-US.Aria",  "clear, even, good for the quick items"),
-    "ray":   ("magpie", "Magpie-Multilingual.EN-US.Ray",   "deep and slow, the late-night voice"),
-    "dia":   ("dia",    os.getenv("RADIO_DIA_VOICE", "notebooklm"), "the cloned house voice, conversational"),
+    "mia":   ("magpie", "Magpie-Multilingual.EN-US.Mia",   "warm, quick, easily delighted"),
+    "jason": ("magpie", "Magpie-Multilingual.EN-US.Jason", "low, unhurried, understated"),
+    "sofia": ("magpie", "Magpie-Multilingual.EN-US.Sofia", "exact and brisk, a newsreader"),
+    "leo":   ("magpie", "Magpie-Multilingual.EN-US.Leo",   "deadpan; gets the dry line"),
+    "aria":  ("magpie", "Magpie-Multilingual.EN-US.Aria",  "clear and even; explains how things work"),
+    "ray":   ("magpie", "Magpie-Multilingual.EN-US.Ray",   "deep and slow; in no hurry"),
 }
+# Callers are the voices no host uses, so a caller never sounds like the
+# person they are talking to. Which caller gets which voice turns with the
+# piece, so line one is not the same person all day.
+CALLER_VOICES = (
+    "Magpie-Multilingual.EN-US.Diego", "Magpie-Multilingual.EN-US.Isabela",
+    "Magpie-Multilingual.EN-US.Pascal", "Magpie-Multilingual.EN-US.Louise",
+)
 DEFAULT_HOST = "mia"
-DEFAULT_MOOD = os.getenv("RADIO_DEFAULT_MOOD", "calm")
-MOODS = ("calm", "neutral", "sad", "angry")
+# "default" is the voice as the server gives it: the most natural one, and
+# the station's house sound. The old house mood was Calm, which made every
+# host sound sedated; calm is now a choice the writer makes for one line.
+DEFAULT_MOOD = os.getenv("RADIO_DEFAULT_MOOD", "default")
+MOODS = ("default", "calm", "neutral", "sad", "angry")
 
 _VOICES: Optional[List[str]] = None
 
@@ -53,10 +59,15 @@ def available_voices() -> List[str]:
     return _VOICES
 
 
-def voice_name(host: str, mood: Optional[str] = None) -> str:
+def is_caller(speaker: str) -> bool:
+    return (speaker or "").startswith("caller")
+
+
+def voice_name(host: str, mood: Optional[str] = None, seed: int = 0) -> str:
+    if is_caller(host):
+        n = int("".join(c for c in host if c.isdigit()) or 1)
+        return CALLER_VOICES[(n - 1 + seed) % len(CALLER_VOICES)]
     engine, base, _ = HOSTS.get(host) or HOSTS[DEFAULT_HOST]
-    if engine != "magpie":
-        return base
     mood = (mood or DEFAULT_MOOD or "").strip().lower()
     if mood and mood != "default":
         candidate = f"{base}.{mood.capitalize()}"
@@ -66,84 +77,73 @@ def voice_name(host: str, mood: Optional[str] = None) -> str:
     return base
 
 
-def host_listing() -> str:
-    return "\n".join(f"- {k}: {desc}" for k, (_e, _v, desc) in HOSTS.items()) + \
-        "\nMoods (Magpie hosts): calm (the house sound), neutral, sad. Use calm unless the line needs otherwise."
+def cache_path(voice: str, text: str) -> str:
+    """Where a spoken line lives: named by what was said and who said it,
+    so the same line in the same voice is synthesised once (issue #33)."""
+    import hashlib
+
+    from . import radio_root
+
+    h = hashlib.sha1(f"{voice}\n{text}".encode("utf-8")).hexdigest()
+    d = os.path.join(radio_root(), "cache", "voice", h[:2])
+    os.makedirs(d, exist_ok=True)
+    return os.path.join(d, f"{h}.wav")
 
 
-def say(text: str, host: str, out_mp3: str, mood: Optional[str] = None,
-        bed: Optional[str] = None, bed_db: float = -17.0) -> Optional[str]:
-    """Speak `text` as `host` into `out_mp3`, optionally over a quiet bed.
-    None on any failure."""
+def speak(text: str, speaker: str, mood: Optional[str] = None, seed: int = 0,
+          fresh: bool = False) -> Optional[bytes]:
+    """`text` in `speaker`'s voice, as WAV bytes, from the cache when this
+    exact line has been said before. `fresh` skips the cache (a retry
+    after a failed round trip must not get the same bad take back)."""
     from ..audio.tts_api_service import TtsApiService
 
     text = speakable(" ".join((text or "").split()))
     if not text:
         return None
-    wav = _wav(text, host, mood)
+    voice = voice_name(speaker, mood, seed)
+    path = cache_path(voice, text)
+    if not fresh and os.path.exists(path) and os.path.getsize(path) > 1000:
+        with open(path, "rb") as f:
+            return f.read()
+    try:
+        svc = TtsApiService(backend="magpie")
+        wav = svc._magpie_one(text, voice)
+        if not wav and voice != voice_name(speaker, "default", seed):
+            wav = svc._magpie_one(text, voice_name(speaker, "default", seed))
+    except Exception as e:
+        logger.warning(f"radio voice ({speaker}) failed: {e}")
+        return None
+    if wav:
+        tmp = path + ".tmp"
+        with open(tmp, "wb") as f:
+            f.write(wav)
+        os.replace(tmp, path)
+    return wav
+
+
+def host_listing() -> str:
+    return "\n".join(f"- {k}: {desc}" for k, (_e, _v, desc) in HOSTS.items())
+
+
+def say(text: str, host: str, out_mp3: str, mood: Optional[str] = None,
+        bed: Optional[str] = None) -> Optional[str]:
+    """One line by one host straight to an MP3, optionally over a bed: the
+    station IDs and the time check. Pieces go through the booth."""
+    import tempfile
+
+    from . import mix
+
+    wav = speak(text, host, mood)
     if not wav:
         return None
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
         f.write(wav)
         tmp = f.name
     try:
-        if bed and os.path.exists(bed):
-            ok = mix_under(tmp, bed, out_mp3, bed_db=bed_db)
-        else:
-            ok = to_mp3(tmp, out_mp3)
+        ok = mix.over_bed(tmp, bed, out_mp3) if bed and os.path.exists(bed) else mix.plain(tmp, out_mp3)
     finally:
         try:
             os.unlink(tmp)
         except OSError:
             pass
     return out_mp3 if ok else None
-
-
-def _wav(text: str, host: str, mood: Optional[str]) -> Optional[bytes]:
-    from ..audio.tts_api_service import TtsApiService
-
-    engine, _base, _ = HOSTS.get(host) or HOSTS[DEFAULT_HOST]
-    try:
-        svc = TtsApiService(backend=engine)
-        if engine == "magpie":
-            wav = svc._magpie_one(text, voice_name(host, mood))
-            if not wav and mood:
-                wav = svc._magpie_one(text, voice_name(host, "default"))
-            return wav
-        return svc._synthesize_dia(f"[S1] {text}", HOSTS["dia"][1], 7)
-    except Exception as e:
-        logger.warning(f"radio voice ({host}) failed: {e}")
-        return None
-
-
-def say_lines(lines, out_mp3: str, mood: Optional[str] = None, bed: Optional[str] = None,
-              bed_db: float = -17.0, gap_ms: int = 260) -> Optional[str]:
-    """A dialogue: [(host, text), ...] spoken in turn, with a beat between
-    turns, as one file. Used for the two-voice sketch."""
-    from ..audio.tts_api_service import TtsApiService
-
-    clips = []
-    for host, text in lines:
-        text = speakable(" ".join((text or "").split()))
-        if not text:
-            continue
-        wav = _wav(text, host, mood)
-        if wav:
-            clips.append(wav)
-    if not clips:
-        return None
-    joined = TtsApiService.__new__(TtsApiService)._concat_wavs(clips, gap_ms=gap_ms)
-    if not joined:
-        return None
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
-        f.write(joined)
-        tmp = f.name
-    try:
-        ok = mix_under(tmp, bed, out_mp3, bed_db=bed_db) if bed and os.path.exists(bed) else to_mp3(tmp, out_mp3)
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-    return out_mp3 if ok else None
-
