@@ -34,6 +34,9 @@ RECITED = (
     "the catch is", "the one detail", "the detail a curious", "a mock sponsor", "the product nobody sells",
     "the material", "the discussion notes", "the discussion also", "a commenter notes", "a commenter reflects",
     "not established", "does not name", "old-time radio", "the assignment", "the producer's angle",
+    # Notes about the input, said to the listener.
+    "the source does not", "by the source", "the article does not specify", "a caller might",
+    "a caller could", "remains unspecified", "remain unspecified",
 )
 # Pieces that are meant to sound the same every time.
 FORMULAIC = ("theme", "handoff", "bulletin")
@@ -104,7 +107,7 @@ def lint(seg: Segment, copy: Copy, speakers: Sequence[str], earlier_openers: Seq
     if copied:
         notes.append(f'You reused the example\'s words ("{copied}"). Write your own line there.')
 
-    for sentence in re.split(r"(?<=[.!?])\s+", " ".join(l.text for l in lines)):
+    for sentence in _sentences(" ".join(l.text for l in lines)):
         if len(sentence.split()) > MAX_SENTENCE_WORDS:
             notes.append(f'Break up the long sentence starting "{" ".join(sentence.split()[:6])}…".')
             break
@@ -122,8 +125,22 @@ def lint(seg: Segment, copy: Copy, speakers: Sequence[str], earlier_openers: Seq
     return notes
 
 
+_ACRONYM_END = re.compile(r"(?:\b[A-Za-z]\.){2,}$")
+
+
 def _sentences(text: str) -> List[str]:
-    return [x for x in re.split(r"(?<=[.!?])\s+", (text or "").strip()) if x]
+    """Sentences, without breaking inside a spelled acronym. "The L.L.M.
+    inference cost varies" is one sentence: a split after "L.L.M." once
+    left a piece ending on half of one."""
+    out: List[str] = []
+    for part in re.split(r"(?<=[.!?])\s+", (text or "").strip()):
+        if not part:
+            continue
+        if out and _ACRONYM_END.search(out[-1]) and not part[:1].isupper():
+            out[-1] += " " + part
+        else:
+            out.append(part)
+    return out
 
 
 def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = ()) -> List[dict]:

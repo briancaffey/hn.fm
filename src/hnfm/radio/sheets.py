@@ -15,6 +15,7 @@ extraction is paid for once.
 import json
 import logging
 import os
+import re
 from typing import List, Optional
 
 from pydantic import BaseModel, Field
@@ -24,7 +25,7 @@ from . import radio_root
 logger = logging.getLogger(__name__)
 
 TASK = "radio.facts"
-VERSION = 2  # bump to invalidate every cached sheet
+VERSION = 3  # bump to invalidate every cached sheet
 
 
 class FactSheet(BaseModel):
@@ -92,6 +93,7 @@ def sheet_for(item_id: int) -> Optional[dict]:
     except Exception as e:
         logger.warning(f"radio: fact sheet for {item_id} failed: {e}")
         return None
+    sheet.callers = clean_callers(sheet.callers)
     out = {
         "version": VERSION, "item_id": item_id, "title": item.title, "kind": story_kind(item.title),
         "score": item.score or 0, "comments": item.descendants or 0, "sheet": sheet.model_dump(),
@@ -99,6 +101,31 @@ def sheet_for(item_id: int) -> Optional[dict]:
     with open(_path(item_id), "w") as f:
         json.dump(out, f)
     return None if sheet.thin else out
+
+
+_REPORTED = re.compile(
+    r"^(?:an?|one|another|the)\s+(?:commenter|caller|user|reader)s?\s+"
+    r"(?:noted|said|highlighted|speculated|pointed out|argued|asked|observed|wondered|mentioned)\s+(?:that\s+)?", re.I)
+
+
+def clean_callers(callers: List[str]) -> List[str]:
+    """What people said, as they would say it. The model sometimes reports
+    a point instead of voicing it ("One commenter noted that...") and, with
+    no discussion to draw on, invents one ("A caller might ask..."). The
+    first is unwrapped; the second is dropped, because it is not something
+    anyone said."""
+    out = []
+    for c in callers or []:
+        c = (c or "").strip().strip('"').strip()
+        if not c or re.search(r"\b(?:caller|commenter)s?\s+(?:might|could|may|would)\b", c, re.I):
+            continue
+        m = _REPORTED.match(c)
+        if m:
+            c = c[m.end():].strip()
+            c = c[:1].upper() + c[1:]
+        if len(c.split()) >= 4:
+            out.append(c)
+    return out[:3]
 
 
 def story_kind(title: str) -> str:

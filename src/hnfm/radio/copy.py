@@ -113,6 +113,24 @@ _EMOJI = re.compile("[\U0001F300-\U0001FAFF☀-➿⬀-⯿️]")
 _NUMBER = re.compile(r"\d[\d,]*(?:\.\d+)?")
 
 
+_ORDINAL_WORDS = {"one": "first", "two": "second", "three": "third", "five": "fifth", "eight": "eighth",
+                  "nine": "ninth", "twelve": "twelfth"}
+_ORDINAL = re.compile(r"\b(\d{1,4})(?:st|nd|rd|th)\b")
+
+
+def ordinal_words(n: int) -> str:
+    """10 -> tenth, 21 -> twenty-first, 30 -> thirtieth."""
+    words = number_words(n)
+    head, sep, last = words.rpartition("-") if "-" in words.split()[-1] else words.rpartition(" ")
+    if last in _ORDINAL_WORDS:
+        last = _ORDINAL_WORDS[last]
+    elif last.endswith("y"):
+        last = last[:-1] + "ieth"
+    else:
+        last = last + "th"
+    return head + sep + last
+
+
 def _acronym(match: re.Match) -> str:
     word, plural = match.group(1), match.group(2)
     if word in _SAY_AS_WORD:
@@ -130,6 +148,8 @@ def speakable(text: str) -> str:
     t = re.sub(r"\s*[—–]\s*|\s+-\s+", ", ", t)
     t = t.translate(str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "…": "."}))
     t = _HNFM.sub("H.N.F.M.", t)
+    # "10th-century" is "tenth-century", not "ten th".
+    t = _ORDINAL.sub(lambda m: ordinal_words(int(m.group(1))), t)
     for pattern, repl in _SYMBOLS:
         t = pattern.sub(repl, t)
     t = _ACRONYM.sub(_acronym, t)

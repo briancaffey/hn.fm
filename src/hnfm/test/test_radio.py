@@ -233,6 +233,16 @@ class TestRepair:
         out = writers.repair(segment("headline"), lines)
         assert out[0]["text"] == "A phone runs a new system. It ships in May."
 
+    def test_a_spelled_acronym_does_not_end_a_sentence(self):
+        text = "One point is that L.L.M. inference cost varies. It ran on a G.P.U. The bill came later."
+        assert writers._sentences(text) == [
+            "One point is that L.L.M. inference cost varies.", "It ran on a G.P.U.", "The bill came later."]
+
+    def test_notes_about_the_source_are_cut(self):
+        lines = [{"speaker": "mia", "mood": "default",
+                  "text": "Valkey is the fastest tested. The source does not establish who ran the benchmark."}]
+        assert writers.repair(segment("headline"), lines)[0]["text"] == "Valkey is the fastest tested."
+
     def test_a_long_piece_loses_sentences_from_the_end(self):
         lines = [{"speaker": "mia", "mood": "default",
                   "text": " ".join(f"Sentence number {i} goes here now." for i in range(40))}]
@@ -289,6 +299,12 @@ class TestCopy:
 
         assert speakable("arm64 and Qwen3") == "arm sixty-four and Qwen three"
 
+    def test_ordinals(self):
+        from ..radio.copy import speakable
+
+        assert speakable("a 10th-century king") == "a tenth-century king"
+        assert speakable("the 21st, the 3rd and the 30th") == "the twenty-first, the third and the thirtieth"
+
     def test_clock_times_read_like_a_host(self):
         from ..radio.copy import speakable, time_words
 
@@ -307,6 +323,16 @@ class TestSheets:
         assert "hook" not in text.lower() and "catch" not in text.lower()
         assert "- A number." in text and "BUT: Unproven." in text
         assert "caller1: I doubt it." in render_story(s, with_callers=True)
+
+    def test_callers_say_the_point_and_invented_ones_are_dropped(self):
+        from ..radio.sheets import clean_callers
+
+        assert clean_callers([
+            "One commenter noted that the same task cost two dollars one run and one the next.",
+            "A caller might ask if the panel is large enough.",
+            "I ran this at work and it fell over on day two.",
+        ]) == ["The same task cost two dollars one run and one the next.",
+               "I ran this at work and it fell over on day two."]
 
     def test_story_kinds(self):
         from ..radio.sheets import story_kind
