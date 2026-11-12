@@ -172,7 +172,8 @@ workers:
       requests: { cpu: 100m, memory: 512Mi }
       limits: { memory: 2Gi }
   digest:
-    queues: hnfm_digest
+    # Digests and radio blocks: long jobs, one at a time.
+    queues: "hnfm_digest,hnfm_radio"
     concurrency: 1
     replicas: 1
     resources:

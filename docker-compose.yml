@@ -361,7 +361,7 @@ services:
       CELERY_ALWAYS_EAGER: "false"
       CELERY_WORKER_CONCURRENCY: "1"
       CELERY_WORKER_MAX_TASKS_PER_CHILD: "1000"
-    command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "worker", "--loglevel=info", "--hostname=digest@%h", "--queues=hnfm_digest"]
+    command: ["celery", "-A", "src.hnfm.web.celery_app:celery_app", "worker", "--loglevel=info", "--hostname=digest@%h", "--queues=hnfm_digest,hnfm_radio"]
     healthcheck:
       test: ["CMD", "celery", "-A", "src.hnfm.web.celery_app:celery_app", "inspect", "ping"]
       interval: 30s

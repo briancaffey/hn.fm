@@ -8,7 +8,6 @@ come back as a whole piece and are trimmed, faded and levelled here.
 
 import logging
 import os
-import tempfile
 import time
 from typing import Optional
 
@@ -33,20 +32,11 @@ def _base() -> str:
 
 
 def make_bed(style: str, seconds: int, out_mp3: str) -> Optional[str]:
-    from ..audio.music_service import generate_music_bed
-
-    seconds = max(20, min(int(seconds or 60), 120))
-    prompt = f"{style}. No vocals. A radio music bed, {seconds} seconds."
-    tmp = os.path.join(tempfile.gettempdir(), f"radio_bed_{os.getpid()}_{abs(hash(style)) % 10**6}.wav")
-    try:
-        if not generate_music_bed(prompt, tmp):
-            return None
-        return out_mp3 if to_mp3(tmp, out_mp3, seconds=seconds, fade=2.5) else None
-    finally:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
+    """An instrumental of exactly `seconds`. Through the task endpoint,
+    which takes a duration: the chat endpoint chose its own length, and a
+    forty-second bed came back as twenty."""
+    seconds = max(20, min(int(seconds or 40), 150))
+    return make_song(f"{style}, no vocals", "[instrumental]", seconds, out_mp3, fade=2.5)
 
 
 def make_song(style: str, lyrics: str, seconds: int, out_mp3: str, fade: float = 2.0) -> Optional[str]:
