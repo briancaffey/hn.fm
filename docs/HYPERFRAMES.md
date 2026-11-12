@@ -1,103 +1,149 @@
-# HyperFrames in hn.fm
+# Story videos: HyperFrames and Hermes
 
-HyperFrames ([heygen-com/hyperframes](https://github.com/heygen-com/hyperframes),
-npm `hyperframes`) is "Write HTML. Render video." — HTML + GSAP compositions
-rendered to MP4/WebM via headless Chrome. We use it for **short, beautiful,
-animated structured-text accent clips** sprinkled through a video — *not* as
-slideware. The agent decides where a hyperframe earns its place; each one shares
-the video's design language but the layout/recipe can differ per section.
-
-> **Philosophy.** Leverage what HyperFrames is genuinely great at: kinetic
-> typography and clean structured information. Avoid the "powerpoint with little
-> animations" trap. Keep it **modular** — if HyperFrames isn't the long-term
-> tool, the whole layer can be swapped without touching the rest of the pipeline.
-
-## Architecture
+A story video is one [HyperFrames](https://github.com/heygen-com/hyperframes)
+composition: HTML and GSAP rendered to MP4 by headless Chrome. The narration
+is the spine. Everything on screen is timed against it.
 
 ```
-celery worker ──HTTP──▶ hyperframes sidecar (Node + Chromium + ffmpeg + hyperframes CLI)
-   │  build HTML composition          │  hyperframes render <project> -o out.mp4
-   │  (Python, theme-driven)          ▼
-   └── shared ./outputs volume ◀── writes the rendered clip
+narrated segment ──▶ brief ──▶ project (plain scenes) ──▶ direct ──▶ review ──▶ render
+ script, audio,       story.py     kit.py                 author.py   sidecar    sidecar
+ word timings                                             ▲
+                                                          └─ Hermes: one card per scene
 ```
 
-- **Sidecar** — `services/hyperframes/` (`Dockerfile` + `server.mjs`). A small
-  HTTP service: `POST /render {project, output, format, fps, quality}`. Shares the
-  `./outputs` volume at the **same path** (`/app/outputs`) as the worker so
-  absolute paths resolve identically on both sides. Reached over the compose
-  network as `http://hyperframes:8088` → maps cleanly to a k3s Service later.
-- **Generator** (`src/hnfm/hyperframes/`):
-  - `design_identity.py` — maps each art-direction theme → palette + tasteful
-    **non-banned** font pairing (the skill bans Inter/Roboto/Poppins/Outfit/Syne…)
-    with extreme weight contrast. This is the per-take **common design language**.
-  - `compositions.py` — recipes (`keypoints`, `bigstat`, `quote`, `compare`) that
-    emit a complete self-contained composition `index.html` (stage div +
-    `data-composition-id/duration/width/height` + a GSAP timeline on
-    `window.__timelines`). Type/spacing scale with canvas size → works for
-    16:9 / 1:1 / 9:16.
-  - `render_client.py` — calls the sidecar.
-  - `produce.py` — `produce_hyperframe_clip(...)`: build → render → clip path.
-
-## A composition, minimally
-
-```html
-<div id="stage" data-composition-id="main" data-start="0" data-duration="5"
-     data-width="1280" data-height="720"> … </div>
-<script>
-  const tl = gsap.timeline(); /* entrances */ window.__timelines = {main: tl};
-</script>
-```
-
-The render reads `data-duration` for length and the `__timelines` entry to drive
-animation. Fonts load from Google Fonts at render time (the render env has
-network — it already pulls GSAP from a CDN).
-
-## Recipes (the modular palette)
-
-| recipe | content keys | use |
+| Step | Module | What it does |
 |---|---|---|
-| `keypoints` | `kicker, title, points[]` | a titled list of 2-4 takeaways |
-| `bigstat` | `stat, label, sub?` | one number that matters |
-| `quote` | `quote, attribution?` | a pulled line / claim |
-| `compare` | `title?, left{label,text}, right{label,text}` | A-vs-B |
+| Brief | `hyperframes/story.py` | Turns a narrated segment into one dictionary: scenes with their text, start, length, caption cues and still. No model. |
+| Build | `hyperframes/kit.py` | Writes the project: `index.html` (canvas, palette, narration, captions, progress line, one slot per scene), a title card, a sign-off, and a plain version of every scene. |
+| Direct | `hyperframes/author.py` | Asks Hermes for a card per scene, checks it, builds the scene from the card, has the renderer review it, sends findings back (three rounds at most). |
+| Treatments | `hyperframes/scenes.py` | The eight layouts a card can ask for, each with its motion. |
+| Run | `hyperframes/videos.py` | The whole job and its status file; what the desk and the API read. |
+| Render | `services/hyperframes/` | The sidecar: `POST /render`, `/check`, `/frames`, plus the screenshot endpoints it already had. |
 
-Add a recipe = add one function returning `(body_html, gsap_js)` to `RECIPES`.
-The agent (meta-sequencer) picks the recipe and supplies the content; identity
-handles the look. Optional `bg_image` puts a generated/source image behind a
-scrim so a hyperframe can blend with the surrounding visuals.
+A video is always made. With no agent, or one that fails, scenes keep their
+plain version, and the sign-off says how many scenes were directed.
 
-## How the agent uses it (flexibility)
+## Who writes what
 
-The meta-sequencer decides, per section, whether a hyperframe fits and which
-recipe + content to use — so each video can use HyperFrames in a new way. The
-rendered clip is folded into the timeline exactly like an LTX motion clip
-(`video_clip_path` / partial coverage), so no special-casing downstream.
+Code owns the shape and the model supplies the words: the same split the
+radio settled on.
 
-## Config
+The first version asked the agent to write each scene's markup. The local
+model returned the worked example with a number of its own ("24 GB" for a
+line about 64 GB). So the agent now does a director's job. For each scene it
+is sent the line of narration, its spoken cues, the numbers the narrator
+says, and what the last few scenes showed. It replies with one JSON card:
 
-| env | default | meaning |
-|---|---|---|
-| `HYPERFRAMES_ENABLED` | `false` | turn the layer on |
-| `HYPERFRAMES_BASE_URL` | `http://hyperframes:8088` | sidecar URL |
-| `HYPERFRAMES_TIMEOUT_SECONDS` | `600` | render timeout |
+```json
+{"treatment": "figure", "value": "64 GB", "label": "unified memory", "why": "the line turns on one number"}
+```
 
-Run the sidecar: `docker compose up -d hyperframes`.
+The treatments: `figure`, `compare`, `bars`, `list`, `steps`, `phrase`,
+`quote`, `picture`. `scenes.TREATMENTS` holds their fields and word limits;
+that table is also what the agent is shown.
 
-## Gotchas / decisions
+A card is refused, with the reason sent back, when:
 
-- **arm64**: `@puppeteer/browsers` only ships `chrome-headless-shell` for x86-64,
-  which fails under Rosetta in an arm64 container (`rosetta error: …ld-linux-x86-64`).
-  We use the apt **system chromium** (arch-native) instead — portable across
-  arm64/amd64. (Trade-off: screenshot capture vs BeginFrame; fine for our clips.)
-- Compositions must be **self-contained** (no missing `__VIDEO_SRC__`-style
-  placeholders) or the render fails at encode.
-- Keep clips short (a few seconds). HyperFrames shines as an accent, not the whole
-  video.
+- it names a treatment or a field that does not exist;
+- it shows a number the narrator does not say in that line;
+- its words are not in the narration (more than a third of them);
+- a `phrase` is not a run of consecutive words from the line, or ends on a
+  word like "the";
+- it repeats the previous scene's treatment (asked once);
+- the built scene fails the renderer's review (text off the frame, text
+  under another element, unreadable contrast, a script error).
 
-## Portability / forward-looking
+Markup written by the agent is still supported (`author.write_scene`, the
+page `skill/FREEFORM.md`) for a stronger model: there the agent returns
+styles, markup and tween lines, code wraps them, and a list of rules keeps
+out network addresses, clocks and randomness.
 
-The sidecar is a standard image with no host coupling — moving to k3s is a
-Deployment + Service (NodePort/ClusterIP) and pointing `HYPERFRAMES_BASE_URL` at
-it. The generator is pure Python/strings. The layer is isolated behind
-`produce_hyperframe_clip` + `video_clip_path`, so swapping HyperFrames for another
-renderer later is a localized change.
+## Hermes
+
+hn.fm talks to one Hermes profile of its own, `hnfm`, over the agent's HTTP
+API (`POST /p/hnfm/v1/runs`, then poll). `hyperframes/hermes.py` is the
+whole client.
+
+- **The profile has no tools.** What it is sent is written from pages by
+  strangers, and a general-purpose agent profile can usually reach a shell.
+  The `hnfm` profile can do nothing but answer.
+- **Its key is its own.** The main key is refused on `/p/hnfm`, and the
+  profile's key is refused everywhere else. hn.fm holds only the profile's.
+- **Thinking is off.** With it on, a card takes three minutes; off, four
+  seconds. The profile uses a provider entry that sends
+  `chat_template_kwargs: {enable_thinking: false}`.
+- **The skill travels with the request.** `skill/SKILL.md` is sent as the
+  run's instructions. Given a tool to read skills, the model spent its turns
+  trying to save its answer as a new skill. The same file is installed in
+  Hermes as the `hnfm-video` skill for use by hand.
+
+`deploy/hermes-profile.sh` creates the profile and the secret. Read the
+warning at the top of it before running it.
+
+Settings (chart `hermes:` block):
+
+| env | meaning |
+|---|---|
+| `HERMES_BASE_URL` | the agent's API root; empty means no agent |
+| `HERMES_PROFILE` | the profile to talk to (`hnfm`) |
+| `HERMES_API_KEY` | that profile's key, from the `hnfm-hermes` secret |
+| `HERMES_TIMEOUT_SECONDS` | per turn, default 300 |
+
+## The project on disk
+
+```
+outputs/hyperframes/videos/<item>-<run>-<seg>/
+  status.json          state, per-scene record (cards, findings, rounds), timings
+  video.mp4            1280x720, 24 fps
+  poster.jpg sheet.jpg the title frame, and one frame per scene
+  project/
+    index.html         host: written by code, never by the agent
+    compositions/      intro, scene-NN, outro: one file each
+    plain/             the plain version of each scene, to fall back to
+    assets/            narration.mp3, stills, the page thumbnail
+    brief.json
+```
+
+Scenes are sub-compositions: a `<template>` holding a style block, a root
+with `data-composition-id`, and one paused GSAP timeline registered under
+the same id. `kit.wrap` writes that wrapper for every scene, plain or
+directed.
+
+The shared look is in `kit._css`: CSS variables for the theme's palette and
+fonts (`--bg --ink --muted --accent --veil --panel --display --body`) and a
+few classes (`k-safe`, `k-title`, `k-stat`, `k-card`, ...). The bottom 150
+pixels belong to the captions.
+
+## API and desk
+
+- `GET /api/videos`: videos, and narrated stories without one.
+- `POST /api/videos {item_id, run, seg, direct}`: make one. `direct: false`
+  renders the plain scenes without asking the agent.
+- `GET /api/videos/{id}`: status with the per-scene record.
+- `GET /api/videos/{id}/video.mp4 | poster.jpg | sheet.jpg`
+- `DELETE /api/videos/{id}`
+
+The desk (`/desk`) has all of this in its third column.
+
+## The sidecar
+
+`services/hyperframes/`: Node, Chromium, ffmpeg and the `hyperframes` CLI
+behind a small HTTP server. It mounts the outputs volume at the same path
+as the workers, so absolute paths mean the same thing on both sides.
+
+- The CLI version is pinned in the Dockerfile, and
+  `HYPERFRAMES_NO_UPDATE_CHECK=1` is set. Left alone, the CLI installs a
+  newer version of itself the first time it runs, replacing its own files
+  under a render in progress.
+- Telemetry is off (`HYPERFRAMES_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`).
+- Renders, reviews and screenshots share one gate (`SHOT_CONCURRENCY`).
+- It uses the system Chromium, which exists for both arm64 and amd64.
+  Capture is by screenshot, about 0.8 seconds of render per second of
+  video at 1280x720.
+
+## Older use
+
+`compositions.py`, `design_identity.py` and `produce.py` make the short
+accent clips the image-based video pipeline can drop between sections
+(`recipes`: keypoints, bigstat, quote, compare). They still work and share
+the palette table with the story video.

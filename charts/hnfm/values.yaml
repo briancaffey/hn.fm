@@ -194,6 +194,18 @@ hyperframes:
     requests: { cpu: 500m, memory: 1Gi }
     limits: { memory: 3Gi }
 
+# Hermes, the agent that directs the story videos: for each scene it picks a
+# treatment and supplies the words (src/hnfm/hyperframes/skill/SKILL.md).
+# hn.fm talks to one profile of its own, which has no tools, over the agent's
+# HTTP API. The profile's key lives in a secret made out of band:
+#   kubectl -n <ns> create secret generic hnfm-hermes --from-literal=HERMES_API_KEY=...
+# Without it, or with enabled false, every scene is the plain version.
+hermes:
+  enabled: false
+  baseUrl: http://hermes.hermes.svc.cluster.local:8642
+  profile: hnfm
+  secretName: hnfm-hermes
+
 flower:
   enabled: false
   image: mher/flower:2.0.1

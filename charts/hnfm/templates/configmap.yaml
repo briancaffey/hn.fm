@@ -69,6 +69,10 @@ data:
   STUDIO_VOICE_ENABLED: "false"
   HYPERFRAMES_BASE_URL: {{ printf "http://%s-hyperframes:8088" (include "hnfm.fullname" .) | quote }}
   HYPERFRAMES_ENABLED: {{ and .Values.hyperframes.enabled .Values.features.hyperframes | quote }}
+  {{- if .Values.hermes.enabled }}
+  HERMES_BASE_URL: {{ .Values.hermes.baseUrl | quote }}
+  HERMES_PROFILE: {{ .Values.hermes.profile | quote }}
+  {{- end }}
   META_SEQUENCER_ENABLED: {{ .Values.features.metaSequencer | quote }}
   SOURCE_IMAGES_ENABLED: {{ .Values.features.sourceImages | quote }}
   # --- Ingest / digest ------------------------------------------------------------

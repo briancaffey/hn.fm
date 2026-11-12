@@ -97,6 +97,14 @@ envFrom:
       name: {{ include "hnfm.configMapName" . }}
   - secretRef:
       name: {{ include "hnfm.secretName" . }}
+  {{- if .Values.hermes.enabled }}
+  # The key of the agent profile that directs the story videos. Its own
+  # secret, made out of band, so the agent's key is not one more field on
+  # the app's; optional, because without it videos are made plain.
+  - secretRef:
+      name: {{ .Values.hermes.secretName }}
+      optional: true
+  {{- end }}
 {{- end -}}
 
 {{/* Roll pods when the ConfigMap changes. */}}
