@@ -1146,6 +1146,7 @@ async def radio_archive_edition(edition_id: str):
     if not e:
         raise HTTPException(status_code=404, detail="no such edition")
     e.pop("path", None)
+    e["video"] = bool(e.pop("video_path", None))
     return e
 
 

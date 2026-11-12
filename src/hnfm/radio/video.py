@@ -19,7 +19,7 @@ from . import archive, art
 
 logger = logging.getLogger(__name__)
 
-W, H, FPS = 1280, 720, 12
+W, H, FPS = 1280, 720, 10
 ORANGE = "&H006AFF&"   # ASS colours are blue-green-red
 COLUMN = 560           # where the text column starts
 
@@ -149,7 +149,7 @@ def edition_video(edition_id: str) -> Optional[str]:
         return None
     cmd = ["ffmpeg", "-nostdin", "-y", "-v", "error", "-loop", "1", "-framerate", str(FPS), "-i", still,
            "-i", e["path"], "-filter_complex", graph(ass), "-map", "[out]", "-map", "1:a",
-           "-c:v", "libx264", "-preset", "veryfast", "-crf", "28", "-pix_fmt", "yuv420p",
+           "-c:v", "libx264", "-preset", "veryfast", "-crf", "33", "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart", tmp]
     res = subprocess.run(cmd, capture_output=True, text=True)
     for scrap in (ass, still):
