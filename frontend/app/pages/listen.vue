@@ -56,8 +56,15 @@ async function load() {
     editions.value = a.editions
   } catch { /* the page still shows the player */ }
 }
+// The address to paste into a player has to be whole. Behind the ingress
+// the API base is empty and the stream path is relative, so the origin is
+// added once the page is in a browser.
+const pasteUrl = ref('')
 let timer: ReturnType<typeof setInterval> | null = null
-onMounted(() => { load(); timer = setInterval(load, 8000) })
+onMounted(() => {
+  pasteUrl.value = streamUrl.value.startsWith('/') ? window.location.origin + streamUrl.value : streamUrl.value
+  load(); timer = setInterval(load, 8000)
+})
 onUnmounted(() => { if (timer) clearInterval(timer) })
 
 const listeners = computed(() => (status.value?.icecast?.mounts || []).reduce((n, m) => n + (m.listeners || 0), 0))
@@ -171,7 +178,7 @@ const minutes = (s: number | null) => s ? `${Math.round(s / 60)} min` : ''
       </section>
 
       <footer class="text-xs text-muted-foreground">
-        Stream: <span class="break-all font-mono">{{ streamUrl }}</span>. Paste it into any player.
+        Stream: <span class="break-all font-mono">{{ pasteUrl || streamUrl }}</span>. Paste it into any player.
       </footer>
     </div>
   </main>
