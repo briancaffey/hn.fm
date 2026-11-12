@@ -116,6 +116,11 @@ def lint(seg: Segment, copy: Copy, speakers: Sequence[str], earlier_openers: Seq
     if first and first in set(earlier_openers):
         notes.append(f'Another item this hour already opened with "{first}". Open differently.')
 
+    echoes = echo_count(lines)
+    if seg.voices == "duo" and echoes >= 2:
+        notes.append("The second speaker only repeats what the first just said. Give them their own lines: "
+                     "a doubt, a dry remark, a question the first speaker has to answer.")
+
     if seg.voices in ("duo", "callers") and len({l.speaker for l in lines}) < 2:
         notes.append("This is a piece for more than one voice. Give the other speaker their lines.")
     if seg.voices == "callers" and not any(l.speaker in CALLERS for l in lines):
@@ -143,7 +148,13 @@ def _sentences(text: str) -> List[str]:
     return out
 
 
-def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = ()) -> List[dict]:
+def _grams(text: str, n: int = 4) -> set:
+    w = _norm(text)
+    return {" ".join(w[i:i + n]) for i in range(len(w) - n + 1)}
+
+
+def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = (),
+           never: Sequence[str] = ()) -> List[dict]:
     """What the rules can fix without the writer: a sentence that reads
     the notes aloud is cut, a sentence said twice is said once, and a
     piece that runs long loses sentences from the end until it fits.
@@ -152,6 +163,10 @@ def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = ()) -> 
     # what aired earlier, the model lifted whole sentences from it.
     seen = {" ".join(_norm(x)) for text in said_before for x in _sentences(text)}
     seen = {k for k in seen if len(k.split()) > 3}
+    # `never` is direction the writer was given and must not say: the
+    # show's tone ("Opinionated, and fond of an argument...") was read out
+    # as if it were copy. A sentence sharing four words in a row with it goes.
+    direction = set().union(*[_grams(t) for t in never]) if never else set()
     out = []
     for l in lines:
         kept = []
@@ -159,6 +174,8 @@ def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = ()) -> 
             low = sent.lower()
             key = " ".join(_norm(sent))
             if any(r in low for r in RECITED) or (key in seen and len(key.split()) > 3):
+                continue
+            if direction and _grams(sent) & direction:
                 continue
             seen.add(key)
             kept.append(sent)
@@ -200,6 +217,26 @@ def _render_piece(lines: Sequence[Line]) -> str:
 def _add_usage(total: dict, svc) -> None:
     for k in ("calls", "tokens_in", "tokens_out"):
         total[k] = total.get(k, 0) + int(svc.usage.get(k) or 0)
+
+
+_STOP = frozenset("a an the and or but of to in on at for with by is are was were be been it its this that "
+                  "as from not no so".split())
+
+
+def echo_count(lines) -> int:
+    """How many turns do nothing but hand the previous speaker's words
+    back ("Seven years promised." after a sentence about seven years)."""
+    n = 0
+    for prev, cur in zip(lines, lines[1:]):
+        if prev.speaker == cur.speaker:
+            continue
+        # Compared by the first five letters, so "promised" is "promises"
+        # and "Pixels" is "Pixel".
+        mine = [w[:5] for w in _norm(cur.text) if w not in _STOP]
+        theirs = {w[:5] for w in _norm(prev.text)}
+        if 0 < len(mine) <= 12 and sum(1 for w in mine if w in theirs) / len(mine) >= 0.7:
+            n += 1
+    return n
 
 
 _EXAMPLES: Optional[dict] = None
@@ -347,7 +384,7 @@ def produce(seg: Segment, *, show, speakers: Sequence[str], material: str,
                          plan=copy.plan.model_dump() if copy.plan else None,
                          prompt_version=version)
         if not problems and (rev is None or rev.passes()):
-            last.lines = repair(seg, last.lines, said_before=earlier)
+            last.lines = repair(seg, last.lines, said_before=earlier, never=[show.tone])
             return last if last.lines else None
         notes = problems or (rev.to_notes() if rev else [])
         if not notes:
@@ -356,13 +393,13 @@ def produce(seg: Segment, *, show, speakers: Sequence[str], material: str,
         return None
     # Out of rewrites with the rules still unhappy: fix what can be fixed
     # by cutting, and check again. A piece that is still wrong is not aired.
-    last.lines = repair(SEGMENTS[last.segment], last.lines, said_before=earlier)
+    last.lines = repair(SEGMENTS[last.segment], last.lines, said_before=earlier, never=[show.tone])
     fixed = Copy(lines=[Line(**l) for l in last.lines])
     last.lint = [n for n in lint(seg, fixed, speakers, earlier_openers) if not n.startswith("Too short")
                  or fixed.words() < seg.words * 0.35]
     last.repaired = True
     hard = [n for n in last.lint if n.startswith(("You read your instructions", "Only these speakers",
-                                                  "You reused the example",
+                                                  "You reused the example", "The second speaker only repeats",
                                                   "The piece is empty", "This is a piece for more than one",
                                                   "No caller speaks", "Too short"))]
     return None if hard or not last.lines else last

@@ -1,5 +1,5 @@
 name: radio.facts
-version: 2
+version: 3
 task: radio.facts
 description: >
   The researcher: turns a story's brief and article text into a short fact
@@ -23,17 +23,18 @@ system: |
   - facts: three to five more facts, each a short plain sentence of
     eighteen words at most, each concrete (who, what, how many, how).
     Copy numbers exactly. No opinions, no "this shows that".
-  - catch: the main objection, limit or open question, taken from the
-    discussion or from what is not known. One sentence, said about the
-    world, never about "the source", "the article" or "the material":
-    "Nobody has said who ran the benchmark", not "The source does not
-    establish who ran the benchmark". Empty string if there is none.
+  - catch: the main objection, limit or open question about THIS story,
+    taken from its discussion or from what is not known about it. One
+    sentence, stated as a fact about the world. Never mention "the
+    source", "the article" or "the material". Empty string if there is
+    none; do not make one up.
   - callers: up to three points people made in the discussion, each
     rewritten as one or two plain spoken sentences a caller could say
     on the phone. Keep exactly their meaning and drop their names. A
-    caller only says "I did" or "I worked on" if the comment itself says
-    so; otherwise it is an opinion ("I think...", "What I'd want to
-    know is..."). Skip jokes that need the original wording and comments
+    caller claims experience ("I did", "I worked on", "I built") only if
+    the comment's own words claim it; otherwise the point is an opinion
+    ("I think...", "What I'd want to know is..."). Skip jokes that need
+    the original wording and comments
     that add nothing. Each one is the point itself, in the first
     person: never "a commenter noted that", never "a caller might ask".
     If the material has no discussion, callers is an empty list; do not

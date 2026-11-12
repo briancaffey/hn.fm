@@ -161,6 +161,23 @@ def produce(sheet: dict, save=None) -> dict:
                 if piece:
                     for k in usage:
                         usage[k] += piece.usage.get(k, 0)
+                # A piece that would not come out right becomes the simpler
+                # piece its segment falls back to, on the same story: a
+                # two-hander that will not stop echoing is a headline.
+                if (not piece or not piece.lines) and seg.fallback and item.get("story"):
+                    simpler = segment(seg.fallback)
+                    mat2 = material.for_segment(simpler, story_id=item["story"], show=sh)
+                    if simpler.written and mat2:
+                        log("booth", f"item {item['n'] + 1}: the {seg.name} did not come out; writing a {simpler.name}",
+                            kind=simpler.kind, segment=simpler.key)
+                        seg = simpler
+                        item.update(segment=seg.key, kind=seg.kind, name=seg.name,
+                                    speakers=item["speakers"][:1], demoted_from=item["segment"])
+                        piece = writers.produce(seg, show=sh, speakers=item["speakers"], material=mat2,
+                                                earlier=earlier, earlier_openers=openers)
+                        if piece:
+                            for k in usage:
+                                usage[k] += piece.usage.get(k, 0)
                 if not piece or not piece.lines:
                     _skip(item, "the writers had nothing")
                     continue

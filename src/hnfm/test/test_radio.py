@@ -205,6 +205,21 @@ class TestLint:
         c = _copy(*["The lines are open and nobody has called in yet this hour at all."] * 9)
         assert any(n.startswith("No caller speaks") for n in writers.lint(seg, c, ["mia", "caller1"]))
 
+    def test_a_second_host_who_only_echoes_is_sent_back(self):
+        seg = segment("two_hander")
+        c = Copy(lines=[
+            Line(speaker="aria", mood="default", text="Motorola promises seven years of security updates for the phone."),
+            Line(speaker="leo", mood="default", text="Seven years promised."),
+            Line(speaker="aria", mood="default", text="GrapheneOS has historically supported only Google Pixel phones."),
+            Line(speaker="leo", mood="default", text="Historically, only Pixels."),
+        ])
+        assert any(n.startswith("The second speaker only repeats") for n in writers.lint(seg, c, ["aria", "leo"]))
+        ok = Copy(lines=[
+            Line(speaker="aria", mood="default", text="Motorola promises seven years of security updates for the phone."),
+            Line(speaker="leo", mood="default", text="Has anyone ever collected on that?"),
+        ])
+        assert writers.echo_count(ok.lines) == 0
+
     def test_copying_the_example_is_caught_but_station_furniture_is_not(self):
         ex = writers._examples()["headline"][0]["lines"][1]["text"]
         assert writers.copied_from_examples("headline", ex) is not None
@@ -242,6 +257,12 @@ class TestRepair:
         lines = [{"speaker": "mia", "mood": "default",
                   "text": "Valkey is the fastest tested. The source does not establish who ran the benchmark."}]
         assert writers.repair(segment("headline"), lines)[0]["text"] == "Valkey is the fastest tested."
+
+    def test_the_shows_tone_is_direction_not_copy(self):
+        tone = "Afternoon. Opinionated, and fond of an argument in the comment section."
+        lines = [{"speaker": "aria", "mood": "default",
+                  "text": "The Diff is opinionated, and fond of an argument in the comment section. A phone now runs GrapheneOS."}]
+        assert writers.repair(segment("headline"), lines, never=[tone])[0]["text"] == "A phone now runs GrapheneOS."
 
     def test_a_long_piece_loses_sentences_from_the_end(self):
         lines = [{"speaker": "mia", "mood": "default",
@@ -333,6 +354,13 @@ class TestSheets:
             "I ran this at work and it fell over on day two.",
         ]) == ["The same task cost two dollars one run and one the next.",
                "I ran this at work and it fell over on day two."]
+
+    def test_a_caller_claims_experience_only_if_a_commenter_did(self):
+        from ..radio.sheets import clean_callers
+
+        said = ["I worked on the partnership with Motorola. It is a significant step for the platform."]
+        assert clean_callers(said, quotes=["Looks weird with four lenses."]) == ["It is a significant step for the platform."]
+        assert clean_callers(said, quotes=["I worked on one of these at Moto."]) == said
 
     def test_story_kinds(self):
         from ..radio.sheets import story_kind

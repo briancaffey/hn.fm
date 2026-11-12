@@ -25,7 +25,7 @@ from . import radio_root
 logger = logging.getLogger(__name__)
 
 TASK = "radio.facts"
-VERSION = 3  # bump to invalidate every cached sheet
+VERSION = 4  # bump to invalidate every cached sheet
 
 
 class FactSheet(BaseModel):
@@ -93,7 +93,8 @@ def sheet_for(item_id: int) -> Optional[dict]:
     except Exception as e:
         logger.warning(f"radio: fact sheet for {item_id} failed: {e}")
         return None
-    sheet.callers = clean_callers(sheet.callers)
+    sheet.callers = clean_callers(
+        sheet.callers, quotes=[c.get("quote") or "" for c in (brief.get("comment_insights") or [])])
     out = {
         "version": VERSION, "item_id": item_id, "title": item.title, "kind": story_kind(item.title),
         "score": item.score or 0, "comments": item.descendants or 0, "sheet": sheet.model_dump(),
@@ -108,17 +109,28 @@ _REPORTED = re.compile(
     r"(?:noted|said|highlighted|speculated|pointed out|argued|asked|observed|wondered|mentioned)\s+(?:that\s+)?", re.I)
 
 
-def clean_callers(callers: List[str]) -> List[str]:
+_CLAIM = re.compile(r"\bI (?:worked|work|built|helped build|was on the team|am on the team|wrote|maintain)\b", re.I)
+
+
+def clean_callers(callers: List[str], quotes: Optional[List[str]] = None) -> List[str]:
     """What people said, as they would say it. The model sometimes reports
     a point instead of voicing it ("One commenter noted that...") and, with
     no discussion to draw on, invents one ("A caller might ask..."). The
     first is unwrapped; the second is dropped, because it is not something
     anyone said."""
+    # "I worked on it" is only said on air if a commenter said it. The
+    # model likes to hand callers a job on the project they are discussing.
+    claimed = any(_CLAIM.search(q or "") for q in (quotes or []))
     out = []
     for c in callers or []:
         c = (c or "").strip().strip('"').strip()
         if not c or re.search(r"\b(?:caller|commenter)s?\s+(?:might|could|may|would)\b", c, re.I):
             continue
+        if quotes is not None and not claimed and _CLAIM.search(c):
+            kept = [x for x in re.split(r"(?<=[.!?])\s+", c) if not _CLAIM.search(x)]
+            c = " ".join(kept).strip()
+            if not c:
+                continue
         m = _REPORTED.match(c)
         if m:
             c = c[m.end():].strip()
