@@ -123,7 +123,12 @@ def _used() -> tuple:
             except ValueError:
                 pass
             titles.append(r.get("title") or "")
-    for sh in repo.radio_open_sheets() + repo.radio_parked_sheets():
+    # Every block made in the window, aired or not: an edition made for the
+    # archive never airs, and its stories are just as used.
+    cutoff = (datetime.utcnow() - timedelta(hours=NO_REPEAT_HOURS)).isoformat()
+    for sh in repo.radio_list_sheets(limit=400):
+        if (sh.get("created_at") or "") < cutoff:
+            continue
         for it in sh["items"]:
             if it.get("story"):
                 ids.add(int(it["story"]))
@@ -131,24 +136,31 @@ def _used() -> tuple:
     return ids, titles
 
 
-def plan_now(minutes: int = None, reason: str = "manual") -> Optional[dict]:
+def plan_now(minutes: int = None, reason: str = "manual", at: Optional[datetime] = None,
+             quarter: Optional[int] = None) -> Optional[dict]:
     """Plan a block and park it. The plan task calls this and then makes
     the block (production.produce); nothing else should, because a block
     that is planned and not made airs as skips. None if there is nothing
-    new to say."""
+    new to say.
+
+    `at` and `quarter` plan a block for another hour of the day: an
+    edition for the archive, which does not move the on-air sequence."""
     from ..db import repo
     from .planner import plan
 
     from .format import hour_key, next_quarter
 
-    now = station_now()
-    quarter = next_quarter(repo.get_setting(SETTING_LAST_PLAN), now)
+    now = at or station_now()
+    live = quarter is None
+    if live:
+        quarter = next_quarter(repo.get_setting(SETTING_LAST_PLAN), now)
     ids, titles = _used()
     p = plan(now, quarter, used_stories=ids, used_titles=titles)
     if not p["stories"]:
         log("producer", "nothing new to say; staying on the library", reason=reason)
         return None
-    repo.set_setting(SETTING_LAST_PLAN, {"hour": hour_key(now), "quarter": quarter})
+    if live:
+        repo.set_setting(SETTING_LAST_PLAN, {"hour": hour_key(now), "quarter": quarter})
     minutes = minutes or BLOCK_MINUTES
     usage = p.get("usage") or {}
     row = repo.radio_save_sheet(

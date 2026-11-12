@@ -551,6 +551,25 @@ class TestListenerAware:
         repo.radio_mark_ready("park")
         assert any(sh["sheet_id"] == "park" for sh in repo.radio_open_sheets())
 
+    def test_an_edition_for_the_archive_never_airs_and_its_stories_are_used(self, tmp_path):
+        repo.radio_save_sheet(sheet_id="ed1", title="t", minutes=15, source="llm", ready=False, items=[
+            {"n": 0, "segment": "headline", "kind": "brief", "story": 4242, "title": "Used", "status": "ready",
+             "path": _file(tmp_path)}])
+        repo.radio_update_sheet("ed1", cursor=1)
+        repo.radio_mark_ready("ed1")
+        assert repo.radio_current_sheet() is None
+        ids, titles = director._used()
+        assert 4242 in ids and "Used" in titles
+
+    def test_the_edition_endpoint_checks_its_hour(self, monkeypatch):
+        from fastapi.testclient import TestClient
+        from ..web.api import app
+
+        monkeypatch.setenv("RADIO_ENABLED", "true")
+        c = TestClient(app)
+        assert c.post("/api/radio/edition", json={}).status_code == 400
+        assert c.post("/api/radio/edition", json={"hour": 25}).status_code == 400
+
     def test_editions_are_due_once_per_edition_hour(self, monkeypatch):
         from ..radio import housekeeping
 

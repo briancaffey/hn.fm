@@ -3116,19 +3116,33 @@ def scheduled_job(name: str, force: bool = False) -> Dict[str, any]:
 # ---------------------------------------------------------------------------
 
 
-@celery_app.task(name="hnfm.web.tasks.radio_plan_block", time_limit=1500, soft_time_limit=1380)
-def radio_plan_block(reason: str = "scheduled", minutes: int = None) -> Dict[str, any]:
-    """Plan the next block, make it, archive it, and release it to air."""
+@celery_app.task(name="hnfm.web.tasks.radio_plan_block", time_limit=1800, soft_time_limit=1680)
+def radio_plan_block(reason: str = "scheduled", minutes: int = None, hour: int = None,
+                     quarter: int = None, air: bool = True) -> Dict[str, any]:
+    """Plan the next block, make it, archive it, and release it to air.
+
+    With `hour` and `quarter` it makes an edition of whichever show is on
+    at that hour, stocking that show's shelf first. With `air` false the
+    edition goes to the archive only: a morning show made at midnight
+    should not play at midnight."""
     from .. import radio
-    from ..radio import archive, director, production
+    from ..radio import archive, bank, director, production
+    from ..radio.format import show_at, station_now
 
     if not radio.enabled():
         return {"status": "skipped", "reason": "radio is off"}
     from ..db import repo
 
     sheet = None
+    at = None
+    if hour is not None:
+        q = max(0, min(int(quarter or 0), 3))
+        at = station_now().replace(hour=int(hour) % 24, minute=q * 15, second=0, microsecond=0)
+        quarter = q
     try:
-        sheet = director.plan_now(minutes=minutes, reason=reason)
+        if at is not None:
+            bank.stock(show_at(at))
+        sheet = director.plan_now(minutes=minutes, reason=reason, at=at, quarter=quarter if at else None)
         if not sheet:
             return {"status": "nothing new"}
         sid = sheet["sheet_id"]
@@ -3139,7 +3153,7 @@ def radio_plan_block(reason: str = "scheduled", minutes: int = None) -> Dict[str
             tokens_out=(sheet.get("tokens_out") or 0) + stats.get("tokens_out", 0))
         edition = None
         try:
-            edition = archive.render(sheet, stats)
+            edition = archive.render(sheet, stats, now=at)
         except Exception as e:
             logger.warning(f"radio: archiving the block failed (non-fatal): {e}")
         radio.log("producer", f"block {sid} is made and ready to air"
@@ -3151,6 +3165,8 @@ def radio_plan_block(reason: str = "scheduled", minutes: int = None) -> Dict[str
         # Made or not, the block is released: what exists airs, the rest
         # is skipped. Never leave a block parked, or the planner locked.
         if sheet:
+            if not air:
+                repo.radio_update_sheet(sheet["sheet_id"], cursor=len(sheet["items"]))
             repo.radio_mark_ready(sheet["sheet_id"])
         repo.set_setting(director.SETTING_PLANNING, None)
 

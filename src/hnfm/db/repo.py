@@ -1535,7 +1535,7 @@ def radio_get_sheet(sheet_id: str) -> Optional[dict]:
 
 
 def radio_update_sheet(sheet_id: str, items: list = None, tokens_in: int = None,
-                       tokens_out: int = None) -> Optional[dict]:
+                       tokens_out: int = None, cursor: int = None) -> Optional[dict]:
     """Write a block's items back as production fills them in: the sheet is
     the record of what was made, not only of what was planned."""
     from sqlalchemy.orm.attributes import flag_modified
@@ -1553,6 +1553,8 @@ def radio_update_sheet(sheet_id: str, items: list = None, tokens_in: int = None,
             row.tokens_in = tokens_in
         if tokens_out is not None:
             row.tokens_out = tokens_out
+        if cursor is not None:
+            row.cursor = int(cursor)
         s.commit()
         return _sheet_to_dict(row)
 

@@ -102,6 +102,23 @@ def _make(sh: Show, kind: str) -> Optional[dict]:
     return None
 
 
+def stock(sh: Show, max_new: int = 20) -> Dict[str, int]:
+    """Stock one show's shelf, whatever the time of day: for an edition
+    made ahead of its show."""
+    made: Dict[str, int] = {}
+    for kind in ("music", "track", "station_id", "jingle"):
+        while sum(made.values()) < max_new and bank_counts(sh.key).get(kind, 0) < PER_SHOW[kind]:
+            item = _make(sh, kind)
+            if not item:
+                break
+            add_to_bank({"id": uuid.uuid4().hex[:12], "show": sh.key, **item})
+            made[kind] = made.get(kind, 0) + 1
+    if made:
+        log("bank", f"stocked {sh.name}: " + ", ".join(f"{n} {k}" for k, n in made.items()), show=sh.key)
+    ensure_safety()
+    return made
+
+
 def fill(max_new: int = 6) -> Dict[str, int]:
     """Make up to `max_new` missing items, most urgent first. Capped so a
     beat tick never holds the music model for long; the next tick goes on."""

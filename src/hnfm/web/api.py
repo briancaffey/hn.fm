@@ -1149,6 +1149,27 @@ async def radio_archive_edition(edition_id: str):
     return e
 
 
+@app.post("/api/radio/edition", tags=["radio"])
+async def radio_edition(request: dict = Body(default={})):
+    """Make one block of whichever show is on at `hour` (station time),
+    quarter 0 to 3. It goes to the archive; pass {"air": true} to put it on
+    air as well. For filling the archive ahead of the day."""
+    _radio_on()
+    from .tasks import radio_plan_block
+
+    try:
+        hour = int(request.get("hour"))
+        quarter = int(request.get("quarter", 0))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="hour (0-23) is required; quarter is 0-3")
+    if not (0 <= hour <= 23 and 0 <= quarter <= 3):
+        raise HTTPException(status_code=400, detail="hour is 0-23 and quarter is 0-3")
+    t = radio_plan_block.apply_async(kwargs={
+        "reason": f"edition {hour:02d}h q{quarter + 1}", "hour": hour, "quarter": quarter,
+        "air": bool(request.get("air", False))})
+    return {"status": "queued", "task_id": t.id, "hour": hour, "quarter": quarter}
+
+
 @app.post("/api/radio/bank/fill", tags=["radio"])
 async def radio_bank_fill():
     _radio_on()
