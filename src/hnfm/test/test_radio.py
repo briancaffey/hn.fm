@@ -337,6 +337,12 @@ class TestCopy:
         assert speakable("a /48 IPv6 subnet") == "a slash forty-eight I.P. version six subnet"
         assert speakable("see docs/3 and 1/2") == "see docs slash three and one slash two"
 
+    def test_lyrics_are_sung_in_words(self):
+        from ..radio.copy import singable
+
+        assert singable("[verse]\n32 cores roar\nAGPL-3.0 appears\n\n[chorus]\n9 times the pace") == \
+            "[verse]\nthirty-two cores roar\nAGPL three point zero appears\n\n[chorus]\nnine times the pace"
+
     def test_ordinals(self):
         from ..radio.copy import speakable
 

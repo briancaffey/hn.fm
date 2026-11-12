@@ -140,6 +140,21 @@ def _acronym(match: re.Match) -> str:
     return word + plural
 
 
+def singable(lyrics: str) -> str:
+    """Lyrics the music model can sing: digits as words, line by line,
+    with the [verse] and [chorus] marks left alone. The lyricist is told
+    not to write digits and writes them anyway ("32 cores roar")."""
+    out = []
+    for line in (lyrics or "").splitlines():
+        if line.strip().startswith("["):
+            out.append(line.strip())
+            continue
+        line = _ORDINAL.sub(lambda m: ordinal_words(int(m.group(1))), line)
+        line = re.sub(r"(?<=[A-Za-z])-(?=\d)", " ", line)
+        out.append(re.sub(r"\s+", " ", _NUMBER.sub(_num, line)).strip())
+    return "\n".join(out).strip()
+
+
 def speakable(text: str) -> str:
     """Text a voice model will read the way a person would."""
     t = text or ""

@@ -82,6 +82,9 @@ def _song(item: dict, sh, out_dir: str, usage: dict) -> bool:
         return False
     finally:
         writers._add_usage(usage, svc)
+    from .copy import singable
+
+    ly.lyrics = singable(ly.lyrics)
     seconds = int(os.getenv("RADIO_SONG_SECONDS", "75"))
     song = make_song(f"{sh.song_style}, {ly.style}"[:300], ly.lyrics, seconds,
                      os.path.join(out_dir, f"{item['n']:02d}-song-only.mp3"))
