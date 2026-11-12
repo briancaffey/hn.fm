@@ -3171,6 +3171,85 @@ def radio_plan_block(reason: str = "scheduled", minutes: int = None, hour: int =
         repo.set_setting(director.SETTING_PLANNING, None)
 
 
+@celery_app.task(name="hnfm.web.tasks.radio_make_episode", time_limit=3600, soft_time_limit=3480)
+def radio_make_episode(hour: int, air: bool = False, reason: str = "episode") -> Dict[str, any]:
+    """A whole hour of the show that is on at `hour`, made as one edition:
+    the four quarters planned and produced in turn, then joined into a
+    single file with one running order. This is what the station makes
+    when it is not producing around the clock."""
+    from .. import radio
+    from ..radio import archive, bank, director, production
+    from ..radio.format import show_at, station_now
+
+    if not radio.enabled():
+        return {"status": "skipped", "reason": "radio is off"}
+    from ..db import repo
+
+    at0 = station_now().replace(hour=int(hour) % 24, minute=0, second=0, microsecond=0)
+    sh = show_at(at0)
+    bank.stock(sh)
+    items, sheets, total = [], [], {}
+    try:
+        for q in range(4):
+            at = at0.replace(minute=q * 15)
+            sheet = director.plan_now(reason=f"{reason} {hour:02d}h q{q + 1}", at=at, quarter=q)
+            if not sheet:
+                continue
+            sheets.append(sheet)
+            sid = sheet["sheet_id"]
+            stats = production.produce(sheet, save=lambda its, sid=sid: repo.radio_update_sheet(sid, items=its), at=at)
+            repo.radio_update_sheet(
+                sid, items=sheet["items"],
+                tokens_in=(sheet.get("tokens_in") or 0) + stats.get("tokens_in", 0),
+                tokens_out=(sheet.get("tokens_out") or 0) + stats.get("tokens_out", 0))
+            for k, v in stats.items():
+                if isinstance(v, (int, float)):
+                    total[k] = total.get(k, 0) + v
+            items += sheet["items"]
+        if not sheets:
+            radio.log("producer", f"nothing new for an episode of {sh.name}")
+            return {"status": "nothing new"}
+        title = f"{at0.strftime('%A')} {at0.day} {at0.strftime('%B')}, {at0.strftime('%-I%p').lower()}"
+        whole = {"sheet_id": sheets[0]["sheet_id"], "title": title, "items": items}
+        edition = archive.render(whole, total, now=at0, kind="episode")
+        radio.log("producer", f"episode of {sh.name} is made"
+                  + (f"; archived as {edition['id']}" if edition else "; too little to archive"),
+                  **{k: v for k, v in total.items() if k != "calls"})
+        return {"status": "ok", "edition": edition and edition["id"], "blocks": len(sheets), **total}
+    finally:
+        for sheet in sheets:
+            if not air:
+                repo.radio_update_sheet(sheet["sheet_id"], cursor=len(sheet["items"]))
+            repo.radio_mark_ready(sheet["sheet_id"])
+        repo.set_setting(director.SETTING_PLANNING, None)
+
+
+@celery_app.task(name="hnfm.web.tasks.radio_draw_art", time_limit=900, soft_time_limit=840)
+def radio_draw_art(key: str = None) -> Dict[str, any]:
+    """Draw one cover, or every cover that is missing."""
+    from .. import radio
+    from ..radio import art
+
+    if not radio.enabled():
+        return {"status": "skipped", "reason": "radio is off"}
+    if key:
+        return {"status": "ok" if art.draw(key) else "failed", "key": key}
+    return {"status": "ok", "drawn": art.draw_missing()}
+
+
+@celery_app.task(name="hnfm.web.tasks.radio_edition_video", time_limit=1800, soft_time_limit=1740)
+def radio_edition_video(edition_id: str) -> Dict[str, any]:
+    """Render the video of an archived edition."""
+    from .. import radio
+    from ..radio import video
+
+    if not radio.enabled():
+        return {"status": "skipped", "reason": "radio is off"}
+    out = video.edition_video(edition_id)
+    radio.log("producer", f"video of {edition_id} " + ("is made" if out else "could not be made"))
+    return {"status": "ok" if out else "failed", "edition": edition_id}
+
+
 @celery_app.task(name="hnfm.web.tasks.radio_fill_bank", time_limit=900, soft_time_limit=840)
 def radio_fill_bank(max_new: int = 4) -> Dict[str, any]:
     """Top up the stock: beds, jingles and station IDs for the shows on now and next."""

@@ -20,14 +20,39 @@ SETTING_EDITIONS = "radio.editions_done"
 KEEP_BLOCK_DAYS = float(os.getenv("RADIO_KEEP_BLOCK_DAYS", "3"))
 
 
-def edition_hours() -> list:
-    raw = os.getenv("RADIO_EDITION_HOURS", "8,13,19")
+SETTING_EDITION_HOURS = "radio.edition_hours"
+
+
+def _hours(raw) -> list:
+    parts = raw if isinstance(raw, (list, tuple)) else str(raw or "").split(",")
     out = []
-    for part in raw.split(","):
-        part = part.strip()
+    for part in parts:
+        part = str(part).strip()
         if part.isdigit() and 0 <= int(part) <= 23:
             out.append(int(part))
-    return out
+    return sorted(set(out))
+
+
+def edition_hours() -> list:
+    """Hours at which one block is made whoever is listening. Set at the
+    desk (a setting, possibly an empty list); the environment gives the
+    default."""
+    try:
+        from ..db import repo
+
+        chosen = repo.get_setting(SETTING_EDITION_HOURS)
+        if chosen is not None:
+            return _hours(chosen)
+    except Exception:
+        pass
+    return _hours(os.getenv("RADIO_EDITION_HOURS", "8,13,19"))
+
+
+def set_edition_hours(hours) -> list:
+    from ..db import repo
+
+    repo.set_setting(SETTING_EDITION_HOURS, _hours(hours))
+    return edition_hours()
 
 
 def edition_due() -> Optional[str]:

@@ -26,9 +26,13 @@ def archive_root() -> str:
     return d
 
 
-def render(sheet: dict, stats: Optional[dict] = None, now: Optional[datetime] = None) -> Optional[dict]:
-    """Join a produced block into one file. None if there is not enough
-    to call it a programme."""
+def render(sheet: dict, stats: Optional[dict] = None, now: Optional[datetime] = None,
+           kind: str = "block") -> Optional[dict]:
+    """Join produced items into one file. `kind` is "block" (one quarter)
+    or "episode" (a whole hour of a show). None if there is not enough to
+    call it a programme."""
+    from .library import _duration
+
     items = [i for i in sheet["items"] if i.get("status") == "ready" and i.get("path")
              and os.path.exists(i["path"])]
     if sum(1 for i in items if i.get("text")) < 3:
@@ -44,22 +48,103 @@ def render(sheet: dict, stats: Optional[dict] = None, now: Optional[datetime] = 
     m = mix.measure(mp3) or {}
     at, rundown = 0.0, []
     for i in items:
+        # The file's own length, not the planned one: chapter marks are
+        # only useful if they land on the chapter.
+        seconds = _duration(i["path"]) or i.get("seconds") or 0
         rundown.append({
-            "at": round(at, 1), "seconds": i.get("seconds"), "segment": i["segment"], "name": i.get("name"),
+            "at": round(at, 1), "seconds": round(seconds, 1), "segment": i["segment"], "name": i.get("name"),
             "title": i.get("title"), "story": i.get("story"), "host": i.get("host"),
             "text": i.get("text"), "lyrics": i.get("lyrics"), "review": i.get("review"), "qa": i.get("qa"),
+            "cues": i.get("cues"),
         })
-        at += i.get("seconds") or 0
+        at += seconds
+    seen, stories = set(), []
+    for i in items:
+        if i.get("story") and i["story"] not in seen and i["segment"] != "cold_open":
+            seen.add(i["story"])
+            stories.append({"item_id": i["story"], "title": i.get("title")})
     meta = {
-        "id": stem, "sheet_id": sheet["sheet_id"], "title": sheet.get("title"), "show": sh.key,
-        "show_name": sh.name, "anchor": sh.anchor, "cohost": sh.cohost,
+        "id": stem, "kind": kind, "sheet_id": sheet["sheet_id"], "title": sheet.get("title"), "show": sh.key,
+        "show_name": sh.name, "anchor": sh.anchor, "cohost": sh.cohost, "tagline": sh.tagline,
         "date": now.strftime("%Y-%m-%d"), "aired_at": now.isoformat(), "seconds": m.get("seconds"),
-        "stories": [{"item_id": i["story"], "title": i.get("title")} for i in items if i.get("story")],
-        "stats": stats or {}, "rundown": rundown,
+        "stories": stories, "stats": stats or {}, "rundown": rundown,
     }
     with open(os.path.join(day, stem + ".json"), "w") as f:
         json.dump(meta, f)
     return meta
+
+
+def _sidecar(edition_id: str) -> Optional[str]:
+    safe = os.path.basename(edition_id)
+    root = archive_root()
+    for day in os.listdir(root):
+        p = os.path.join(root, day, safe + ".json")
+        if os.path.exists(p):
+            return p
+    return None
+
+
+def update(edition_id: str, **fields) -> Optional[dict]:
+    """Change what the desk may change about an edition: whether it is
+    featured, and its title."""
+    p = _sidecar(edition_id)
+    if not p:
+        return None
+    with open(p) as f:
+        meta = json.load(f)
+    for k in ("featured", "title"):
+        if k in fields and fields[k] is not None:
+            meta[k] = fields[k]
+    tmp = p + ".tmp"
+    with open(tmp, "w") as f:
+        json.dump(meta, f)
+    os.replace(tmp, p)
+    meta.pop("rundown", None)
+    return meta
+
+
+def remove(edition_id: str) -> bool:
+    """Take an edition out of the archive: its file, its sidecar and any
+    video made of it."""
+    p = _sidecar(edition_id)
+    if not p:
+        return False
+    for ext in (".json", ".mp3", ".mp4"):
+        try:
+            os.unlink(p[:-5] + ext)
+        except OSError:
+            pass
+    return True
+
+
+def chapters(edition_id: str) -> Optional[dict]:
+    """The running order as podcast chapters (the Podcasting 2.0 JSON
+    format): the spoken items only, each at the second it starts."""
+    e = edition(edition_id)
+    if not e:
+        return None
+    out = [{"startTime": int(r["at"]), "title": (r.get("title") or r.get("name") or "")[:120]}
+           for r in e.get("rundown") or [] if r.get("text") or r.get("lyrics")]
+    return {"version": "1.2.0", "chapters": out}
+
+
+def transcript(edition_id: str) -> Optional[str]:
+    """The words of an edition as plain text, with the time of each item."""
+    e = edition(edition_id)
+    if not e:
+        return None
+    out = [f"{e.get('show_name')}: {e.get('title') or ''}", e.get("date") or "", ""]
+    for r in e.get("rundown") or []:
+        if not (r.get("text") or r.get("lyrics")):
+            continue
+        at = int(r["at"])
+        out.append(f"[{at // 60}:{at % 60:02d}] {r.get('title') or r.get('name') or ''}")
+        for l in r.get("text") or []:
+            out.append(f"{l['speaker'].upper()}: {l['text']}")
+        if r.get("lyrics"):
+            out.append(r["lyrics"])
+        out.append("")
+    return "\n".join(out)
 
 
 def editions(limit: int = 50) -> List[dict]:
@@ -79,6 +164,7 @@ def editions(limit: int = 50) -> List[dict]:
             except (OSError, ValueError):
                 continue
             meta.pop("rundown", None)
+            meta["video"] = os.path.exists(os.path.join(d, name[:-5] + ".mp4"))
             out.append(meta)
             if len(out) >= limit:
                 return out
@@ -95,6 +181,8 @@ def edition(edition_id: str) -> Optional[dict]:
             with open(p) as f:
                 meta = json.load(f)
             meta["path"] = os.path.join(root, day, safe + ".mp3")
+            video = os.path.join(root, day, safe + ".mp4")
+            meta["video_path"] = video if os.path.exists(video) else None
             return meta
     return None
 
@@ -118,9 +206,14 @@ def feed(base_url: str, limit: int = 50) -> str:
             f"<guid isPermaLink=\"false\">{escape(e['id'])}</guid><pubDate>{when}</pubDate>"
             f"<description>{escape(stories)}</description>"
             f"<enclosure url=\"{escape(url)}\" type=\"audio/mpeg\" length=\"0\"/>"
+            f"<itunes:image href=\"{escape(base)}/api/radio/art/{escape(e.get('show') or 'station')}.jpg\"/>"
+            f"<podcast:chapters url=\"{escape(base)}/api/radio/archive/{escape(e['id'])}/chapters.json\" "
+            f"type=\"application/json+chapters\"/>"
             f"<itunes:duration>{int(e.get('seconds') or 0)}</itunes:duration></item>")
     return ("<?xml version=\"1.0\" encoding=\"UTF-8\"?>"
-            "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\"><channel>"
+            "<rss version=\"2.0\" xmlns:itunes=\"http://www.itunes.com/dtds/podcast-1.0.dtd\" "
+            "xmlns:podcast=\"https://podcastindex.org/namespace/1.0\"><channel>"
+            f"<itunes:image href=\"{escape(base)}/api/radio/art/station.jpg\"/>"
             "<title>HNFM</title><description>Hacker News on the radio, made by local models. "
             "Every block the station airs, kept.</description>"
             f"<link>{escape(base)}/listen</link><language>en</language>"

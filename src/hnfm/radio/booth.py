@@ -24,6 +24,8 @@ logger = logging.getLogger(__name__)
 
 # The beat after a line, by who spoke and who is next.
 GAP_SAME, GAP_TURN, GAP_PHONE = 220, 300, 420
+# How long the bed plays before the first word (mix.over_bed_graph).
+BED_LEAD = 1.4
 # The beat after an effect.
 GAP_FX = 140
 # What is heard when the piece goes to someone who is not in the studio,
@@ -96,6 +98,33 @@ def layout(lines: List[dict], seg: Segment) -> list:
     return out + [("fx", name) for name in seg.outro]
 
 
+def _wav_seconds(path: str) -> float:
+    import wave
+
+    try:
+        with wave.open(path) as w:
+            return w.getnframes() / float(w.getframerate())
+    except Exception:
+        return 0.0
+
+
+def cues(clips: list, lines_at: dict, lead: float = 0.0) -> List[dict]:
+    """When each line starts and how long it runs, in seconds from the
+    start of the finished item: `clips` is the join list, `lines_at` maps
+    a clip's position to its line number, `lead` is whatever plays before
+    the voice track (the bed's lead-in, a sting). For captions and for
+    the page that follows the words."""
+    out, at = [], lead
+    for pos, (path, role, gap_ms) in enumerate(clips):
+        seconds = _wav_seconds(path)
+        if role == "fineprint":
+            seconds /= 1.32
+        if pos in lines_at:
+            out.append({"n": lines_at[pos], "at": round(at, 2), "seconds": round(seconds, 2)})
+        at += seconds + gap_ms / 1000.0
+    return out
+
+
 def record(lines: List[dict], seg: Segment, out_mp3: str, *, bed: Optional[str] = None,
            sting: Optional[str] = None, seed: int = 0) -> Optional[dict]:
     """Speak, check and mix a piece. None if it cannot air: a voice was
@@ -108,6 +137,7 @@ def record(lines: List[dict], seg: Segment, out_mp3: str, *, bed: Optional[str] 
     os.makedirs(base, exist_ok=True)
     work = tempfile.mkdtemp(prefix="booth_", dir=base)
     clips, scores, weights, heard_bad = [], [], [], []
+    lines_at: dict = {}
     try:
         for step in layout(lines, seg):
             if step[0] == "fx":
@@ -123,6 +153,7 @@ def record(lines: List[dict], seg: Segment, out_mp3: str, *, bed: Optional[str] 
             with open(path, "wb") as f:
                 f.write(wav)
             nxt = lines[n + 1] if n + 1 < len(lines) else None
+            lines_at[len(clips)] = n
             clips.append((path, role, _gap(line, nxt)))
             if score is not None:
                 scores.append(score)
@@ -140,6 +171,13 @@ def record(lines: List[dict], seg: Segment, out_mp3: str, *, bed: Optional[str] 
             return None
         recipe = seg.mix
         piece = out_mp3 if not (recipe == "sting" and sting) else os.path.join(work, "piece.mp3")
+        bedded = recipe in ("bed", "sting", "phone") and bed and os.path.exists(bed)
+        lead = BED_LEAD if bedded else 0.0
+        if recipe == "sting" and sting and os.path.exists(sting):
+            from .library import _duration
+
+            lead += _duration(sting) or 0.0
+        timing = cues(clips, lines_at, lead)
         if recipe in ("bed", "sting") and bed and os.path.exists(bed):
             ok = mix.over_bed(voice, bed, piece)
         elif recipe == "phone" and bed and os.path.exists(bed):
@@ -155,7 +193,7 @@ def record(lines: List[dict], seg: Segment, out_mp3: str, *, bed: Optional[str] 
         if not qa.levels_ok(m):
             logger.warning(f"radio booth: {seg.key} is outside the station's levels ({m})")
             return {"path": None, "qa": {"match": match, "levels": m, "aired": False}}
-        return {"path": out_mp3, "seconds": (m or {}).get("seconds"),
+        return {"path": out_mp3, "seconds": (m or {}).get("seconds"), "cues": timing,
                 "qa": {"match": match, "bad_lines": heard_bad, "lufs": (m or {}).get("lufs"),
                        "peak": (m or {}).get("peak"), "aired": True}}
     finally:

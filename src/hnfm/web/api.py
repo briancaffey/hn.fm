@@ -1149,13 +1149,86 @@ async def radio_archive_edition(edition_id: str):
     return e
 
 
+@app.get("/api/radio/archive/{edition_id}/chapters.json", tags=["radio"])
+async def radio_archive_chapters(edition_id: str):
+    _radio_on()
+    from ..radio import archive
+
+    c = archive.chapters(edition_id)
+    if c is None:
+        raise HTTPException(status_code=404, detail="no such edition")
+    return c
+
+
+@app.get("/api/radio/archive/{edition_id}/transcript.txt", tags=["radio"])
+async def radio_archive_transcript(edition_id: str):
+    _radio_on()
+    from fastapi.responses import PlainTextResponse
+    from ..radio import archive
+
+    t = archive.transcript(edition_id)
+    if t is None:
+        raise HTTPException(status_code=404, detail="no such edition")
+    return PlainTextResponse(t)
+
+
+@app.get("/api/radio/archive/{edition_id}/video.mp4", tags=["radio"])
+async def radio_archive_video(edition_id: str):
+    _radio_on()
+    from fastapi.responses import FileResponse
+    from ..radio import archive
+
+    e = archive.edition(edition_id)
+    if not e or not e.get("video_path"):
+        raise HTTPException(status_code=404, detail="no video of this edition")
+    return FileResponse(e["video_path"], media_type="video/mp4", filename=f"hnfm-{edition_id}.mp4")
+
+
+@app.post("/api/radio/archive/{edition_id}/video", tags=["radio"])
+async def radio_archive_make_video(edition_id: str):
+    """Ask for a video of an edition: its cover, its words, its levels."""
+    _radio_on()
+    from ..radio import archive
+    from .tasks import radio_edition_video
+
+    if not archive.edition(edition_id):
+        raise HTTPException(status_code=404, detail="no such edition")
+    t = radio_edition_video.apply_async(kwargs={"edition_id": edition_id})
+    return {"status": "queued", "task_id": t.id}
+
+
+@app.patch("/api/radio/archive/{edition_id}", tags=["radio"])
+async def radio_archive_update(edition_id: str, request: dict = Body(default={})):
+    """Feature an edition, or rename it: {"featured": true, "title": "..."}."""
+    _radio_on()
+    from ..radio import archive
+
+    title = request.get("title")
+    e = archive.update(edition_id, featured=request.get("featured"),
+                       title=str(title)[:120] if title else None)
+    if not e:
+        raise HTTPException(status_code=404, detail="no such edition")
+    return e
+
+
+@app.delete("/api/radio/archive/{edition_id}", tags=["radio"])
+async def radio_archive_delete(edition_id: str):
+    _radio_on()
+    from ..radio import archive
+
+    if not archive.remove(edition_id):
+        raise HTTPException(status_code=404, detail="no such edition")
+    return {"status": "removed", "id": edition_id}
+
+
 @app.post("/api/radio/edition", tags=["radio"])
 async def radio_edition(request: dict = Body(default={})):
-    """Make one block of whichever show is on at `hour` (station time),
-    quarter 0 to 3. It goes to the archive; pass {"air": true} to put it on
-    air as well. For filling the archive ahead of the day."""
+    """Make an edition of whichever show is on at `hour` (station time).
+    {"whole": true} makes the whole hour as one episode; otherwise one
+    block, quarter 0 to 3. It goes to the archive; pass {"air": true} to
+    put it on air as well."""
     _radio_on()
-    from .tasks import radio_plan_block
+    from .tasks import radio_make_episode, radio_plan_block
 
     try:
         hour = int(request.get("hour"))
@@ -1164,10 +1237,134 @@ async def radio_edition(request: dict = Body(default={})):
         raise HTTPException(status_code=400, detail="hour (0-23) is required; quarter is 0-3")
     if not (0 <= hour <= 23 and 0 <= quarter <= 3):
         raise HTTPException(status_code=400, detail="hour is 0-23 and quarter is 0-3")
+    air = bool(request.get("air", False))
+    if request.get("whole"):
+        t = radio_make_episode.apply_async(kwargs={"hour": hour, "air": air})
+        return {"status": "queued", "task_id": t.id, "hour": hour, "whole": True}
     t = radio_plan_block.apply_async(kwargs={
-        "reason": f"edition {hour:02d}h q{quarter + 1}", "hour": hour, "quarter": quarter,
-        "air": bool(request.get("air", False))})
+        "reason": f"edition {hour:02d}h q{quarter + 1}", "hour": hour, "quarter": quarter, "air": air})
     return {"status": "queued", "task_id": t.id, "hour": hour, "quarter": quarter}
+
+
+@app.get("/api/radio/settings", tags=["radio"])
+async def radio_settings():
+    """What the desk can change while the station runs."""
+    _radio_on()
+    from ..radio import director, housekeeping
+
+    return {"produce": director.produce_mode(), "modes": list(director.MODES),
+            "edition_hours": housekeeping.edition_hours(), "producing": director.should_produce()}
+
+
+@app.post("/api/radio/settings", tags=["radio"])
+async def radio_settings_set(request: dict = Body(default={})):
+    """{"produce": "off"|"listeners"|"always", "edition_hours": [8, 13]}.
+    Only the keys present are changed."""
+    _radio_on()
+    from ..radio import director, housekeeping
+
+    if "produce" in request:
+        try:
+            director.set_produce_mode(str(request["produce"]))
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+    if "edition_hours" in request:
+        housekeeping.set_edition_hours(request["edition_hours"] or [])
+    return await radio_settings()
+
+
+@app.get("/api/radio/cast", tags=["radio"])
+async def radio_cast():
+    """Who is on the station, which shows they are on, and what the
+    station can do to sound."""
+    _radio_on()
+    from ..radio import cast, fx
+    from ..radio.format import SHOWS
+
+    on = {}
+    for s in SHOWS:
+        for h in (s.anchor, s.cohost, *s.cast):
+            on.setdefault(h, []).append(s.name)
+    return {"cast": [{**c, "shows": on.get(c["key"], [])} for c in cast.listing()],
+            "callers": len(cast.CALLER_VOICES), **fx.catalogue()}
+
+
+@app.get("/api/radio/fx/{key}.wav", tags=["radio"])
+async def radio_fx_file(key: str):
+    _radio_on()
+    from fastapi.responses import FileResponse
+    from ..radio import fx
+
+    p = fx.path(key)
+    if not p:
+        raise HTTPException(status_code=404, detail="no such effect")
+    return FileResponse(p, media_type="audio/wav")
+
+
+@app.get("/api/radio/audition.mp3", tags=["radio"])
+async def radio_audition(speaker: str, mood: str = "default", treatment: str = ""):
+    """One character saying their own line, in a mood, through a voice
+    treatment: for hearing what the station has to work with. The spoken
+    line comes from the voice cache, so a second listen costs nothing."""
+    _radio_on()
+    import subprocess
+    import tempfile
+    from fastapi.responses import Response
+    from ..radio import cast, fx
+    from ..radio.voice import speak
+
+    c = cast.character(speaker)
+    if not c:
+        raise HTTPException(status_code=404, detail="no such character")
+    role = treatment if treatment in fx.TREATMENTS else cast.role_of(speaker)
+    wav = speak(f"{c.name}. {c.line}" if c.role != "announcer" else "This is H.N.F.M.", speaker,
+                cast.mood_or_default(speaker, mood))
+    if not wav:
+        raise HTTPException(status_code=503, detail="the voice is away")
+    with tempfile.NamedTemporaryFile(suffix=".wav") as f:
+        f.write(wav)
+        f.flush()
+        res = subprocess.run(
+            ["ffmpeg", "-nostdin", "-v", "error", "-i", f.name, "-af",
+             f"aresample=44100,aformat=channel_layouts=mono,{fx.treatment(role)},loudnorm=I=-16:TP=-1.5:LRA=11",
+             "-f", "mp3", "-b:a", "128k", "-"], capture_output=True)
+    if res.returncode != 0 or not res.stdout:
+        raise HTTPException(status_code=500, detail="could not mix the audition")
+    return Response(content=res.stdout, media_type="audio/mpeg")
+
+
+@app.get("/api/radio/art", tags=["radio"])
+async def radio_art_list():
+    _radio_on()
+    from ..radio import art
+
+    return {"art": [{"key": k, "drawn": bool(art.path(k)), "prompt": art.prompt(k)} for k in art.keys()]}
+
+
+@app.get("/api/radio/art/{key}.jpg", tags=["radio"])
+async def radio_art_file(key: str):
+    _radio_on()
+    from fastapi.responses import FileResponse
+    from ..radio import art
+
+    p = art.path(key) or art.path("station")
+    if not p:
+        raise HTTPException(status_code=404, detail="not drawn yet")
+    return FileResponse(p, media_type="image/jpeg", headers={"Cache-Control": "max-age=300"})
+
+
+@app.post("/api/radio/art", tags=["radio"])
+async def radio_art_draw(request: dict = Body(default={})):
+    """Draw the covers that are missing, or redraw one: {"key": "night_shift"}."""
+    _radio_on()
+    from ..radio import art
+    from .tasks import radio_draw_art
+
+    key = request.get("key")
+    if key and key not in art.keys():
+        raise HTTPException(status_code=400, detail=f"key is one of {', '.join(art.keys())}")
+    t = radio_draw_art.apply_async(kwargs={"key": key})
+    return {"status": "queued", "task_id": t.id}
 
 
 @app.post("/api/radio/bank/fill", tags=["radio"])

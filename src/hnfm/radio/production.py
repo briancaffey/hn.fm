@@ -81,7 +81,7 @@ def _cold_open(item: dict, items: List[dict], sh, out_dir: str, used: List[str])
     if not rec or not rec.get("path"):
         return False
     item.update(status="ready", path=rec["path"], seconds=rec.get("seconds"), text=lines, qa=rec["qa"],
-                title=f"Coming up on {sh.name}", host=sh.anchor)
+                cues=rec.get("cues"), title=f"Coming up on {sh.name}", host=sh.anchor)
     return True
 
 
@@ -247,6 +247,7 @@ def produce(sheet: dict, save=None, at=None) -> dict:
                     continue
                 item.update(
                     status="ready", path=rec["path"], seconds=rec.get("seconds"), text=piece.lines,
+                    cues=rec.get("cues"),
                     title=item.get("title") or f"{seg.name}: {piece.lines[0]['text'][:70]}",
                     host=piece.lines[0]["speaker"], review=piece.review, qa=rec["qa"], plan=piece.plan,
                     attempts=piece.attempts, lint=piece.lint, prompt_version=piece.prompt_version,

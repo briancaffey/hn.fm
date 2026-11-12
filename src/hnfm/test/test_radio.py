@@ -956,3 +956,117 @@ class TestNewSegments:
         assert said["lines"][1]["text"] == "Eleven tabs run every bus in town."
         assert cold["status"] == "ready" and said["seg"] == "cold_open"
         assert production._cold_open({"n": 0, "segment": "cold_open"}, items[:2], sh, "/tmp", []) is False
+
+
+class TestEditions:
+    """Issue #43: an edition stands on its own."""
+
+    def _edition(self, tmp_path, monkeypatch):
+        import json
+
+        from ..radio import archive
+
+        monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path))
+        day = tmp_path / "radio" / "archive" / "2026-11-12"
+        day.mkdir(parents=True)
+        meta = {"id": "0800-cold_start-abc", "show": "cold_start", "show_name": "Cold Start", "title": "Thursday",
+                "date": "2026-11-12", "seconds": 60.0, "rundown": [
+                    {"at": 0.0, "seconds": 8.0, "segment": "sweeper", "title": "Cold Start. On H.N.F.M."},
+                    {"at": 8.0, "seconds": 30.0, "segment": "headline", "title": "Eleven tabs",
+                     "text": [{"speaker": "sofia", "mood": "default", "text": "Eleven tabs run the buses."},
+                              {"speaker": "sofia", "mood": "default", "text": "One person understands tab nine."}],
+                     "cues": [{"n": 0, "at": 1.4, "seconds": 3.0}, {"n": 1, "at": 4.7, "seconds": 3.5}]},
+                    {"at": 38.0, "seconds": 22.0, "segment": "track", "title": "slow jazz"}]}
+        (day / "0800-cold_start-abc.json").write_text(json.dumps(meta))
+        (day / "0800-cold_start-abc.mp3").write_bytes(b"x" * 2000)
+        return archive
+
+    def test_chapters_are_the_spoken_items_at_the_second_they_start(self, tmp_path, monkeypatch):
+        archive = self._edition(tmp_path, monkeypatch)
+        assert archive.chapters("0800-cold_start-abc") == {
+            "version": "1.2.0", "chapters": [{"startTime": 8, "title": "Eleven tabs"}]}
+        assert archive.chapters("nope") is None
+
+    def test_the_transcript_names_who_spoke_and_when(self, tmp_path, monkeypatch):
+        archive = self._edition(tmp_path, monkeypatch)
+        t = archive.transcript("0800-cold_start-abc")
+        assert "[0:08] Eleven tabs" in t and "SOFIA: Eleven tabs run the buses." in t and "slow jazz" not in t
+
+    def test_an_edition_can_be_featured_renamed_and_removed(self, tmp_path, monkeypatch):
+        archive = self._edition(tmp_path, monkeypatch)
+        e = archive.update("0800-cold_start-abc", featured=True, title="The spreadsheet one")
+        assert e["featured"] is True and e["title"] == "The spreadsheet one" and "rundown" not in e
+        assert archive.editions()[0]["featured"] is True
+        assert archive.remove("0800-cold_start-abc") is True
+        assert archive.editions() == [] and archive.remove("0800-cold_start-abc") is False
+
+    def test_the_feed_carries_art_and_chapters(self, tmp_path, monkeypatch):
+        archive = self._edition(tmp_path, monkeypatch)
+        xml = archive.feed("https://hnfm.lan")
+        assert "/api/radio/art/cold_start.jpg" in xml and "/0800-cold_start-abc/chapters.json" in xml
+
+    def test_captions_follow_the_recorded_timing(self, tmp_path, monkeypatch):
+        from ..radio import video
+
+        archive = self._edition(tmp_path, monkeypatch)
+        ass = video.subtitles(archive.edition("0800-cold_start-abc"))
+        # Line one starts 1.4 s into an item that starts at 8 s, and holds until line two.
+        assert "Dialogue: 0,0:00:09.40,0:00:12.70,Words,,0,0,0,,{\\c&H006AFF&\\fs20\\b1}SOFIA{\\r}\\NEleven tabs" in ass
+        assert "Dialogue: 0,0:00:38.00,0:01:00.00,Chapter" in ass and "♪  slow jazz" in ass
+
+    def test_an_edition_made_before_timing_was_recorded_still_gets_captions(self, tmp_path, monkeypatch):
+        from ..radio import video
+
+        archive = self._edition(tmp_path, monkeypatch)
+        e = archive.edition("0800-cold_start-abc")
+        e["rundown"][1].pop("cues")
+        assert video.subtitles(e).count(",Words,") == 2
+
+    def test_the_booth_knows_when_each_line_starts(self, tmp_path):
+        import wave
+
+        from ..radio import booth
+
+        def wav(name, seconds):
+            p = str(tmp_path / name)
+            with wave.open(p, "wb") as w:
+                w.setnchannels(1); w.setsampwidth(2); w.setframerate(8000)  # noqa: E702
+                w.writeframes(b"\0\0" * int(8000 * seconds))
+            return p
+
+        clips = [(wav("fx.wav", 1.0), "fx", 140), (wav("a.wav", 2.0), "studio", 300),
+                 (wav("b.wav", 1.32), "fineprint", 0)]
+        assert booth.cues(clips, {1: 0, 2: 1}, lead=1.4) == [
+            {"n": 0, "at": 2.54, "seconds": 2.0}, {"n": 1, "at": 4.84, "seconds": 1.0}]
+
+
+class TestDeskSettings:
+    """Issue #44: production is switched at the desk, not by a deploy."""
+
+    def test_the_desk_overrides_the_environment(self, monkeypatch):
+        from ..db import repo
+        from ..radio import director, housekeeping
+
+        monkeypatch.setenv("RADIO_PRODUCE", "listeners")
+        monkeypatch.setenv("RADIO_EDITION_HOURS", "8,13,19")
+        store = {}
+        monkeypatch.setattr(repo, "get_setting", lambda k, d=None: store.get(k, d))
+        monkeypatch.setattr(repo, "set_setting", lambda k, v: store.__setitem__(k, v))
+        assert director.produce_mode() == "listeners" and housekeeping.edition_hours() == [8, 13, 19]
+        director.set_produce_mode("off")
+        assert director.produce_mode() == "off" and director.should_produce() is False
+        assert housekeeping.set_edition_hours([]) == []          # none is a choice, not "use the default"
+        assert housekeeping.set_edition_hours(["7", 25, "x", 7, 18]) == [7, 18]
+        with pytest.raises(ValueError):
+            director.set_produce_mode("sometimes")
+
+    def test_a_database_that_is_away_falls_back_to_the_environment(self, monkeypatch):
+        from ..db import repo
+        from ..radio import director
+
+        def away(*a, **k):
+            raise RuntimeError("no database")
+
+        monkeypatch.setattr(repo, "get_setting", away)
+        monkeypatch.setenv("RADIO_PRODUCE", "always")
+        assert director.produce_mode() == "always"

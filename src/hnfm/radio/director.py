@@ -50,12 +50,34 @@ PLAN_WINDOW = timedelta(minutes=15)
 # ---------------------------------------------------------------------------
 
 
+MODES = ("listeners", "always", "off")
+SETTING_PRODUCE = "radio.produce"
+
+
 def produce_mode() -> str:
-    """listeners (default): produce while someone is tuned in, and for the
-    scheduled editions. always: produce around the clock. off: only when
-    asked by hand."""
+    """listeners: produce while someone is tuned in, and for the scheduled
+    editions. always: produce around the clock. off: only when asked by
+    hand. Set at the desk (a setting); the environment gives the default."""
+    try:
+        from ..db import repo
+
+        chosen = repo.get_setting(SETTING_PRODUCE)
+        if chosen in MODES:
+            return chosen
+    except Exception:
+        pass
     mode = os.getenv("RADIO_PRODUCE", "listeners").strip().lower()
-    return mode if mode in ("listeners", "always", "off") else "listeners"
+    return mode if mode in MODES else "listeners"
+
+
+def set_produce_mode(mode: str) -> str:
+    from ..db import repo
+
+    if mode not in MODES:
+        raise ValueError(f"mode is one of {', '.join(MODES)}")
+    repo.set_setting(SETTING_PRODUCE, mode)
+    log("director", f"production set to {mode} at the desk")
+    return mode
 
 
 _LISTENERS = {"at": 0.0, "n": 0}

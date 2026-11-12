@@ -134,6 +134,9 @@ celery_app.conf.task_routes = {
     # own, served by the digest worker: both are long, self-contained jobs,
     # and one at a time is as fast as the models go.
     "hnfm.web.tasks.radio_plan_block": {"queue": QUEUE_RADIO},
+    "hnfm.web.tasks.radio_make_episode": {"queue": QUEUE_RADIO},
+    "hnfm.web.tasks.radio_draw_art": {"queue": QUEUE_RADIO},
+    "hnfm.web.tasks.radio_edition_video": {"queue": QUEUE_RADIO},
     "hnfm.web.tasks.radio_fill_bank": {"queue": QUEUE_RENDER},
     "hnfm.web.tasks.radio_monitor": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.score_backlog": {"queue": QUEUE_TRIAGE},
