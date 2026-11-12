@@ -3146,7 +3146,7 @@ def radio_plan_block(reason: str = "scheduled", minutes: int = None, hour: int =
         if not sheet:
             return {"status": "nothing new"}
         sid = sheet["sheet_id"]
-        stats = production.produce(sheet, save=lambda items: repo.radio_update_sheet(sid, items=items))
+        stats = production.produce(sheet, save=lambda items: repo.radio_update_sheet(sid, items=items), at=at)
         repo.radio_update_sheet(
             sid, items=sheet["items"],
             tokens_in=(sheet.get("tokens_in") or 0) + stats.get("tokens_in", 0),

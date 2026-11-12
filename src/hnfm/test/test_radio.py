@@ -331,6 +331,12 @@ class TestCopy:
 
         assert speakable("arm64 and Qwen3") == "arm sixty-four and Qwen three"
 
+    def test_network_notation(self):
+        from ..radio.copy import speakable
+
+        assert speakable("a /48 IPv6 subnet") == "a slash forty-eight I.P. version six subnet"
+        assert speakable("see docs/3 and 1/2") == "see docs slash three and one slash two"
+
     def test_ordinals(self):
         from ..radio.copy import speakable
 

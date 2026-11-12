@@ -148,6 +148,9 @@ def speakable(text: str) -> str:
     t = re.sub(r"\s*[—–]\s*|\s+-\s+", ", ", t)
     t = t.translate(str.maketrans({"‘": "'", "’": "'", "“": '"', "”": '"', "…": "."}))
     t = _HNFM.sub("H.N.F.M.", t)
+    # "/48" is "slash forty-eight" and "IPv6" is "I.P. version six".
+    t = re.sub(r"(?<![\w/])/(?=\d)", "slash ", t)
+    t = re.sub(r"\bIPv(\d)\b", r"I.P. version \1", t)
     # "10th-century" is "tenth-century", not "ten th".
     t = _ORDINAL.sub(lambda m: ordinal_words(int(m.group(1))), t)
     for pattern, repl in _SYMBOLS:

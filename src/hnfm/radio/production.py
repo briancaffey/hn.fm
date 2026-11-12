@@ -98,9 +98,11 @@ def _song(item: dict, sh, out_dir: str, usage: dict) -> bool:
     return True
 
 
-def produce(sheet: dict, save=None) -> dict:
+def produce(sheet: dict, save=None, at=None) -> dict:
     """Make every item of a planned sheet. `save(items)` is called after
-    each item so the control room can watch the block fill in."""
+    each item so the control room can watch the block fill in. `at` is the
+    hour the block is for when that is not now: an edition of the morning
+    show made at night says it is morning."""
     items = sheet["items"]
     sheet_id = sheet["sheet_id"]
     out_dir = block_dir(sheet_id)
@@ -151,7 +153,7 @@ def produce(sheet: dict, save=None) -> dict:
                     seg, story_id=item.get("story"),
                     seed=hash((sheet_id, item["n"])) % 9973, show=sh,
                     next_show=show_by_key(item["next_show"]) if item.get("next_show") else None,
-                    stories=story_rows, coming_up=story_titles,
+                    stories=story_rows, coming_up=story_titles, now=at,
                 )
                 if mat is None:
                     _skip(item, "no material")
