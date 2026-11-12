@@ -71,7 +71,7 @@ class TestFormat:
 
     def test_only_the_first_quarter_has_the_show_open(self):
         for s in fmt.SHOWS:
-            assert s.clock[0][0] == "theme"
+            assert s.clock[0][:2] == ("cold_open", "theme")
             assert all("theme" not in q for q in s.clock[1:])
 
     def test_schedule_marks_the_show_on_air(self):
@@ -246,7 +246,7 @@ class TestLint:
             seg = segment(key)
             for ex in exs:
                 c = Copy(lines=[Line(**l) for l in ex["lines"]])
-                speakers = sorted({l.speaker for l in c.lines})
+                speakers = list(dict.fromkeys(l.speaker for l in c.lines))  # in order of speaking
                 notes = [n for n in writers.lint(seg, c, speakers)
                          if not n.startswith(("You reused the example", "Too short", "Too long"))]
                 assert notes == [], f"{key}: {notes}"
@@ -285,9 +285,25 @@ class TestRepair:
         lines = [{"speaker": s, "mood": "default",
                   "text": f"Turn {n} one two three four five six seven eight nine. Turn {n} again two three four five."}
                  for n, s in enumerate(("aria", "leo") * 6)]
-        lines[-1]["text"] = "The post is four days old."
+        lines[-1]["text"] = "The patch is nine days old."
         out = writers.repair(segment("two_hander"), lines)
-        assert out[-1]["text"] == "The post is four days old."
+        assert out[-1]["text"] == "The patch is nine days old."
+
+    def test_a_sentence_lifted_from_the_worked_example_is_cut(self):
+        """Asked to stop borrowing from the example, the model has handed
+        the example back. The borrowed sentence is cut; the rest airs."""
+        lines = [{"speaker": "mia", "mood": "default",
+                  "text": "The phone costs a thousand dollars. The weekend was the easy part."}]
+        out = writers.repair(segment("headline"), lines)
+        assert out[0]["text"] == "The phone costs a thousand dollars."
+
+    def test_a_sentence_that_describes_the_host_is_cut(self):
+        from ..radio.cast import sheets
+
+        lines = [{"speaker": "leo", "mood": "default",
+                  "text": "The build failed twice. Leo has the shortest sentences on the station."}]
+        out = writers.repair(segment("headline"), lines, never=sheets(["leo"]))
+        assert out[0]["text"] == "The build failed twice."
 
 
 class TestSchemas:
@@ -401,7 +417,8 @@ class TestMix:
     def test_callers_go_down_the_phone_and_hosts_do_not(self):
         g = mix.join_graph(["studio", "phone", "studio"], [300, 420, 0])
         parts = g.split(";")
-        assert "highpass" not in parts[0] and "highpass" in parts[1] and "highpass" not in parts[2]
+        assert "acrusher" not in parts[0] and "acrusher" in parts[1] and "acrusher" not in parts[2]
+        assert "lowpass=f=3300" in parts[1] and "lowpass" not in parts[0]
         assert "apad=pad_dur=0.3" in parts[0] and "apad" not in parts[2]
         assert parts[-1].endswith("concat=n=3:v=0:a=1[out]")
 
@@ -754,3 +771,188 @@ class TestSwitch:
         tail = repo.radio_log_tail(limit=10)
         assert [t["component"] for t in tail[-2:]] == ["dj", "director"]
         assert tail[-1]["meta"] == {"kind": "station_id"}
+
+
+class TestSoundDesign:
+    """Issue #40: effects and treatments are code, and the model never
+    chooses them."""
+
+    def test_every_effect_is_a_command_ffmpeg_can_be_given(self):
+        from ..radio import fx
+
+        for e in fx.EFFECTS.values():
+            cmd = fx.effect_command(e, "/tmp/x.wav")
+            assert cmd[:2] == ["ffmpeg", "-nostdin"] and "lavfi" in cmd and cmd[-1] == "/tmp/x.wav"
+            assert 0.1 <= e.seconds <= 3 and e.what
+
+    def test_an_unknown_role_is_treated_as_the_studio(self):
+        from ..radio import fx
+
+        assert fx.treatment("nowhere") == fx.treatment("studio")
+        assert "atempo=1.32" in fx.treatment("fineprint")
+
+    def test_an_effect_clip_is_left_as_it_is(self):
+        g = mix.join_graph(["fx", "big"], [140, 0]).split(";")
+        assert "acompressor" not in g[0] and "aecho" in g[1]
+
+    def test_a_phone_in_rings_once_and_hangs_up_after_the_last_caller(self):
+        from ..radio import booth
+
+        lines = [{"speaker": s, "mood": "default", "text": "x"}
+                 for s in ("sofia", "caller1", "sofia", "caller2", "sofia")]
+        steps = booth.layout(lines, segment("comment_line"))
+        names = [s[1] for s in steps if s[0] == "fx"]
+        assert names == ["ring", "pickup", "hangup"]
+        assert steps.index(("fx", "ring")) < steps.index(("line", 1, "phone"))
+        assert steps.index(("fx", "hangup")) == steps.index(("line", 3, "phone")) + 1
+
+    def test_a_correspondent_arrives_and_leaves_through_static(self):
+        from ..radio import booth
+
+        lines = [{"speaker": s, "mood": "default", "text": "x"} for s in ("sofia", "sam", "sam", "sofia")]
+        steps = booth.layout(lines, segment("correspondent"))
+        assert steps == [("line", 0, "studio"), ("fx", "static"), ("line", 1, "field"), ("line", 2, "field"),
+                         ("fx", "static"), ("line", 3, "studio")]
+
+    def test_the_bulletin_opens_on_the_pips_and_ticks_between_stories(self):
+        from ..radio import booth
+
+        lines = [{"speaker": "mia", "mood": "default", "text": "x"}] * 3
+        steps = booth.layout(lines, segment("bulletin"))
+        assert [s[1] for s in steps if s[0] == "fx"] == ["pips", "tick", "tick"]
+
+    def test_the_chart_rolls_into_number_one_and_ends_on_an_impact(self):
+        from ..radio import booth
+
+        lines = [{"speaker": "ray", "mood": "default", "text": "x"}] * 6
+        fx_names = [s[1] for s in booth.layout(lines, segment("chart")) if s[0] == "fx"]
+        assert fx_names == ["blip"] * 4 + ["roll", "impact"]
+
+    def test_the_last_line_of_an_advert_is_fine_print(self):
+        from ..radio import booth
+
+        lines = [{"speaker": "mia", "mood": "default", "text": "x"}] * 3
+        assert booth.layout(lines, segment("sponsor"))[-1] == ("line", 2, "fineprint")
+
+    def test_the_thread_swears_and_the_station_bleeps(self):
+        from ..radio.copy import bleeped
+
+        assert bleeped("Holy shit. I never drank again.") == "Holy bleep. I never drank again."
+        assert bleeped("A shitty, fucking mess") == "A bleep, bleep mess"
+        assert bleeped("The shiitake and the Dickens novel") == "The shiitake and the Dickens novel"
+
+
+class TestCast:
+    """Issue #41."""
+
+    def test_every_show_is_staffed_from_the_cast(self):
+        from ..radio import cast
+
+        for s in fmt.SHOWS:
+            for h in (s.anchor, s.cohost, *s.cast):
+                assert cast.CAST[h].role == "host"
+
+    def test_no_two_characters_share_a_voice_and_callers_share_none(self):
+        from ..radio import cast
+
+        voices = [c.voice for c in cast.CAST.values() if c.key != "announcer"]
+        assert len(voices) == len(set(voices))
+        assert not set(voices) & set(cast.CALLER_VOICES)
+
+    def test_any_three_callers_in_a_row_are_three_people(self):
+        from ..radio import cast
+
+        people = [v.rsplit(".", 1)[-1] for v in cast.CALLER_VOICES]
+        n = len(people)
+        for i in range(n):
+            assert len({people[i], people[(i + 1) % n], people[(i + 2) % n]}) == 3
+
+    def test_a_mood_the_voice_does_not_have_is_the_plain_voice(self):
+        from ..radio import cast, voice
+
+        assert cast.mood_or_default("jason", "happy") == "happy"
+        assert cast.mood_or_default("mia", "happy") == "default"
+        assert cast.mood_or_default("caller2", "angry") == "default"
+        assert voice.voice_name("mia", "happy").endswith("EN-US.Mia")
+
+    def test_where_a_voice_is_treated_follows_from_who_it_is(self):
+        from ..radio import cast
+
+        assert [cast.role_of(s) for s in ("mia", "caller1", "sam", "announcer")] == \
+            ["studio", "phone", "field", "big"]
+
+    def test_the_writer_is_told_only_about_the_people_in_the_piece(self):
+        from ..radio import cast
+
+        b = cast.briefing(["sofia", "sam"])
+        assert "sofia:" in b and "sam:" in b and "mia:" not in b
+        assert "fearful" in b and 'Called "Sam" on air' in b
+
+    def test_a_correspondent_piece_is_opened_by_the_host(self):
+        seg = segment("correspondent")
+        ok = [("sofia", "A town of forty thousand runs every one of its buses from a spreadsheet."),
+              ("sam", "Eleven tabs, and one person who understands tab nine of them all."),
+              ("sam", "A vendor wanted two million dollars. The town said no and kept it."),
+              ("sam", "That person retires in the spring, which is the whole problem here.")]
+        c = Copy(lines=[Line(speaker=s, text=t) for s, t in ok])
+        notes = [n for n in writers.lint(seg, c, ["sofia", "sam"]) if not n.startswith(("Too", "You reused"))]
+        assert notes == []
+        c.lines = c.lines[1:]
+        assert any(n.startswith("The host opens") for n in writers.lint(seg, c, ["sofia", "sam"]))
+
+    def test_the_station_adds_the_handover_and_the_thanks(self):
+        L = lambda s, t: {"speaker": s, "mood": "default", "text": t}  # noqa: E731
+        lines = [L("sofia", "A town runs its buses from a spreadsheet."), L("sam", "Eleven tabs."),
+                 L("sofia", "Fifty-three incidents were found."), L("sofia", "So what is the risk?"),
+                 L("sam", "The person who knows it retires."), L("sofia", "Thanks, Sam.")]
+        out = writers.dress_correspondent(lines, "sofia", "sam", seed=1)
+        assert out[0]["text"] == "A town runs its buses from a spreadsheet. Sam is on the line."
+        assert [l["speaker"] for l in out] == ["sofia", "sam", "sofia", "sam", "sofia"]
+        assert out[2]["text"] == "So what is the risk?" and out[-1]["text"] == "Sam, thank you."
+        # A piece that is not shaped like a report is left alone.
+        assert writers.dress_correspondent(lines[1:2], "sofia", "sam") == lines[1:2]
+
+
+class TestNewSegments:
+    """Issue #42."""
+
+    def test_the_first_quarter_opens_cold_and_every_clock_names_real_segments(self):
+        from ..radio.segments import SEGMENTS
+
+        for s in fmt.SHOWS:
+            assert s.clock[0][0] == "cold_open"
+            for q in s.clock:
+                assert all(k == "bit" or k in SEGMENTS for k in q)
+
+    def test_the_chart_counts_down_from_five(self, monkeypatch):
+        from ..db import repo
+        from ..radio import material
+
+        rows = [{"item_id": n, "title": f"Story {n}", "points": 900 - n * 100, "comments": n} for n in range(1, 6)]
+        monkeypatch.setattr(repo, "radio_chart", lambda limit=5, hours=24: rows)
+        out = material.chart().splitlines()
+        assert out[1].startswith("- Number 5:") and out[-1].startswith('- Number 1: "Story 1" with 800 points')
+        monkeypatch.setattr(repo, "radio_chart", lambda limit=5, hours=24: rows[:3])
+        assert material.chart() is None
+
+    def test_the_cold_open_is_cut_from_the_block_and_needs_two_pieces(self, monkeypatch):
+        from ..radio import booth, production
+
+        said = {}
+        monkeypatch.setattr(production, "_bed", lambda *a, **k: None)
+        monkeypatch.setattr(booth, "record", lambda lines, seg, out, **k: said.update(lines=lines, seg=seg.key)
+                            or {"path": out, "seconds": 20.0, "qa": {"match": 1.0}})
+        sh = fmt.show("cold_start")
+        cold = {"n": 0, "segment": "cold_open", "kind": "station_id", "show": sh.key}
+        piece = lambda n, who, text, seg="headline": {  # noqa: E731
+            "n": n, "segment": seg, "status": "ready", "story": 100 + n,
+            "text": [{"speaker": who, "mood": "default", "text": text}]}
+        items = [cold, piece(1, "sofia", "Eleven tabs run every bus in town. Nobody planned it."),
+                 piece(2, "mia", "The bulletin line does not count here at all.", "bulletin"),
+                 piece(3, "leo", "A font made of nothing but circles. It is legible, somehow.")]
+        assert production._cold_open(cold, items, sh, "/tmp", []) is True
+        assert [l["speaker"] for l in said["lines"]] == ["mia", "sofia", "leo"]
+        assert said["lines"][0]["text"] == "Coming up on Cold Start."
+        assert said["lines"][1]["text"] == "Eleven tabs run every bus in town."
+        assert cold["status"] == "ready" and said["seg"] == "cold_open"
+        assert production._cold_open({"n": 0, "segment": "cold_open"}, items[:2], sh, "/tmp", []) is False

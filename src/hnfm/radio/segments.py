@@ -25,7 +25,8 @@ class Segment:
     # front_page, trope, jargon, stack, product, show, handoff, none.
     needs: str = "none"
     # Who speaks: anchor, cohost, cast (rotates), duo (anchor and cohost),
-    # callers (anchor plus callers on the phone).
+    # callers (anchor plus callers on the phone), correspondent (anchor
+    # plus a reporter on a line from outside).
     voices: str = "cast"
     words: int = 60
     # mix.py recipe: plain, bed, phone, sting.
@@ -40,13 +41,22 @@ class Segment:
     written: bool = True
     # How the writer should lay the piece out.
     form: str = "One voice, speaking straight to the listener."
+    # Sound design (fx.py), placed by the booth. The model never chooses.
+    intro: Tuple[str, ...] = ()     # effects before the first word
+    between: str = ""               # an effect between every two lines
+    before_last: str = ""           # an effect before the last line
+    outro: Tuple[str, ...] = ()     # effects after the last word
+    last_role: str = ""             # a voice treatment for the last line
 
 
 _S = Segment
 
 SEGMENTS: Dict[str, Segment] = {s.key: s for s in (
     # --- imaging -----------------------------------------------------------
+    _S("cold_open", "station_id", "Cold open", written=False, mix="bed", between="whoosh", outro=("impact",)),
+    _S("sweeper", "station_id", "Sweeper", written=False),
     _S("theme", "station_id", "Show open", needs="show", voices="anchor", words=32, mix="sting",
+       intro=("riser",),
        brief="Open the show. Name the station and the show, give the show's promise in your own "
              "words, and say one thing that is coming up without naming a story you were not given. "
              "Two or three sentences. No 'welcome back', no 'buckle up'."),
@@ -61,6 +71,7 @@ SEGMENTS: Dict[str, Segment] = {s.key: s for s in (
     _S("headline", "brief", "Headline", needs="story", voices="cast", words=70, mix="bed",
        brief="Thirty seconds on one story."),
     _S("bulletin", "feature", "The bulletin", needs="headlines", voices="anchor", words=120, mix="sting",
+       intro=("pips",), between="tick",
        brief="The top-of-the-hour bulletin: a greeting for the time of day, then each story in one sentence, in the order given, then the station name."),
     _S("two_hander", "feature", "Two-hander", needs="story", voices="duo", words=150, mix="bed",
        stories="discussed", fallback="headline",
@@ -76,6 +87,15 @@ SEGMENTS: Dict[str, Segment] = {s.key: s for s in (
             "ONE point from the discussion in their own spoken words, two sentences at most. The "
             "host reacts to each in a sentence and closes.",
        brief="A phone-in on one story. Each caller makes one point, from the material."),
+    _S("correspondent", "feature", "From our correspondent", needs="story", voices="correspondent",
+       words=125, mix="bed", fallback="headline",
+       form="Two voices: the host in the studio and the correspondent on a line. Line one is "
+            "the host: what the story is, in one sentence. Every line after that is the "
+            "correspondent, reporting in three or four turns of one or two sentences: what it "
+            "is, the detail worth knowing, and last the doubt. Do not write a handover, a "
+            "greeting or a thank-you; the station adds those.",
+       brief="A report from the station's correspondent on one story. The correspondent has "
+             "the facts; the host has the questions."),
     _S("show_hn", "brief", "Show HN desk", needs="story", voices="cast", words=80, mix="bed",
        stories="show_hn", fallback="headline",
        brief="Someone built something and showed it. What it is, the clever part, and what people asked."),
@@ -86,7 +106,15 @@ SEGMENTS: Dict[str, Segment] = {s.key: s for s in (
     _S("forecast", "bit", "Front Page Forecast", needs="front_page", voices="cohost", words=95, mix="bed",
        fallback="word",
        brief="The front page read as a weather forecast, with a straight face, from the readings given."),
+    _S("chart", "bit", "The front page five", needs="chart", voices="cohost", words=105, mix="bed",
+       fallback="word", between="blip", before_last="roll", outro=("impact",),
+       form="Six lines, one voice. Line one says this is the top five on Hacker News right "
+            "now. Then one line for each story, from number five down to number one: the "
+            "position, the story in your own plain words, and its points. Number one is the "
+            "last line. Nothing comes after it.",
+       brief="The chart: the five highest-scoring stories, counted down from five to one."),
     _S("sponsor", "bit", "A word from nobody", needs="product", voices="cast", words=55, mix="bed",
+       last_role="fineprint",
        brief="A mock radio advert for something nobody sells, ending by admitting the station has no sponsors."),
     _S("joke", "bit", "One from Leo", needs="trope", voices="leo", words=40,
        brief="One dry observation about the tech trope in the material. Set-up, then the turn. "

@@ -1,6 +1,6 @@
 """A line, spoken by one of the station's voices.
 
-Six hosts and a pool of callers, all NVIDIA Magpie voices. Hosts come in
+The cast (cast.py) and a pool of callers, all NVIDIA Magpie voices. Hosts come in
 moods the server lists as sub-voices ("…Mia.Calm"); a mood the server
 does not have falls back to the plain voice. Every spoken line is kept on
 disk under a name made from the voice and the words, so nothing is
@@ -15,28 +15,17 @@ from .copy import speakable
 
 logger = logging.getLogger(__name__)
 
-# name -> (engine, base voice, how it sounds)
-HOSTS = {
-    "mia":   ("magpie", "Magpie-Multilingual.EN-US.Mia",   "warm, quick, easily delighted"),
-    "jason": ("magpie", "Magpie-Multilingual.EN-US.Jason", "low, unhurried, understated"),
-    "sofia": ("magpie", "Magpie-Multilingual.EN-US.Sofia", "exact and brisk, a newsreader"),
-    "leo":   ("magpie", "Magpie-Multilingual.EN-US.Leo",   "deadpan; gets the dry line"),
-    "aria":  ("magpie", "Magpie-Multilingual.EN-US.Aria",  "clear and even; explains how things work"),
-    "ray":   ("magpie", "Magpie-Multilingual.EN-US.Ray",   "deep and slow; in no hurry"),
-}
-# Callers are the voices no host uses, so a caller never sounds like the
-# person they are talking to. Which caller gets which voice turns with the
-# piece, so line one is not the same person all day.
-CALLER_VOICES = (
-    "Magpie-Multilingual.EN-US.Diego", "Magpie-Multilingual.EN-US.Isabela",
-    "Magpie-Multilingual.EN-US.Pascal", "Magpie-Multilingual.EN-US.Louise",
-)
+from .cast import ALL_MOODS, CALLER_VOICES, CAST, is_caller  # noqa: F401  (re-exported)
+
+# name -> (engine, base voice, how it sounds). The people are in cast.py;
+# this is the part of them the speech model needs.
+HOSTS = {k: ("magpie", c.voice, c.line) for k, c in CAST.items() if c.role == "host"}
 DEFAULT_HOST = "mia"
 # "default" is the voice as the server gives it: the most natural one, and
 # the station's house sound. The old house mood was Calm, which made every
 # host sound sedated; calm is now a choice the writer makes for one line.
 DEFAULT_MOOD = os.getenv("RADIO_DEFAULT_MOOD", "default")
-MOODS = ("default", "calm", "neutral", "sad", "angry")
+MOODS = ALL_MOODS
 
 _VOICES: Optional[List[str]] = None
 
@@ -59,17 +48,14 @@ def available_voices() -> List[str]:
     return _VOICES
 
 
-def is_caller(speaker: str) -> bool:
-    return (speaker or "").startswith("caller")
-
-
 def voice_name(host: str, mood: Optional[str] = None, seed: int = 0) -> str:
     if is_caller(host):
         n = int("".join(c for c in host if c.isdigit()) or 1)
         return CALLER_VOICES[(n - 1 + seed) % len(CALLER_VOICES)]
-    engine, base, _ = HOSTS.get(host) or HOSTS[DEFAULT_HOST]
+    who = CAST.get(host) or CAST[DEFAULT_HOST]
+    base = who.voice
     mood = (mood or DEFAULT_MOOD or "").strip().lower()
-    if mood and mood != "default":
+    if mood and mood != "default" and mood in who.moods:
         candidate = f"{base}.{mood.capitalize()}"
         voices = available_voices()
         if not voices or candidate in voices:

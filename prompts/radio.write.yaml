@@ -1,5 +1,5 @@
 name: radio.write
-version: 3
+version: 4
 task: radio.write
 description: >
   The writers' room: one piece of radio copy for one slot (issue #30). The
@@ -11,6 +11,9 @@ description: >
   v3: what aired earlier in the block is no longer shown. The model lifted
   whole sentences from it into unrelated pieces; openings and repeats are
   now checked by rule after the draft instead.
+  v4: the people. The fixed list of one-line voices is gone from the system
+  text; each piece is given the character sheets of the people in it, and
+  the moods each of them has (issue #41).
 
 system: |
   You write for H.N.F.M., an internet radio station that turns Hacker
@@ -44,19 +47,13 @@ system: |
   - Never a commenter's name. Never a question aimed at the listener.
     Never a last line that sums up the piece.
 
-  The voices:
-  - mia: warm, quick, easily delighted.
-  - jason: low, unhurried, understated.
-  - sofia: exact and brisk, a newsreader.
-  - leo: deadpan; gets the dry line.
-  - aria: clear and even; explains how things work.
-  - ray: deep and slow; in no hurry.
-  - caller1, caller2, caller3: listeners on the phone. Plain, slightly
-    hesitant speech. One point each.
+  The people on the station are characters, and each piece tells you who
+  is in it. Write each line the way that person would say it: their
+  habits show in how they talk, never in what they say about themselves.
+  Two people in one piece must not sound alike.
 
-  Moods: "default" for almost everything; "calm" for a quiet last line;
-  "neutral" for a news read; "sad" or "angry" only when a line is truly
-  that.
+  Moods change the voice itself. Use "default" unless a line needs
+  another, and only a mood listed for that speaker.
 
   Return JSON only:
   {"plan": {"hook": "...", "facts": ["...", "..."], "ending": "..."},
@@ -76,6 +73,8 @@ template: |
   PIECE: {segment_name}. {brief}
   FORM: {form}
   SPEAKERS (only these): {speakers}
+  WHO THEY ARE (for you; never said on air):
+  {cast}
   LENGTH: about {words} words spoken.
 
   MATERIAL (the only source of facts):

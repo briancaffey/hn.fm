@@ -185,3 +185,12 @@ def speakable(text: str) -> str:
         t = t[1:-1]
     t = re.sub(r"\s+", " ", t).strip()
     return t
+
+
+_RUDE = re.compile(r"\b(?:mother)?(?:fuck|shit|bullshit|horseshit|asshole|bitch|dick|piss)(?:s|es|ed|ing|er|ers|y|ty|head)?\b", re.I)
+
+
+def bleeped(text: str) -> str:
+    """Callers quote the thread, and the thread swears. The station says
+    "bleep" instead, out loud, which is what a station does."""
+    return _RUDE.sub("bleep", text or "")

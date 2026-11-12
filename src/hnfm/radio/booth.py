@@ -2,7 +2,8 @@
 
 Each line is spoken in its voice, checked by ear (the round trip in
 qa.py) and spoken again if it came out wrong. The lines are joined with a
-beat between turns, callers down a phone line, and the result is mixed by
+beat between turns, each voice treated for where it speaks from and the
+segment's effects placed among them (fx.py), and the result is mixed by
 the segment's recipe: plain, over a ducking bed, or after a sting.
 
     record(piece, seg, ...) -> {path, seconds, qa} or None
@@ -15,12 +16,20 @@ from typing import List, Optional
 
 from . import mix, qa
 from .segments import Segment
+from . import fx
+from .cast import role_of
 from .voice import is_caller, speak
 
 logger = logging.getLogger(__name__)
 
 # The beat after a line, by who spoke and who is next.
 GAP_SAME, GAP_TURN, GAP_PHONE = 220, 300, 420
+# The beat after an effect.
+GAP_FX = 140
+# What is heard when the piece goes to someone who is not in the studio,
+# and when it comes back.
+ARRIVE = {"phone": ("ring", "pickup"), "field": ("static",)}
+LEAVE = {"phone": ("hangup",), "field": ("static",)}
 
 
 def _gap(line: dict, nxt: Optional[dict]) -> int:
@@ -48,6 +57,45 @@ def _take(line: dict, seed: int) -> tuple:
     return wav, score
 
 
+def _fx(names) -> list:
+    """Effect clips for the join; one that cannot be made is left out."""
+    out = []
+    for name in names:
+        p = fx.path(name)
+        if p:
+            out.append((p, "fx", GAP_FX))
+    return out
+
+
+def layout(lines: List[dict], seg: Segment) -> list:
+    """Where the effects go, as a list of ("line", n, role) and ("fx", name)
+    in playing order. Pure, so the sound of a segment can be tested
+    without making any.
+
+    The spec gives the intro, the effect between lines, the one before the
+    last line, the outro and a treatment for the last line. The rest is
+    where people are: the first time the piece goes to the phone it rings
+    and is picked up, a correspondent arrives through static, and both
+    leave the way they came once nobody on that line speaks again."""
+    out = [("fx", name) for name in seg.intro]
+    roles = [role_of(l["speaker"]) for l in lines]
+    arrived = set()
+    last = len(lines) - 1
+    for n, line in enumerate(lines):
+        role = roles[n]
+        if n and seg.between and not (n == last and seg.before_last):
+            out.append(("fx", seg.between))
+        if n == last and n and seg.before_last:
+            out.append(("fx", seg.before_last))
+        if role in ARRIVE and role not in arrived:
+            arrived.add(role)
+            out += [("fx", name) for name in ARRIVE[role]]
+        out.append(("line", n, seg.last_role if (n == last and seg.last_role and n) else role))
+        if role in LEAVE and role not in roles[n + 1:]:
+            out += [("fx", name) for name in LEAVE[role]]
+    return out + [("fx", name) for name in seg.outro]
+
+
 def record(lines: List[dict], seg: Segment, out_mp3: str, *, bed: Optional[str] = None,
            sting: Optional[str] = None, seed: int = 0) -> Optional[dict]:
     """Speak, check and mix a piece. None if it cannot air: a voice was
@@ -61,7 +109,12 @@ def record(lines: List[dict], seg: Segment, out_mp3: str, *, bed: Optional[str] 
     work = tempfile.mkdtemp(prefix="booth_", dir=base)
     clips, scores, weights, heard_bad = [], [], [], []
     try:
-        for n, line in enumerate(lines):
+        for step in layout(lines, seg):
+            if step[0] == "fx":
+                clips += _fx([step[1]])
+                continue
+            _, n, role = step
+            line = lines[n]
             wav, score = _take(line, seed)
             if not wav:
                 logger.warning(f"radio booth: {line['speaker']} could not say a line of {seg.key}")
@@ -70,7 +123,7 @@ def record(lines: List[dict], seg: Segment, out_mp3: str, *, bed: Optional[str] 
             with open(path, "wb") as f:
                 f.write(wav)
             nxt = lines[n + 1] if n + 1 < len(lines) else None
-            clips.append((path, "phone" if is_caller(line["speaker"]) else "studio", _gap(line, nxt)))
+            clips.append((path, role, _gap(line, nxt)))
             if score is not None:
                 scores.append(score)
                 weights.append(max(1, len(line["text"].split())))
@@ -106,9 +159,38 @@ def record(lines: List[dict], seg: Segment, out_mp3: str, *, bed: Optional[str] 
                 "qa": {"match": match, "bad_lines": heard_bad, "lufs": (m or {}).get("lufs"),
                        "peak": (m or {}).get("peak"), "aired": True}}
     finally:
-        for f in os.listdir(work):
+        for f in os.listdir(work):  # the effects live elsewhere and are kept
             try:
                 os.unlink(os.path.join(work, f))
+            except OSError:
+                pass
+        try:
+            os.rmdir(work)
+        except OSError:
+            pass
+
+
+def imaging(text: str, out_mp3: str, speaker: str = "announcer") -> Optional[str]:
+    """A sweeper: a whoosh, the announcer's big voice, an impact. Made for
+    the shelf, not for one block."""
+    from . import radio_root
+
+    wav = speak(text, speaker)
+    if not wav:
+        return None
+    base = os.path.join(radio_root(), "tmp")
+    os.makedirs(base, exist_ok=True)
+    work = tempfile.mkdtemp(prefix="imaging_", dir=base)
+    voice, joined = os.path.join(work, "v.wav"), os.path.join(work, "j.wav")
+    try:
+        with open(voice, "wb") as f:
+            f.write(wav)
+        clips = _fx(["whoosh"]) + [(voice, role_of(speaker), 60)] + _fx(["impact"])
+        return out_mp3 if mix.join(clips, joined) and mix.plain(joined, out_mp3) else None
+    finally:
+        for f in (voice, joined):
+            try:
+                os.unlink(f)
             except OSError:
                 pass
         try:

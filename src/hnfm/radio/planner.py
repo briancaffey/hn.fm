@@ -92,6 +92,10 @@ def _speakers(seg, sh: Show, n: int) -> List[str]:
         return [sh.anchor, sh.cohost]
     if v == "callers":
         return [sh.anchor, "caller1", "caller2", "caller3"]
+    if v == "correspondent":
+        from .cast import CORRESPONDENTS
+
+        return [sh.anchor, CORRESPONDENTS[n % len(CORRESPONDENTS)]]
     if v == "cast":
         return [everyone[n % len(everyone)]]
     return [v]  # a named host: Leo's joke is Leo's wherever it airs

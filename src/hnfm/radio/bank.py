@@ -1,7 +1,8 @@
 """The bank: imaging and music the station keeps ready (issue #31).
 
 Stock, per show: beds in the show's palette, a couple of sung jingles in
-its style, and spoken station IDs from its anchor. Kept ahead of need so
+its style, spoken station IDs from its hosts, and sweepers from the
+announcer. Kept ahead of need so
 the air never waits on the music model. The current show is stocked
 first, then the one after it; a show at four in the morning is not
 stocked at noon.
@@ -26,11 +27,12 @@ logger = logging.getLogger(__name__)
 PER_SHOW = {"music": int(os.getenv("RADIO_BEDS_PER_SHOW", "4")),
             "track": int(os.getenv("RADIO_TRACKS_PER_SHOW", "6")),
             "jingle": int(os.getenv("RADIO_JINGLES_PER_SHOW", "2")),
-            "station_id": 3}
+            "station_id": 3, "sweeper": 3}
 BED_SECONDS = int(os.getenv("RADIO_BED_SECONDS", "40"))
 # A track is a piece of music in its own right, between the talk.
 TRACK_SECONDS = int(os.getenv("RADIO_TRACK_SECONDS", "120"))
 JINGLE_SECONDS = 10
+KINDS = ("music", "track", "station_id", "sweeper", "jingle")
 
 STATION_IDS = [
     "You're listening to H.N.F.M.",
@@ -39,6 +41,15 @@ STATION_IDS = [
     "You're on H.N.F.M., where the comment section gets a voice.",
     "H.N.F.M. Nobody is in the building.",
     "Stay where you are. This is H.N.F.M.",
+]
+
+# What the announcer says between two effects.
+SWEEPERS = [
+    "{name}. On H.N.F.M.",
+    "H.N.F.M. {tagline}",
+    "No ads. No building. No people. H.N.F.M.",
+    "This is {name}.",
+    "Hacker News. Out loud. H.N.F.M.",
 ]
 
 # What a jingle sings. Short lines the music model can land in ten seconds.
@@ -64,12 +75,12 @@ def _order() -> List[Show]:
 def wanted() -> List[tuple]:
     """(show, kind) for each missing item, most urgent first."""
     out = []
-    for kind in ("music", "track", "station_id", "jingle"):
+    for kind in KINDS:
         for sh in _order()[:2]:
             have = bank_counts(sh.key).get(kind, 0)
             out += [(sh, kind)] * max(0, PER_SHOW[kind] - have)
     for sh in _order()[2:]:
-        for kind in ("music", "track", "station_id", "jingle"):
+        for kind in KINDS:
             have = bank_counts(sh.key).get(kind, 0)
             out += [(sh, kind)] * max(0, PER_SHOW[kind] - have)
     return out
@@ -94,6 +105,15 @@ def _make(sh: Show, kind: str) -> Optional[dict]:
         path = make_song(style, lyrics, JINGLE_SECONDS, _new_path("jingle"), fade=0.8)
         return path and {"kind": "jingle", "path": path, "style": style, "text": lyrics.replace("[chorus]\n", ""),
                          "seconds": JINGLE_SECONDS}
+    if kind == "sweeper":
+        from .booth import imaging
+
+        line = SWEEPERS[(n + SHOWS.index(sh)) % len(SWEEPERS)].format(name=sh.name, tagline=sh.tagline)
+        path = imaging(line, _new_path("sweeper"))
+        from . import mix
+
+        return path and {"kind": "sweeper", "path": path, "text": line, "host": "announcer",
+                         "seconds": (mix.measure(path) or {}).get("seconds")}
     if kind == "station_id":
         line = STATION_IDS[(n + SHOWS.index(sh)) % len(STATION_IDS)]
         host = (sh.anchor, sh.cohost, *sh.cast)[n % (2 + len(sh.cast))]
@@ -106,7 +126,7 @@ def stock(sh: Show, max_new: int = 20) -> Dict[str, int]:
     """Stock one show's shelf, whatever the time of day: for an edition
     made ahead of its show."""
     made: Dict[str, int] = {}
-    for kind in ("music", "track", "station_id", "jingle"):
+    for kind in KINDS:
         while sum(made.values()) < max_new and bank_counts(sh.key).get(kind, 0) < PER_SHOW[kind]:
             item = _make(sh, kind)
             if not item:

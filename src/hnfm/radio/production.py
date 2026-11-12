@@ -44,15 +44,45 @@ def _stock(kind: str, show_key: str, used: List[str]) -> Optional[dict]:
     return b
 
 
-def _ident(show_key: str, used: List[str]) -> Optional[dict]:
-    """A sung jingle for the show if the shelf has one, else a spoken ID."""
-    for kind in ("jingle", "station_id"):
+def _ident(show_key: str, used: List[str], first: str = "jingle") -> Optional[dict]:
+    """Station imaging from the shelf: the kind asked for if there is one,
+    else whichever of the others there is."""
+    for kind in (first, *(k for k in ("jingle", "sweeper", "station_id") if k != first)):
         b = pick_from_bank(kind, avoid_ids=used, show=show_key, strict=True) \
             or pick_from_bank(kind, avoid_ids=used, show=show_key)
         if b:
             used.insert(0, b["id"])
             return b
     return None
+
+
+def _cold_open(item: dict, items: List[dict], sh, out_dir: str, used: List[str]) -> bool:
+    """The teaser at the top of the block, cut from the block itself: the
+    anchor says what is coming, then the opening sentence of up to three
+    of its pieces, each in the voice that will say it again later. No
+    model writes this; the hooks were already written and checked."""
+    hooks = []
+    for it in items:
+        if it is item or it.get("status") != "ready" or not it.get("story") or not it.get("text"):
+            continue
+        if it["segment"] == "bulletin":
+            continue
+        first = it["text"][0]
+        sentence = (writers._sentences(first["text"]) or [first["text"]])[0]
+        if 4 <= len(sentence.split()) <= 28:
+            hooks.append({"speaker": first["speaker"], "mood": first.get("mood") or "default", "text": sentence})
+    if len(hooks) < 2:
+        return False
+    lines = [{"speaker": sh.anchor, "mood": "default", "text": f"Coming up on {sh.name}."}] + hooks[:3]
+    seg = segment("cold_open")
+    bed = _bed(sh.key, used)
+    rec = booth.record(lines, seg, os.path.join(out_dir, f"{item['n']:02d}-cold-open.mp3"),
+                       bed=bed["path"] if bed else None)
+    if not rec or not rec.get("path"):
+        return False
+    item.update(status="ready", path=rec["path"], seconds=rec.get("seconds"), text=lines, qa=rec["qa"],
+                title=f"Coming up on {sh.name}", host=sh.anchor)
+    return True
 
 
 def _skip(item: dict, why: str) -> None:
@@ -131,8 +161,12 @@ def produce(sheet: dict, save=None, at=None) -> dict:
                     continue
                 item.update(status="ready", path=b["path"], title=b.get("style") or "music",
                             bank_id=b["id"], seconds=b.get("seconds"))
-            elif item["segment"] == "ident":
-                b = _ident(sh.key, used_stock)
+            elif item["segment"] == "cold_open":
+                # Cut from the pieces that follow it, so it is made last.
+                item.update(status="deferred")
+                continue
+            elif item["segment"] in ("ident", "sweeper"):
+                b = _ident(sh.key, used_stock, first="sweeper" if item["segment"] == "sweeper" else "jingle")
                 if not b:
                     _skip(item, "no ident in stock")
                     continue
@@ -197,6 +231,9 @@ def produce(sheet: dict, save=None, at=None) -> dict:
                 if not piece or not piece.lines:
                     _skip(item, "the writers had nothing")
                     continue
+                if seg.key == "correspondent" and len(item["speakers"]) > 1:
+                    piece.lines = writers.dress_correspondent(piece.lines, item["speakers"][0], item["speakers"][1],
+                                                              seed=hash((sheet_id, item["n"])) % 9973)
                 bed = _bed(sh.key, used_stock) if seg.mix in ("bed", "phone", "sting") else None
                 sting = _ident(sh.key, used_stock) if seg.mix == "sting" else None
                 if sting and sting["kind"] != "jingle":
@@ -231,6 +268,25 @@ def produce(sheet: dict, save=None, at=None) -> dict:
                     save(items)
                 except Exception:
                     pass
+
+    for item in items:
+        if item.get("status") != "deferred":
+            continue
+        try:
+            if _cold_open(item, items, show_by_key(item["show"]), out_dir, used_stock):
+                made += 1
+                log("booth", f"cut the cold open from {len(item['text']) - 1} pieces", kind="station_id",
+                    sheet_id=sheet_id, segment="cold_open")
+            else:
+                _skip(item, "not enough pieces to tease")
+        except Exception as e:
+            logger.exception("radio: the cold open failed")
+            _skip(item, f"error: {str(e)[:80]}")
+        if save:
+            try:
+                save(items)
+            except Exception:
+                pass
 
     stats = {"made": made, "skipped": sum(1 for i in items if i.get("status") == "skipped"),
              "spoken_seconds": round(spoken_seconds), "seconds": round(sum(i.get("seconds") or 0 for i in items)),

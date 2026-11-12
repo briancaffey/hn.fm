@@ -1593,6 +1593,21 @@ def radio_front_page_readings(hours: int = 3) -> Optional[dict]:
     }
 
 
+def radio_chart(limit: int = 5, hours: int = 24) -> List[dict]:
+    """The highest-scoring stories of the last day, for the chart."""
+    import time as _time
+
+    with db_session() as s:
+        rows = s.execute(
+            select(HNItemRow.id, HNItemRow.title, HNItemRow.score, HNItemRow.descendants)
+            .where(HNItemRow.time >= int(_time.time()) - hours * 3600, HNItemRow.title.isnot(None),
+                   HNItemRow.score.isnot(None))
+            .order_by(HNItemRow.score.desc())
+            .limit(limit)
+        ).all()
+    return [{"item_id": r[0], "title": r[1], "points": r[2], "comments": r[3] or 0} for r in rows]
+
+
 def radio_parked_sheets(max_age_minutes: int = 15) -> List[dict]:
     """Sheets saved but not yet released (still being voiced). Older than
     `max_age_minutes` they are treated as abandoned and not counted."""

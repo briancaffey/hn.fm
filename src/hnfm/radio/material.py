@@ -164,6 +164,33 @@ def front_page(now: Optional[datetime] = None) -> Optional[str]:
     return "\n".join(lines)
 
 
+def chart(limit: int = 5) -> Optional[str]:
+    """The top five by points, listed from five down to one, as the
+    countdown reads them. None without a full five."""
+    from ..db import repo
+
+    try:
+        rows = repo.radio_chart(limit=limit)
+    except Exception as e:
+        logger.debug(f"radio: no chart ({e})")
+        return None
+    if len(rows) < limit:
+        return None
+    import re
+
+    def plain(title: str) -> str:
+        # A title is written for the eye: "[pdf]", a dash before the author.
+        t = re.sub(r"\s*[\[(](?:pdf|video|audio|\d{4})[\])]\s*", " ", title or "", flags=re.I)
+        t = re.sub(r"\s+[–—|]\s+", ", ", t)
+        return re.sub(r"\s+", " ", t).strip(" ,")
+
+    out = ["The five highest-scoring stories on Hacker News in the last day:"]
+    for pos in range(limit, 0, -1):
+        r = rows[pos - 1]
+        out.append(f'- Number {pos}: "{plain(r["title"])}" with {r["points"]} points and {r["comments"]} comments.')
+    return "\n".join(out)
+
+
 def for_segment(seg, *, story_id: Optional[int] = None, angle: Optional[str] = None, seed: int = 0, show=None,
                 next_show=None, stories: Optional[List[dict]] = None,
                 coming_up: Optional[List[str]] = None, now: Optional[datetime] = None) -> Optional[str]:
@@ -177,6 +204,8 @@ def for_segment(seg, *, story_id: Optional[int] = None, angle: Optional[str] = N
         return headlines(stories or [])
     if need == "front_page":
         return front_page(now)
+    if need == "chart":
+        return chart()
     if need == "trope":
         return trope(seed)
     if need == "jargon":

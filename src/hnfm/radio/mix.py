@@ -5,7 +5,8 @@ The graphs are built as text by pure functions (`*_graph`), so a test can
 read a graph without running ffmpeg, and a change to the station's sound
 is a change to one function.
 
-    join       voices in turn with a beat between; callers go down a phone line
+    join       voices in turn with a beat between, each treated for where it
+               speaks from (fx.py), with effects placed among them
     plain      a voice on its own
     over_bed   a voice over music that ducks under it and comes back after
     after      a sting (a sung ident, say), then the piece
@@ -24,21 +25,21 @@ LOUDNORM = "loudnorm=I=-16:TP=-1.5:LRA=11"
 # Silence on the end of every item, so the next one does not land on the
 # last syllable.
 TAIL_PAD = float(os.getenv("RADIO_TAIL_PAD", "0.8"))
-# A telephone: the band a phone line carries, squashed, a little dirty.
-PHONE = ("highpass=f=320,lowpass=f=3300,"
-         "acompressor=threshold=0.08:ratio=6:attack=5:release=80:makeup=2,"
-         "acrusher=bits=9:mix=0.25,volume=0.9")
 MP3 = ["-ac", "2", "-ar", str(RATE), "-c:a", "libmp3lame", "-b:a", "128k"]
 
 
 def join_graph(roles: Sequence[str], gaps_ms: Sequence[int]) -> str:
-    """N voice clips into one track. `roles[i]` is "studio" or "phone";
-    `gaps_ms[i]` is the silence after clip i."""
+    """N clips into one track. `roles[i]` says how clip i is treated: a
+    voice role from `fx.TREATMENTS` (studio, phone, field, big, fineprint,
+    tape), or "fx" for an effect, which is left as it is. `gaps_ms[i]` is
+    the silence after clip i."""
+    from .fx import treatment
+
     parts, labels = [], []
     for i, role in enumerate(roles):
         chain = [f"aresample={RATE}", "aformat=channel_layouts=mono"]
-        if role == "phone":
-            chain.append(PHONE)
+        if role != "fx":
+            chain.append(treatment(role))
         gap = max(0, int(gaps_ms[i])) / 1000.0
         if gap:
             chain.append(f"apad=pad_dur={gap}")

@@ -69,20 +69,21 @@ class Show:
 
 # Slot names are segment keys (segments.py). "music" is a short bed from
 # the show's palette, "track" a full piece of music, "ident" a station ID
-# (sung when the shelf has a jingle).
+# (sung when the shelf has a jingle), "sweeper" the announcer between two
+# effects, "cold_open" a teaser cut from the block's own pieces.
 _DAY = (
-    ("theme", "bulletin", "headline", "headline", "music", "two_hander", "track"),
-    ("ident", "headline", "comment_line", "music", "bit", "headline", "sponsor", "track"),
+    ("cold_open", "theme", "bulletin", "headline", "headline", "music", "two_hander", "track"),
+    ("sweeper", "headline", "comment_line", "music", "bit", "correspondent", "sponsor", "track"),
     ("ident", "time_check", "headline", "show_hn", "music", "forecast", "headline", "track"),
-    ("ident", "bit", "headline", "ask_hn", "music", "headline", "song", "ident"),
+    ("sweeper", "chart", "headline", "ask_hn", "music", "headline", "song", "ident"),
 )
 # The small hours: fewer words, more music. Nobody is asking for a bulletin
 # at four in the morning, and the models have other work.
 _NIGHT = (
-    ("theme", "time_check", "headline", "track", "two_hander", "track"),
-    ("ident", "headline", "music", "bit", "track", "headline", "track"),
+    ("cold_open", "theme", "time_check", "headline", "track", "two_hander", "track"),
+    ("sweeper", "headline", "music", "bit", "track", "correspondent", "track"),
     ("ident", "time_check", "comment_line", "track", "headline", "track"),
-    ("ident", "headline", "bit", "track", "song", "ident"),
+    ("sweeper", "headline", "chart", "track", "song", "ident"),
 )
 
 

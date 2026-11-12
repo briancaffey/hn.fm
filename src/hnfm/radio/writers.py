@@ -15,8 +15,9 @@ import re
 from dataclasses import dataclass, field
 from typing import List, Optional, Sequence
 
-from .copy import speakable
-from .schemas import CALLERS, MOODS, Copy, Line, Review, copy_schema
+from .copy import bleeped, speakable
+from .cast import briefing, mood_or_default, sheets
+from .schemas import CALLERS, Copy, Line, Review, copy_schema
 from .segments import SEGMENTS, Segment
 
 logger = logging.getLogger(__name__)
@@ -36,8 +37,12 @@ RECITED = (
     "not established", "does not name", "old-time radio", "the assignment", "the producer's angle",
     # Notes about the input, said to the listener.
     "the source does not", "by the source", "the article does not specify", "a caller might",
-    "a caller could", "remains unspecified", "remain unspecified",
+    "a caller could", "remains unspecified", "remain unspecified", "the objection from", "a correspondent reports", "here is the doubt",
 )
+# Notes that keep a piece off the air if they still stand after repair.
+HARD = ("You read your instructions", "Only these speakers", "You reused the example",
+        "The second speaker only repeats", "The piece is empty", "This is a piece for more than one",
+        "The host opens", "The correspondent has the facts", "No caller speaks", "Too short")
 # Pieces that are meant to sound the same every time.
 FORMULAIC = ("theme", "handoff", "bulletin")
 MAX_SENTENCE_WORDS = 32
@@ -123,6 +128,13 @@ def lint(seg: Segment, copy: Copy, speakers: Sequence[str], earlier_openers: Seq
 
     if seg.voices in ("duo", "callers") and len({l.speaker for l in lines}) < 2:
         notes.append("This is a piece for more than one voice. Give the other speaker their lines.")
+    if seg.voices == "correspondent" and len(speakers) > 1:
+        host, reporter = speakers[0], speakers[1]
+        if lines[0].speaker != host:
+            notes.append(f"The host opens. {host} says what the story is in one sentence; "
+                         f"then {reporter} reports.")
+        elif sum(1 for l in lines if l.speaker == reporter) < 2:
+            notes.append(f"The correspondent has the facts. Give {reporter} at least three turns.")
     if seg.voices == "callers" and not any(l.speaker in CALLERS for l in lines):
         notes.append("No caller speaks. The callers make the points; the host reacts.")
     if re.search(r"[\[\]<>*_#]|https?://", " ".join(l.text for l in lines)):
@@ -177,6 +189,11 @@ def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = (),
                 continue
             if direction and _grams(sent) & direction:
                 continue
+            # A sentence lifted from the worked example belongs to another
+            # story. Asked to write its own, the model often hands the
+            # example back again, so the sentence is cut here.
+            if seg.key not in FORMULAIC and copied_from_examples(seg.key, sent):
+                continue
             seen.add(key)
             kept.append(sent)
         if kept:
@@ -196,17 +213,46 @@ def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = (),
     return out
 
 
+HANDOVERS = ("{name} has been looking at it.", "{name} is on the line.", "Over to {name}.",
+             "{name} has the details.")
+THANKS = ("Thanks, {name}.", "{name}, thank you.", "Thank you, {name}.")
+
+
+def dress_correspondent(lines: List[dict], host: str, reporter: str, seed: int = 0) -> List[dict]:
+    """The handover and the thank-you around a correspondent's report.
+    The writer is asked for the report only: asked for the whole exchange
+    it had hosts handing over to themselves and thanking nobody, so the
+    courtesies are the station's, in one of a few forms."""
+    from .cast import character
+
+    name = (character(reporter).name if character(reporter) else reporter.capitalize())
+    said = lambda l: l["text"].lower()  # noqa: E731
+    # Whatever courtesies the writer added anyway.
+    body = [l for l in lines if not (l["speaker"] == host and len(l["text"].split()) <= 5
+                                     and ("thank" in said(l) or name.lower() in said(l)))]
+    if not body or body[0]["speaker"] != host or not any(l["speaker"] == reporter for l in body):
+        return lines
+    # After the opening the report is the correspondent's; a host line in
+    # the middle stays only if it is a question.
+    body = [body[0]] + [l for l in body[1:] if l["speaker"] == reporter or l["text"].rstrip().endswith("?")]
+    while body[-1]["speaker"] == host and len(body) > 1:
+        body.pop()
+    first = {**body[0], "text": body[0]["text"].rstrip() + " " + HANDOVERS[seed % len(HANDOVERS)].format(name=name)}
+    return [first, *body[1:], {"speaker": host, "mood": "default",
+                               "text": THANKS[seed % len(THANKS)].format(name=name)}]
+
+
 def _clean(copy: Copy, speakers: Sequence[str]) -> List[dict]:
     """The lines as the booth will speak them: known speakers, known moods,
     text made speakable. A stranger's line is dropped rather than given to
     a host who did not say it."""
     out = []
     for l in copy.lines:
-        text = speakable(" ".join((l.text or "").split()))
+        text = bleeped(speakable(" ".join((l.text or "").split())))
         if not text or l.speaker not in speakers:
             continue
-        mood = (l.mood or "default").strip().lower()
-        out.append({"speaker": l.speaker, "mood": mood if mood in MOODS else "default", "text": text})
+        # A mood the speaker's voice does not have is the plain voice.
+        out.append({"speaker": l.speaker, "mood": mood_or_default(l.speaker, l.mood), "text": text})
     return out
 
 
@@ -316,6 +362,7 @@ def draft(seg: Segment, *, show, speakers: Sequence[str], material: str,
     prompt = render(
         "radio.write", show_name=show.name, show_tone=show.tone, segment_name=seg.name,
         brief=seg.brief, form=seg.form, speakers=", ".join(speakers), words=seg.words,
+        cast=briefing(speakers),
         material=(material or "(none)")[:6000],
         notes=note_block, examples=examples_for(seg.key),
     )
@@ -363,7 +410,8 @@ def produce(seg: Segment, *, show, speakers: Sequence[str], material: str,
     """
     usage = {"calls": 0, "tokens_in": 0, "tokens_out": 0}
     notes: List[str] = []
-    last: Optional[Piece] = None
+    drafts: List[Piece] = []
+    never = [show.tone, *sheets(speakers)]
     for attempt in range(1, max_rewrites + 2):
         try:
             copy, version = draft(seg, show=show, speakers=speakers, material=material,
@@ -377,29 +425,32 @@ def produce(seg: Segment, *, show, speakers: Sequence[str], material: str,
             rev = review(seg, material, copy, usage=usage)
         lines = _clean(copy, speakers)
         if lines:
-            last = Piece(segment=seg.key, lines=lines, attempts=attempt, lint=problems, usage=usage,
-                         review=None if rev is None else {
-                             **rev.scores(), "passes": rev.passes(), "heard": rev.heard,
-                             "unsupported": rev.unsupported[:3], "notes": rev.to_notes()},
-                         plan=copy.plan.model_dump() if copy.plan else None,
-                         prompt_version=version)
-        if not problems and (rev is None or rev.passes()):
-            last.lines = repair(seg, last.lines, said_before=earlier, never=[show.tone])
-            return last if last.lines else None
+            drafts.append(Piece(segment=seg.key, lines=lines, attempts=attempt, lint=problems, usage=usage,
+                                review=None if rev is None else {
+                                    **rev.scores(), "passes": rev.passes(), "heard": rev.heard,
+                                    "unsupported": rev.unsupported[:3], "notes": rev.to_notes()},
+                                plan=copy.plan.model_dump() if copy.plan else None,
+                                prompt_version=version))
+        if lines and not problems and (rev is None or rev.passes()):
+            piece = drafts[-1]
+            piece.lines = repair(seg, piece.lines, said_before=earlier, never=never)
+            return piece if piece.lines else None
         notes = problems or (rev.to_notes() if rev else [])
         if not notes:
             notes = ["The editor did not pass this. Tighten the opening and check every claim against the material."]
-    if last is None:
-        return None
     # Out of rewrites with the rules still unhappy: fix what can be fixed
-    # by cutting, and check again. A piece that is still wrong is not aired.
-    last.lines = repair(SEGMENTS[last.segment], last.lines, said_before=earlier, never=[show.tone])
-    fixed = Copy(lines=[Line(**l) for l in last.lines])
-    last.lint = [n for n in lint(seg, fixed, speakers, earlier_openers) if not n.startswith("Too short")
-                 or fixed.words() < seg.words * 0.35]
-    last.repaired = True
-    hard = [n for n in last.lint if n.startswith(("You read your instructions", "Only these speakers",
-                                                  "You reused the example", "The second speaker only repeats",
-                                                  "The piece is empty", "This is a piece for more than one",
-                                                  "No caller speaks", "Too short"))]
-    return None if hard or not last.lines else last
+    # by cutting, and check again. The newest draft that survives airs; a
+    # rewrite is not always better than what it replaced (asked to stop
+    # borrowing from the example, the model has handed back the example).
+    for piece in reversed(drafts):
+        piece.lines = repair(seg, piece.lines, said_before=earlier, never=never)
+        if not piece.lines:
+            continue
+        fixed = Copy(lines=[Line(**l) for l in piece.lines])
+        piece.lint = [n for n in lint(seg, fixed, speakers, earlier_openers) if not n.startswith("Too short")
+                      or fixed.words() < seg.words * 0.35]
+        piece.repaired = True
+        if not any(n.startswith(HARD) for n in piece.lint):
+            piece.attempts = len(drafts)
+            return piece
+    return None

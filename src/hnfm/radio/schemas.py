@@ -10,9 +10,10 @@ from typing import List, Literal, Optional
 from pydantic import BaseModel, Field
 
 # Who can speak on air. The voice module maps each to an engine and a voice.
-HOSTS = ("mia", "jason", "sofia", "leo", "aria", "ray")
+from .cast import ALL_MOODS as MOODS
+from .cast import HOSTS  # noqa: F401
+
 CALLERS = ("caller1", "caller2", "caller3")
-MOODS = ("default", "calm", "neutral", "sad", "angry")
 
 
 class Pick(BaseModel):
@@ -38,7 +39,7 @@ class Plan(BaseModel):
 
 class Line(BaseModel):
     speaker: str = Field(description="One of the speakers the assignment allows.")
-    mood: str = Field(default="default", description="default, calm, neutral, sad or angry.")
+    mood: str = Field(default="default", description="One of the moods this speaker has.")
     text: str = Field(description="Only the words spoken.")
 
 

@@ -241,3 +241,43 @@ stack:
       - {speaker: ray, mood: default, text: "Nobody is in this building. A model called Nemotron wrote this sentence, on a small computer in somebody's house."}
       - {speaker: ray, mood: default, text: "A model called Magpie is saying it. And the music you are about to hear was made, a minute ago, by one called ACE-Step."}
       - {speaker: ray, mood: calm, text: "It mostly works. That still surprises us."}
+
+chart:
+  - material: |
+      The five highest-scoring stories on Hacker News in the last day:
+      - Number 5: "Why our team went back to paper tickets" with 412 points and 233 comments.
+      - Number 4: "A font made entirely of circles" with 498 points and 91 comments.
+      - Number 3: "Show HN: I mapped every bench in Lisbon" with 655 points and 140 comments.
+      - Number 2: "The floppy disk is still flying on 747s" with 803 points and 377 comments.
+      - Number 1: "Sqlite turns twenty-five" with 1204 points and 268 comments.
+    plan:
+      hook: "The five stories with the most points right now, from five to one."
+      facts: ["paper tickets 412", "circle font 498", "Lisbon benches 655", "floppy disks on 747s 803", "Sqlite twenty-five 1204"]
+      ending: "Sqlite, twenty-five years old, twelve hundred and four points."
+    lines:
+      - {speaker: jason, mood: default, text: "This is the front page five. The five stories with the most points on Hacker News right now."}
+      - {speaker: jason, mood: default, text: "At five. A team that gave up on software and went back to paper tickets. Four hundred and twelve points."}
+      - {speaker: jason, mood: default, text: "At four. A font made of nothing but circles. Four hundred and ninety-eight."}
+      - {speaker: jason, mood: default, text: "At three. Somebody mapped every bench in Lisbon. Six hundred and fifty-five points, and I would like a sit down."}
+      - {speaker: jason, mood: default, text: "At two. The floppy disk, still flying on seven-four-sevens. Eight hundred and three."}
+      - {speaker: jason, mood: happy, text: "And at number one. Sqlite is twenty-five years old. Twelve hundred and four points."}
+
+correspondent:
+  - material: |
+      STORY: "The town that runs its buses on a spreadsheet"
+      - A town of forty thousand people schedules every bus from one shared spreadsheet.
+      - The spreadsheet has eleven tabs and one person who understands tab nine.
+      - A scheduling vendor quoted two million dollars to replace it.
+      - The town declined.
+      BUT: The person who understands tab nine retires in the spring.
+      PEOPLE SAID:
+      - Every town has a tab nine. Most of them just do not know which tab it is.
+    plan:
+      hook: "A town of forty thousand runs every bus from one spreadsheet."
+      facts: ["eleven tabs, one person understands tab nine", "vendor quoted two million, town declined", "that person retires in the spring"]
+      ending: "The person who understands tab nine retires in the spring."
+    lines:
+      - {speaker: sofia, mood: default, text: "Forty thousand people, and every bus they catch is scheduled from one spreadsheet."}
+      - {speaker: sam, mood: default, text: "Eleven tabs. And one person in the building who understands tab nine."}
+      - {speaker: sam, mood: default, text: "A vendor offered to replace the whole thing for two million dollars. The town said no, thank you, and kept the spreadsheet."}
+      - {speaker: sam, mood: default, text: "And the person who understands tab nine retires in the spring."}
