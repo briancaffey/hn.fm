@@ -54,12 +54,13 @@ async function load() {
     const [se, ar, lg, cv] = await Promise.allSettled([
       $fetch<RadioSettings>(`${apiBase}/api/radio/settings`),
       $fetch<{ editions: Edition[] }>(`${apiBase}/api/radio/archive?limit=60`),
-      $fetch<{ lines: LogLine[] }>(`${apiBase}/api/radio/log?limit=6`),
+      $fetch<{ lines: LogLine[] }>(`${apiBase}/api/radio/log?limit=80`),
       $fetch<{ art: { key: string, drawn: boolean }[] }>(`${apiBase}/api/radio/art`),
     ])
     if (se.status === 'fulfilled') settings.value = se.value
     if (ar.status === 'fulfilled') editions.value = [...ar.value.editions].sort((a, b) => b.aired_at.localeCompare(a.aired_at))
-    if (lg.status === 'fulfilled') log.value = [...lg.value.lines].reverse()
+    // What is being made, not what is being played: the DJ's lines are the control room's.
+    if (lg.status === 'fulfilled') log.value = lg.value.lines.filter(l => ['booth', 'producer', 'bank'].includes(l.component)).reverse()
     if (cv.status === 'fulfilled') covers.value = cv.value.art
   }
 }

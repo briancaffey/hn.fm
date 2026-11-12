@@ -38,6 +38,7 @@ RECITED = (
     # Notes about the input, said to the listener.
     "the source does not", "by the source", "the article does not specify", "a caller might",
     "a caller could", "remains unspecified", "remain unspecified", "the objection from", "a correspondent reports", "here is the doubt",
+    "is not specified", "are not specified", "not disclosed", "does not establish", "the mystery remains",
 )
 # Notes that keep a piece off the air if they still stand after repair.
 HARD = ("You read your instructions", "Only these speakers", "You reused the example",
@@ -165,6 +166,10 @@ def _grams(text: str, n: int = 4) -> set:
     return {" ".join(w[i:i + n]) for i in range(len(w) - n + 1)}
 
 
+DUO_TURNS = 8
+_TAG = re.compile(r"^that is the \w+\.?$", re.I)
+
+
 def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = (),
            never: Sequence[str] = ()) -> List[dict]:
     """What the rules can fix without the writer: a sentence that reads
@@ -198,6 +203,18 @@ def repair(seg: Segment, lines: List[dict], said_before: Sequence[str] = (),
             kept.append(sent)
         if kept:
             out.append({**l, "text": " ".join(kept)})
+    # A two-hander is eight turns. Left alone the model goes on for
+    # thirteen, the second voice labelling each fact ("That is the catch.",
+    # "That is the surface.", "That is the polish."). Those tags are cut,
+    # and the piece keeps its first seven turns and its last.
+    if seg.voices == "duo" and len(out) > 2:
+        second = out[1]["speaker"]
+        for l in out:
+            if l["speaker"] == second:
+                kept = [x for x in _sentences(l["text"]) if not _TAG.match(x.strip())]
+                l["text"] = " ".join(kept) or l["text"]
+        if len(out) > DUO_TURNS:
+            out = out[:DUO_TURNS - 1] + out[-1:]
     # Too long: drop whole sentences from the end, never the last line of a
     # dialogue (that is the punchline) and never below two sentences.
     limit = int(seg.words * LENGTH_BAND[1])

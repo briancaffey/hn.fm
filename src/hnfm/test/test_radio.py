@@ -289,6 +289,16 @@ class TestRepair:
         out = writers.repair(segment("two_hander"), lines)
         assert out[-1]["text"] == "The patch is nine days old."
 
+    def test_a_two_hander_is_eight_turns_and_the_second_voice_does_not_label_facts(self):
+        lines = []
+        for n in range(7):
+            lines.append({"speaker": "mia", "mood": "default", "text": f"Fact number {n} about the workspace product."})
+            lines.append({"speaker": "leo", "mood": "default", "text": f"Answer {n} given plainly. That is the catch."})
+        lines[-1]["text"] = "I doubt it scales."
+        out = writers.repair(segment("two_hander"), lines)
+        assert len(out) == 8 and out[-1]["text"] == "I doubt it scales."
+        assert all("That is the catch" not in l["text"] for l in out)
+
     def test_a_sentence_lifted_from_the_worked_example_is_cut(self):
         """Asked to stop borrowing from the example, the model has handed
         the example back. The borrowed sentence is cut; the rest airs."""

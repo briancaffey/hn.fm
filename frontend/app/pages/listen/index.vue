@@ -84,7 +84,7 @@ const liveLine = computed(() => {
             {{ lead.featured ? 'Featured' : 'Latest' }} · {{ day(lead.date) }}
           </p>
           <h1 class="text-4xl font-black leading-none tracking-tight sm:text-5xl">{{ lead.show_name }}</h1>
-          <p class="text-lg text-muted-foreground">{{ lead.tagline || lead.title }}</p>
+          <p class="text-lg text-muted-foreground">{{ lead.tagline || shows.find(s => s.key === lead?.show)?.tagline || lead.title }}</p>
           <p class="text-sm text-muted-foreground">
             With {{ cap(lead.anchor) }} and {{ cap(lead.cohost) }} · {{ mins(lead.seconds) }} · {{ lead.stories.length }} stories
           </p>
