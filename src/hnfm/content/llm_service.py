@@ -143,6 +143,18 @@ class LLMService:
     ) -> str:
         """One completion. Raises on any failure — no fallback content."""
         text = prompt.text if isinstance(prompt, RenderedPrompt) else str(prompt)
+        # `text` carries the system prompt in front of the template, and the
+        # system role carries it again: every call paid for it twice. A
+        # profile with `system_once: true` sends the template alone as the
+        # user turn. Opt-in per task, because the older prompts were tuned
+        # with the repetition in place.
+        if (
+            isinstance(prompt, RenderedPrompt)
+            and prompt.system
+            and prompt.body
+            and self.profile.get("system_once")
+        ):
+            text = prompt.body
         system = (
             prompt.system
             if isinstance(prompt, RenderedPrompt) and prompt.system
@@ -180,7 +192,13 @@ class LLMService:
             # suppresses the preamble on `nvidia-nemotron-super` but NOT on the
             # multimodal `nemotron-omni` route, which returns null content until
             # thinking is disabled. The two options compose fine.
-            extra_body = {"chat_template_kwargs": {"enable_thinking": False}}
+            # A profile may ask for thinking (`thinking: true`): the radio
+            # editor checks copy against its material and is better for it.
+            extra_body = {
+                "chat_template_kwargs": {
+                    "enable_thinking": bool(self.profile.get("thinking", False))
+                }
+            }
 
             # `enable_thinking` is a vLLM convention and is silently ignored by
             # LM Studio, which serves the omni model on the spark box — measured
@@ -326,7 +344,12 @@ class LLMService:
         error is fed back so the model can correct itself, rather than silently
         substituting a default.
         """
-        response_format = {
+        # Thinking and constrained decoding do not compose on the local
+        # model: with both, Nemotron 3.5 spent its whole budget (5,000
+        # tokens, measured) and returned nothing. A thinking profile asks
+        # for JSON in the prompt and is validated here like any other.
+        thinking = bool(self.profile.get("thinking")) and self.use_local
+        response_format = None if thinking else {
             "type": "json_schema",
             "json_schema": {
                 "name": schema.__name__,

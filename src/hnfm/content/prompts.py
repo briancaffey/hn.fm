@@ -53,6 +53,10 @@ class RenderedPrompt:
     version: str
     task: Optional[str] = None
     system: Optional[str] = None
+    # The filled template on its own. `text` repeats the system prompt in
+    # front of it (older call sites pass `text` where a str is expected);
+    # a caller that sends `system` in its own role wants only this.
+    body: Optional[str] = None
 
     def __str__(self) -> str:  # so it can be passed anywhere a str is expected
         return self.text
@@ -116,6 +120,7 @@ class PromptRegistry:
             version=str(data["version"]),
             task=data.get("task"),
             system=system,
+            body=body.strip(),
         )
 
     def list_prompts(self) -> Dict[str, str]:
