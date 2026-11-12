@@ -2507,6 +2507,97 @@ def _churn_stats(hours: int = 24) -> dict:
     return out
 
 
+# ── Story videos: one HyperFrames composition per narrated story ──────────
+
+@app.get("/api/videos", tags=["video"])
+async def story_videos():
+    """Videos made or in the making, and the narrated stories one could be
+    made from."""
+    from ..hyperframes import hermes, story, videos
+
+    made = videos.listing()
+    have = {v["id"] for v in made}
+    waiting = [c for c in story.candidates(40) if videos.video_id(c["item_id"], c["run"], c["seg"]) not in have]
+    return {"videos": made, "candidates": waiting[:20], "agent": hermes.configured()}
+
+
+@app.post("/api/videos", tags=["video"])
+async def story_video_make(request: dict = Body(default={})):
+    """Make the video for a narrated segment. `direct: false` skips the
+    agent and renders the plain scenes."""
+    from ..hyperframes import story, videos
+    from .tasks import story_video
+
+    try:
+        item_id, run, seg = int(request["item_id"]), int(request.get("run") or 0), int(request.get("seg") or 1)
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="item_id (and run, seg) are required")
+    if not run:
+        runs = [c for c in story.candidates(200) if c["item_id"] == item_id]
+        if not runs:
+            raise HTTPException(status_code=404, detail="this story has no narrated segment")
+        run, seg = runs[0]["run"], runs[0]["seg"]
+    item = get_item(item_id)
+    videos.queued(item_id, run, seg, title=(item.title if item else ""))
+    t = story_video.apply_async(kwargs={"item_id": item_id, "run": run, "seg": seg,
+                                        "direct": bool(request.get("direct", True))})
+    return {"status": "queued", "task_id": t.id, "id": videos.video_id(item_id, run, seg)}
+
+
+@app.get("/api/videos/{video_id}", tags=["video"])
+async def story_video_status(video_id: str):
+    from ..hyperframes import videos
+
+    st = videos.get(video_id)
+    if not st:
+        raise HTTPException(status_code=404, detail="no such video")
+    return st
+
+
+@app.get("/api/videos/{video_id}/{name}", tags=["video"])
+async def story_video_file(video_id: str, name: str):
+    from fastapi.responses import FileResponse
+
+    from ..hyperframes import videos
+
+    kinds = {"video.mp4": "video/mp4", "poster.jpg": "image/jpeg", "sheet.jpg": "image/jpeg"}
+    if name not in kinds or not videos.get(video_id):
+        raise HTTPException(status_code=404, detail="no such file")
+    p = videos.path(video_id, name)
+    if not os.path.exists(p):
+        raise HTTPException(status_code=404, detail="not made yet")
+    return FileResponse(p, media_type=kinds[name])
+
+
+@app.delete("/api/videos/{video_id}", tags=["video"])
+async def story_video_remove(video_id: str):
+    from ..hyperframes import videos
+
+    if not videos.remove(video_id):
+        raise HTTPException(status_code=404, detail="no such video")
+    return {"removed": video_id}
+
+
+# ── Inference: does every model do its job ───────────────────────────────
+
+@app.get("/api/inference", tags=["inference"])
+async def inference_last():
+    """The last check of every model and service the project uses."""
+    from .. import inference
+
+    return inference.last() or {"at": None, "checks": [
+        {"name": n, "purpose": p, "optional": o, "ok": None, "detail": "not checked yet", "seconds": None}
+        for n, p, _f, o in inference.CHECKS]}
+
+
+@app.post("/api/inference/check", tags=["inference"])
+async def inference_run():
+    from .tasks import inference_check
+
+    t = inference_check.apply_async()
+    return {"status": "queued", "task_id": t.id}
+
+
 @app.get("/api/schedule", tags=["schedule"])
 async def get_schedule():
     """The job table beat runs from, the pause switches, and what the churn

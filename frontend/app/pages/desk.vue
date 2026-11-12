@@ -19,6 +19,13 @@ interface Digest {
   edition_name: string | null, shape: string | null
 }
 interface Segment { item_id: number, run: number, seg: number, created_at: string, title?: string, video_ready?: boolean }
+interface StoryVideo {
+  id: string, item_id: number, title?: string, state: string, step?: string, video: boolean, poster: boolean
+  directed?: number, total?: number, length?: number, seconds?: number, bytes?: number, author?: string
+  note?: string, error?: string, updated_at?: string
+}
+interface Candidate { item_id: number, run: number, seg: number, title: string, made: string | null }
+interface Check { name: string, purpose: string, optional: boolean, ok: boolean | null, detail: string, seconds: number | null }
 interface LogLine { id: number, at: string, component: string, message: string }
 interface RadioSettings { produce: string, modes: string[], edition_hours: number[], producing: boolean }
 
@@ -32,6 +39,13 @@ const editions = ref<Edition[]>([])
 const segments = ref<Segment[]>([])
 const log = ref<LogLine[]>([])
 const covers = ref<{ key: string, drawn: boolean }[]>([])
+const videos = ref<StoryVideo[]>([])
+const candidates = ref<Candidate[]>([])
+const agent = ref(false)
+const pick = ref('')
+const watching = ref<StoryVideo | null>(null)
+const checks = ref<{ at: string | null, checks: Check[], working?: number, of?: number } | null>(null)
+const checking = ref(false)
 const note = ref<Record<string, string>>({})
 const preview = ref<Digest | null>(null)
 const confirming = ref<string | null>(null)
@@ -50,6 +64,15 @@ async function load() {
   if (dg.status === 'fulfilled') digests.value = dg.value.digests.slice(0, 4)
   if (sg.status === 'fulfilled') segments.value = sg.value.segments
   if (st.status === 'fulfilled') radio.value = st.value
+  const [vd, inf] = await Promise.allSettled([
+    $fetch<{ videos: StoryVideo[], candidates: Candidate[], agent: boolean }>(`${apiBase}/api/videos`),
+    $fetch<typeof checks.value>(`${apiBase}/api/inference`),
+  ])
+  if (vd.status === 'fulfilled') { videos.value = vd.value.videos; candidates.value = vd.value.candidates; agent.value = vd.value.agent }
+  if (inf.status === 'fulfilled') {
+    if (checking.value && inf.value?.at !== checks.value?.at) checking.value = false
+    checks.value = inf.value
+  }
   if (radio.value?.enabled) {
     const [se, ar, lg, cv] = await Promise.allSettled([
       $fetch<RadioSettings>(`${apiBase}/api/radio/settings`),
@@ -142,6 +165,33 @@ async function drawCovers(key?: string) {
   say('video', key ? 'Redrawing that cover. About ten seconds; it changes here when it is done.' : 'Drawing the missing covers.')
   setTimeout(() => { stamp.value = Date.now() }, 15000)
 }
+// --- story videos and the inference check -----------------------------------
+async function makeStoryVideo(direct = true) {
+  const c = candidates.value.find(x => `${x.item_id}-${x.run}-${x.seg}` === pick.value) || candidates.value[0]
+  if (!c) return
+  await $fetch(`${apiBase}/api/videos`, { method: 'POST', body: { item_id: c.item_id, run: c.run, seg: c.seg, direct } })
+  say('story', `Asked for “${c.title}”. A two-and-a-half minute video takes about four minutes.`)
+  pick.value = ''
+  load()
+}
+async function remakeStoryVideo(v: StoryVideo) {
+  const [item_id, run, seg] = v.id.split('-').map(Number)
+  await $fetch(`${apiBase}/api/videos`, { method: 'POST', body: { item_id, run, seg } })
+  say('story', `Making “${v.title}” again.`)
+  load()
+}
+async function removeStoryVideo(v: StoryVideo) {
+  if (confirming.value !== `v-${v.id}`) { confirming.value = `v-${v.id}`; return }
+  confirming.value = null
+  await $fetch(`${apiBase}/api/videos/${v.id}`, { method: 'DELETE' })
+  load()
+}
+const busy = (v: StoryVideo) => !['done', 'failed'].includes(v.state)
+async function runChecks() {
+  checking.value = true
+  await $fetch(`${apiBase}/api/inference/check`, { method: 'POST' })
+}
+
 const withVideo = computed(() => editions.value.filter(e => e.video).slice(0, 4))
 const working = computed(() => log.value.some(l => Date.now() - new Date(l.at + 'Z').getTime() < 90_000
   && ['booth', 'producer', 'bank'].includes(l.component)))
@@ -296,6 +346,52 @@ const working = computed(() => log.value.some(l => Date.now() - new Date(l.at + 
         </header>
         <div class="flex flex-1 flex-col gap-4 p-4">
           <div>
+            <p class="text-sm font-medium">Story videos</p>
+            <p class="text-xs text-muted-foreground">
+              One story, narrated, as a single HyperFrames composition.
+              <template v-if="agent">Hermes directs each scene: it reads the line and picks what to show.</template>
+              <template v-else>No agent is connected, so scenes are the plain version.</template>
+            </p>
+            <div v-if="candidates.length" class="mt-2 flex gap-2">
+              <label class="sr-only" for="story-pick">Story to make a video of</label>
+              <select id="story-pick" v-model="pick" class="min-w-0 flex-1 rounded-md border bg-background px-2 py-1.5 text-xs">
+                <option value="">{{ candidates[0].title }}</option>
+                <option v-for="c in candidates.slice(1)" :key="`${c.item_id}-${c.run}-${c.seg}`" :value="`${c.item_id}-${c.run}-${c.seg}`">{{ c.title }}</option>
+              </select>
+              <Button size="sm" @click="makeStoryVideo()">Make</Button>
+            </div>
+            <p v-else class="mt-2 text-xs text-muted-foreground">Every narrated story has a video. Narrate another from <NuxtLink to="/triage" class="underline underline-offset-2">Triage</NuxtLink>.</p>
+            <p v-if="note.story" class="mt-2 text-xs text-muted-foreground" role="status">{{ note.story }}</p>
+            <ul class="mt-3 flex flex-col gap-3">
+              <li v-for="v in videos.slice(0, 5)" :key="v.id" class="flex gap-3">
+                <button v-if="v.video" type="button" class="relative h-[68px] w-[120px] shrink-0 overflow-hidden rounded-md border bg-black" :aria-label="`Play ${v.title}`" @click="watching = v">
+                  <img v-if="v.poster" :src="`${apiBase}/api/videos/${v.id}/poster.jpg?v=${v.updated_at}`" alt="" class="h-full w-full object-cover" loading="lazy">
+                  <span class="absolute inset-0 grid place-items-center bg-black/20 text-white"><Icon name="lucide:play" class="h-5 w-5" /></span>
+                </button>
+                <span v-else class="grid h-[68px] w-[120px] shrink-0 place-items-center rounded-md border border-dashed text-muted-foreground">
+                  <Icon :name="v.state === 'failed' ? 'lucide:triangle-alert' : 'lucide:loader'" class="h-4 w-4" :class="busy(v) ? 'animate-spin' : ''" />
+                </span>
+                <div class="min-w-0 flex-1 text-xs">
+                  <p class="truncate text-sm font-medium">{{ v.title || `Story ${v.item_id}` }}</p>
+                  <p v-if="busy(v)" class="text-muted-foreground">{{ v.state }}: {{ v.step }}</p>
+                  <p v-else-if="v.state === 'failed'" class="text-destructive">{{ v.error }}</p>
+                  <p v-else class="text-muted-foreground">
+                    {{ mins(v.length || 0) }} · {{ v.directed ?? 0 }} of {{ v.total }} scenes directed · made in {{ Math.round((v.seconds || 0) / 60) }} min · {{ kb(v.bytes || 0) }}
+                  </p>
+                  <p v-if="v.note" class="text-muted-foreground">{{ v.note }}</p>
+                  <p v-if="!busy(v)" class="mt-1 flex gap-3">
+                    <a v-if="v.video" :href="`${apiBase}/api/videos/${v.id}/video.mp4`" download class="underline underline-offset-2">Download</a>
+                    <a v-if="v.video" :href="`${apiBase}/api/videos/${v.id}/sheet.jpg`" target="_blank" class="underline underline-offset-2">Scenes</a>
+                    <button type="button" class="underline underline-offset-2" @click="remakeStoryVideo(v)">Make again</button>
+                    <button type="button" class="underline underline-offset-2" :class="confirming === `v-${v.id}` ? 'text-destructive' : ''" @click="removeStoryVideo(v)">{{ confirming === `v-${v.id}` ? 'Really remove?' : 'Remove' }}</button>
+                  </p>
+                </div>
+              </li>
+              <li v-if="!videos.length" class="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">No story video yet.</li>
+            </ul>
+          </div>
+
+          <div>
             <p class="text-sm font-medium">Editions on video</p>
             <p class="text-xs text-muted-foreground">The cover, the words as they are spoken, the sound as a waveform. Press the camera beside an edition to make one.</p>
             <p v-if="note.video" class="mt-2 text-xs text-muted-foreground" role="status">{{ note.video }}</p>
@@ -325,22 +421,43 @@ const working = computed(() => log.value.some(l => Date.now() - new Date(l.at + 
             </div>
           </div>
 
-          <div>
-            <p class="text-sm font-medium">Story videos</p>
-            <p class="text-xs text-muted-foreground">One story as a narrated video. Started from <NuxtLink to="/triage" class="underline underline-offset-2">Triage</NuxtLink>.</p>
-            <ul class="mt-1 divide-y text-sm">
-              <li v-for="s in segments.slice(0, 4)" :key="`${s.item_id}-${s.run}-${s.seg}`" class="py-2">
-                <NuxtLink :to="`/hn/item/${s.item_id}/run/${s.run}/segment/${s.seg}`" class="flex items-center gap-2 hover:text-primary">
-                  <Icon :name="s.video_ready ? 'lucide:circle-play' : 'lucide:circle-dashed'" class="h-4 w-4 shrink-0" :class="s.video_ready ? 'text-primary' : 'text-muted-foreground'" />
-                  <span class="min-w-0 flex-1 truncate">{{ s.title || `Story ${s.item_id}` }}</span>
-                  <span class="shrink-0 text-xs text-muted-foreground">{{ ago(s.created_at) }}</span>
-                </NuxtLink>
-              </li>
-              <li v-if="!segments.length" class="py-3 text-xs text-muted-foreground">No story videos yet.</li>
-            </ul>
-          </div>
         </div>
       </section>
+    </div>
+
+    <!-- ============================ INFERENCE ============================ -->
+    <section class="mt-4 rounded-xl border bg-card">
+      <header class="flex flex-wrap items-center gap-2 border-b px-4 py-3">
+        <Icon name="lucide:activity" class="h-4 w-4 text-primary" />
+        <h2 class="text-sm font-semibold">The models</h2>
+        <span class="text-xs text-muted-foreground">
+          <template v-if="checks?.at">{{ checks.working }} of {{ checks.of }} working · checked {{ ago(checks.at) }}</template>
+          <template v-else>Not checked yet</template>
+        </span>
+        <Button size="sm" variant="outline" class="ml-auto" :disabled="checking" @click="runChecks">{{ checking ? 'Checking…' : 'Check them all' }}</Button>
+      </header>
+      <p class="px-4 pt-3 text-xs text-muted-foreground">One small real request to each: write a sentence, read a picture, say a line and hear it back, draw, play, fetch a page, render a clip, ask the agent. About a minute.</p>
+      <ul class="grid gap-x-6 gap-y-2 p-4 text-xs sm:grid-cols-2 xl:grid-cols-3">
+        <li v-for="c in checks?.checks || []" :key="c.name" class="flex gap-2">
+          <Icon :name="c.ok === null ? 'lucide:circle-dashed' : c.ok ? 'lucide:circle-check' : (c.optional ? 'lucide:circle-minus' : 'lucide:circle-x')" class="mt-0.5 h-4 w-4 shrink-0" :class="c.ok ? 'text-primary' : c.ok === false && !c.optional ? 'text-destructive' : 'text-muted-foreground'" />
+          <span class="min-w-0">
+            <span class="font-medium capitalize">{{ c.name }}</span>
+            <span class="text-muted-foreground"> · {{ c.purpose }}</span>
+            <span class="block break-words text-muted-foreground">{{ c.ok === null ? '' : c.ok ? 'Working' : 'Not working' }}<template v-if="c.seconds !== null"> in {{ c.seconds }}s</template><template v-if="c.detail">: {{ c.detail }}</template></span>
+          </span>
+        </li>
+      </ul>
+    </section>
+
+    <!-- A story video, played -->
+    <div v-if="watching" class="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4" role="dialog" aria-modal="true" :aria-label="watching.title" @click.self="watching = null" @keydown.esc="watching = null">
+      <div class="w-full max-w-4xl">
+        <video controls autoplay class="aspect-video w-full rounded-lg bg-black" :src="`${apiBase}/api/videos/${watching.id}/video.mp4?v=${watching.updated_at}`" />
+        <div class="mt-2 flex items-center justify-between gap-3 text-sm text-neutral-200">
+          <span class="truncate">{{ watching.title }}</span>
+          <button type="button" class="rounded bg-neutral-700 px-3 py-1 text-neutral-100" autofocus @click="watching = null">Close</button>
+        </div>
+      </div>
     </div>
 
     <!-- The digest as the e-reader shows it -->

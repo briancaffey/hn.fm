@@ -3250,6 +3250,25 @@ def radio_edition_video(edition_id: str) -> Dict[str, any]:
     return {"status": "ok" if out else "failed", "edition": edition_id}
 
 
+@celery_app.task(name="hnfm.web.tasks.story_video", time_limit=3600, soft_time_limit=3480)
+def story_video(item_id: int, run: int, seg: int, direct: bool = True) -> Dict[str, any]:
+    """The story video for a narrated segment: one HyperFrames composition,
+    its scenes directed by Hermes (hyperframes/videos.py)."""
+    from ..hyperframes import videos
+
+    st = videos.make(item_id, run, seg, direct=direct)
+    return {k: st.get(k) for k in ("id", "state", "directed", "plain", "seconds", "error")}
+
+
+@celery_app.task(name="hnfm.web.tasks.inference_check", time_limit=900, soft_time_limit=840)
+def inference_check() -> Dict[str, any]:
+    """One real request to every model and service (inference.py)."""
+    from .. import inference
+
+    got = inference.check()
+    return {"ok": got["ok"], "working": got["working"], "of": got["of"]}
+
+
 @celery_app.task(name="hnfm.web.tasks.radio_fill_bank", time_limit=900, soft_time_limit=840)
 def radio_fill_bank(max_new: int = 4) -> Dict[str, any]:
     """Top up the stock: beds, jingles and station IDs for the shows on now and next."""
