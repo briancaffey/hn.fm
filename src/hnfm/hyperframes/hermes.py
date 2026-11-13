@@ -1,10 +1,10 @@
 """Talking to Hermes, the agent that writes the scenes.
 
 hn.fm speaks to one Hermes profile of its own (`hnfm`) over the agent's
-HTTP API. That profile has a single tool, reading skills, and its own key:
-what it is sent is written from pages by strangers, so it is given nothing
-it could be talked into misusing. The skill it works from is
-`hermes/skills/hnfm-video` in this repository.
+HTTP API. That profile has no tools and its own key: what it is sent is
+written from pages by strangers, so it is given nothing it could be talked
+into misusing. The skill it works from (`skill/SKILL.md`, beside this
+file) is sent with each request as the run's instructions.
 
 A run is submitted and polled rather than held open: a scene can take a
 minute, and a held connection through a restart is a lost scene.

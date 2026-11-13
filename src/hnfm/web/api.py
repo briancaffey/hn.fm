@@ -2537,6 +2537,8 @@ async def story_video_make(request: dict = Body(default={})):
         if not runs:
             raise HTTPException(status_code=404, detail="this story has no narrated segment")
         run, seg = runs[0]["run"], runs[0]["seg"]
+    if videos.busy(videos.video_id(item_id, run, seg)):
+        raise HTTPException(status_code=409, detail="this video is already being made")
     item = get_item(item_id)
     videos.queued(item_id, run, seg, title=(item.title if item else ""))
     t = story_video.apply_async(kwargs={"item_id": item_id, "run": run, "seg": seg,

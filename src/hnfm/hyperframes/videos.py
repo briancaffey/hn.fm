@@ -95,6 +95,24 @@ def remove(vid: str) -> bool:
     return True
 
 
+WORKING = ("building", "directing", "rendering")
+STALE_SECONDS = 45 * 60
+
+
+def busy(vid: str) -> bool:
+    """Is this video being asked for or made right now? A status that has
+    not moved in 45 minutes belongs to a worker that died, and does not
+    count."""
+    st = get(vid)
+    if not st or st.get("state") not in WORKING + ("queued",):
+        return False
+    try:
+        age = (datetime.now(timezone.utc) - datetime.fromisoformat(st["updated_at"])).total_seconds()
+    except (KeyError, ValueError, TypeError):
+        return False
+    return age < STALE_SECONDS
+
+
 def queued(item_id: int, run: int, seg: int, title: str = "") -> Dict:
     """Mark a video as asked for, so the desk shows it before work starts."""
     vid = video_id(item_id, run, seg)
@@ -110,6 +128,11 @@ def make(item_id: int, run: int, seg: int, direct: bool = True) -> Dict:
     vid = video_id(item_id, run, seg)
     started = time.time()
     st = get(vid) or {"id": vid, "item_id": item_id, "run": run, "seg": seg}
+    # The same job delivered twice would have two workers rewriting one
+    # project under each other. The second one leaves.
+    if st.get("state") in WORKING and busy(vid):
+        logger.info(f"story video {vid}: already being made; leaving it alone")
+        return {**st, "state": "busy"}
     st.update(state="building", step="reading the narration", error=None, scenes=[])
     os.makedirs(folder(vid), exist_ok=True)
     _save(vid, st)

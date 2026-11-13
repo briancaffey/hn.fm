@@ -193,6 +193,20 @@ class TestVideos:
         assert [v["id"] for v in videos.listing()] == ["1-1-1"]
         assert videos.remove("1-1-1") and videos.get("1-1-1") is None
 
+    def test_a_video_in_the_making_is_not_started_twice(self, tmp_path, monkeypatch):
+        from hnfm.hyperframes import videos
+
+        monkeypatch.setenv("OUTPUTS_DIR", str(tmp_path))
+        videos.queued(1, 1, 1)
+        assert videos.busy("1-1-1")
+        st = videos.get("1-1-1")
+        st["state"] = "directing"
+        videos._save("1-1-1", st)
+        assert videos.make(1, 1, 1)["state"] == "busy"
+        # a status that stopped moving belongs to a worker that died
+        monkeypatch.setattr(videos, "STALE_SECONDS", -1)
+        assert not videos.busy("1-1-1")
+
     def test_remove_stays_inside_the_videos_folder(self, tmp_path, monkeypatch):
         from hnfm.hyperframes import videos
 
