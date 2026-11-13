@@ -17,8 +17,11 @@
 // Kept dependency-free (Node stdlib only) so the image stays small and portable.
 import http from "node:http";
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync } from "node:fs";
-import { dirname } from "node:path";
+import { chmodSync, existsSync, mkdirSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
+
+// The workers run as another user and read what is written here.
+process.umask(0o002);
 
 const PORT = process.env.PORT || 8088;
 
@@ -289,6 +292,14 @@ async function frames({ project, at = [], output }) {
     const args = ["snapshot", project, "-o", output, "--no-end", "--describe", "false"];
     if (at.length) args.push("--at", at.map((t) => Number(t).toFixed(2)).join(","));
     const r = await cli(args, { timeout: 600 });
+    // The CLI writes its frames readable by their owner only, and the
+    // worker that asked for them is somebody else.
+    try {
+      chmodSync(output, 0o2775);
+      for (const name of readdirSync(output)) chmodSync(join(output, name), 0o664);
+    } catch (e) {
+      console.error("frames: could not open up", output, String(e));
+    }
     return { ok: r.code === 0, code: r.code, output, log: (r.out + r.err).slice(-1500) };
   } finally {
     release();
