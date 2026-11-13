@@ -8,7 +8,7 @@ there is one ranking implementation rather than two that drift.
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import List, Optional
 
 logger = logging.getLogger(__name__)
@@ -85,8 +85,12 @@ def select_stories(
     # represented. With ~400 scored stories and 20 tagged `new`, a window of 48
     # contained almost none of them and the edition came out with two stories.
     fetch_limit = 600 if source else max(limit * 6, 30)
+    # The window is by when the story was posted, and the store applies it:
+    # ranked across everything ever scored, today's stories never reach the
+    # first few dozen rows. (An earlier check here compared a date with a
+    # string and so never dropped anything.)
     rows, _total = repo.list_triage(
-        offset=0, limit=fetch_limit, include_generated=True
+        offset=0, limit=fetch_limit, include_generated=True, since_hours=since_hours
     )
 
     # Re-order by INTEREST, not by the queue's rank_score. rank_score is
@@ -118,10 +122,6 @@ def select_stories(
     if exclude_recent_days:
         excluded |= repo.recently_published_item_ids(days=exclude_recent_days)
 
-    cutoff = (
-        datetime.utcnow() - timedelta(hours=since_hours) if since_hours else None
-    )
-
     stories: List[DigestStory] = []
     skipped_no_brief = 0
     # `skip` counts stories that PASSED the brief filter, not raw rows — an
@@ -136,10 +136,6 @@ def select_stories(
         if item_id is None or run is None:
             continue
         if item_id in excluded:
-            continue
-
-        created = row.get("created_at") or row.get("scored_at")
-        if cutoff and isinstance(created, datetime) and created < cutoff:
             continue
 
         # By latest brief, not by scored run: a story's newest score and its

@@ -241,3 +241,20 @@ def test_score_unbriefed_uses_a_repo_function_that_exists(monkeypatch):
     monkeypatch.setattr(tasks, "score_run", lambda item_id, run: seen.setdefault("scored", (item_id, run)))
     assert tasks._score_unbriefed(5) == 1
     assert seen["scored"] == (7, 3)
+
+
+def test_the_window_is_applied_by_the_store(monkeypatch):
+    """A window is by when the story was posted. Ranked across everything
+    ever scored, today's stories are not in the first rows at all."""
+    from hnfm.db import repo
+    from hnfm.digest import select as _select
+
+    seen = {}
+
+    def fake(**kw):
+        seen.update(kw)
+        return [], 0
+
+    monkeypatch.setattr(repo, "list_triage", fake)
+    _select.select_stories(limit=5, since_hours=24)
+    assert seen["since_hours"] == 24
