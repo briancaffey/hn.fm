@@ -235,6 +235,22 @@ HANDOVERS = ("{name} has been looking at it.", "{name} is on the line.", "Over t
 THANKS = ("Thanks, {name}.", "{name}, thank you.", "Thank you, {name}.")
 
 
+_GREETING = re.compile(r"^\s*good (morning|afternoon|evening)\b", re.I)
+
+
+def greet(lines: List[dict], hour: int) -> List[dict]:
+    """Make a greeting agree with the clock. The writer takes "Good
+    afternoon" from its example whatever the hour is."""
+    word = "morning" if 4 <= hour < 12 else "afternoon" if hour < 18 else "evening"
+    if hour < 4:
+        word = "evening"
+
+    def fix(m):
+        return "Good " + word
+
+    return [{**l, "text": _GREETING.sub(fix, l.get("text") or "")} for l in lines]
+
+
 def dress_correspondent(lines: List[dict], host: str, reporter: str, seed: int = 0) -> List[dict]:
     """The handover and the thank-you around a correspondent's report.
     The writer is asked for the report only: asked for the whole exchange

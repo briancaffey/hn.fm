@@ -1080,3 +1080,13 @@ class TestDeskSettings:
         monkeypatch.setattr(repo, "get_setting", away)
         monkeypatch.setenv("RADIO_PRODUCE", "always")
         assert director.produce_mode() == "always"
+
+
+def test_a_greeting_follows_the_clock():
+    from hnfm.radio import writers
+
+    lines = [{"speaker": "sofia", "text": "Good afternoon. This is the bulletin."}]
+    assert writers.greet(lines, 10)[0]["text"].startswith("Good morning.")
+    assert writers.greet(lines, 15)[0]["text"].startswith("Good afternoon.")
+    assert writers.greet(lines, 23)[0]["text"].startswith("Good evening.")
+    assert writers.greet([{"text": "It was a good morning for chips."}], 20)[0]["text"] == "It was a good morning for chips."

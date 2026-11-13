@@ -131,6 +131,9 @@ def _song(item: dict, sh, out_dir: str, usage: dict) -> bool:
     return True
 
 
+from .format import station_now  # noqa: E402
+
+
 def produce(sheet: dict, save=None, at=None) -> dict:
     """Make every item of a planned sheet. `save(items)` is called after
     each item so the control room can watch the block fill in. `at` is the
@@ -231,6 +234,7 @@ def produce(sheet: dict, save=None, at=None) -> dict:
                 if not piece or not piece.lines:
                     _skip(item, "the writers had nothing")
                     continue
+                piece.lines = writers.greet(piece.lines, (at or station_now()).hour)
                 if seg.key == "correspondent" and len(item["speakers"]) > 1:
                     piece.lines = writers.dress_correspondent(piece.lines, item["speakers"][0], item["speakers"][1],
                                                               seed=hash((sheet_id, item["n"])) % 9973)
