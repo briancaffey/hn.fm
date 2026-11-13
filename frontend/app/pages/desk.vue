@@ -44,7 +44,7 @@ const candidates = ref<Candidate[]>([])
 const agent = ref(false)
 const pick = ref('')
 const watching = ref<StoryVideo | null>(null)
-const checks = ref<{ at: string | null, checks: Check[], working?: number, of?: number } | null>(null)
+const checks = ref<{ at: string | null, running?: boolean, checks: Check[], working?: number, of?: number } | null>(null)
 const checking = ref(false)
 const note = ref<Record<string, string>>({})
 const preview = ref<Digest | null>(null)
@@ -70,7 +70,7 @@ async function load() {
   ])
   if (vd.status === 'fulfilled') { videos.value = vd.value.videos; candidates.value = vd.value.candidates; agent.value = vd.value.agent }
   if (inf.status === 'fulfilled') {
-    if (checking.value && inf.value?.at !== checks.value?.at) checking.value = false
+    if (checking.value && inf.value?.at && inf.value.at !== checks.value?.at) checking.value = false
     checks.value = inf.value
   }
   if (radio.value?.enabled) {
@@ -432,6 +432,7 @@ const working = computed(() => log.value.some(l => Date.now() - new Date(l.at + 
         <h2 class="text-sm font-semibold">The models</h2>
         <span class="text-xs text-muted-foreground">
           <template v-if="checks?.at">{{ checks.working }} of {{ checks.of }} working · checked {{ ago(checks.at) }}</template>
+          <template v-else-if="checks?.running">Checking now</template>
           <template v-else>Not checked yet</template>
         </span>
         <Button size="sm" variant="outline" class="ml-auto" :disabled="checking" @click="runChecks">{{ checking ? 'Checking…' : 'Check them all' }}</Button>

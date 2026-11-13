@@ -133,6 +133,26 @@ def _agent() -> str:
     return hermes.ping()
 
 
+# How long each may take before it is called not working. A model that has
+# stopped answering holds a request open for minutes; the check does not wait.
+LIMITS = {"writer": 40, "vision": 40, "speech": 40, "hearing": 40, "image": 90, "music": 150,
+          "scrape": 40, "render": 120, "agent": 100, "motion": 10}
+
+
+def _within(seconds: int, fn: Callable, *args):
+    """Run `fn`, giving up after `seconds`. The abandoned call is left to
+    finish on its own thread; nothing waits for it."""
+    import concurrent.futures as cf
+
+    pool = cf.ThreadPoolExecutor(max_workers=1)
+    try:
+        return pool.submit(fn, *args).result(timeout=seconds)
+    except cf.TimeoutError:
+        raise RuntimeError(f"no answer within {seconds} seconds") from None
+    finally:
+        pool.shutdown(wait=False)
+
+
 # name, what it is for, the check, whether the project can work without it
 CHECKS: List[Tuple[str, str, Callable, bool]] = [
     ("writer", "Every script, brief, score and digest", _llm, False),
@@ -157,31 +177,40 @@ def check(names: Optional[List[str]] = None) -> Dict:
         t = time.time()
         row = {"name": name, "purpose": purpose, "optional": optional}
         try:
+            limit = LIMITS.get(name, 60)
             if name == "speech":
-                detail, wav = fn()
+                detail, wav = _within(limit, fn)
             elif name == "hearing":
                 if wav is None:
-                    _d, wav = _speech()
-                detail = fn(wav)
+                    _d, wav = _within(limit, _speech)
+                detail = _within(limit, fn, wav)
             else:
-                detail = fn()
+                detail = _within(limit, fn)
             row.update(ok=True, detail=detail)
         except Exception as e:
             row.update(ok=False, detail=str(e)[:240])
         row["seconds"] = round(time.time() - t, 1)
         rows.append(row)
         logger.info(f"inference check: {name} {'ok' if row['ok'] else 'FAILED'} in {row['seconds']}s: {row['detail']}")
+        if not names:
+            _keep({"at": None, "running": True, "checks": rows + [
+                {"name": n, "purpose": p, "optional": o, "ok": None, "detail": "waiting", "seconds": None}
+                for n, p, _f, o in CHECKS[len(rows):]]})
     result = {"at": datetime.now(timezone.utc).isoformat(), "checks": rows,
               "ok": all(r["ok"] or r["optional"] for r in rows),
               "working": sum(1 for r in rows if r["ok"]), "of": len(rows)}
     if not names:
-        try:
-            from .db import repo
-
-            repo.set_setting(SETTING, result)
-        except Exception as e:
-            logger.warning(f"inference check: could not keep the result: {e}")
+        _keep(result)
     return result
+
+
+def _keep(result: Dict) -> None:
+    try:
+        from .db import repo
+
+        repo.set_setting(SETTING, result)
+    except Exception as e:
+        logger.warning(f"inference check: could not keep the result: {e}")
 
 
 def last() -> Optional[Dict]:

@@ -139,7 +139,8 @@ celery_app.conf.task_routes = {
     "hnfm.web.tasks.radio_edition_video": {"queue": QUEUE_RADIO},
     "hnfm.web.tasks.radio_fill_bank": {"queue": QUEUE_RENDER},
     "hnfm.web.tasks.story_video": {"queue": QUEUE_RENDER},
-    "hnfm.web.tasks.inference_check": {"queue": QUEUE_RENDER},
+    # Not the render lane: a check must never queue behind a render, or hold one up.
+    "hnfm.web.tasks.inference_check": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.radio_monitor": {"queue": QUEUE_INGEST},
     "hnfm.web.tasks.score_backlog": {"queue": QUEUE_TRIAGE},
     "hnfm.web.tasks.build_digest": {"queue": QUEUE_DIGEST},
