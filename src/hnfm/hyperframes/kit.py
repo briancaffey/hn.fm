@@ -248,7 +248,10 @@ def plain_scene(sc: Dict) -> str:
     if inner:
         box = ('<div class="k-card" style="align-self:flex-start;display:flex;flex-direction:column;gap:14px">'
                if img else '<div style="display:flex;flex-direction:column;gap:18px;align-items:flex-start">')
-        parts.append('  <div class="k-safe" style="justify-content:flex-end">' + box + "".join(inner) + "</div></div>")
+        # Over a picture the words sit low, clear of a two-line caption;
+        # with nothing behind them they take the middle of the frame.
+        place = "justify-content:flex-end;padding-bottom:40px;box-sizing:border-box" if img else "justify-content:center"
+        parts.append(f'  <div class="k-safe" style="{place}">' + box + "".join(inner) + "</div></div>")
     return wrap(cid, "", "\n".join(parts), "\n".join(script))
 
 
