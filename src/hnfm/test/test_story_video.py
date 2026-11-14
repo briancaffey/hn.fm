@@ -268,3 +268,52 @@ class TestThemesRead:
 
     def test_a_readable_colour_is_left_alone(self):
         assert kit.readable("#2563eb", "#ffffff") == "#2563eb"
+
+
+class TestShots:
+    """A section is cut into short shots, each with pictures of its own."""
+
+    def _section(self, seconds=15.0):
+        text = ("Kurt Gödel left 1,009 pages of shorthand, and a logician fed them to an AI. "
+                "In two days it produced a digest. It found hundreds of theorems no one knew existed.")
+        sc = {"n": 1, "section": 1, "speaker": "S1", "beat": "", "text": text, "start": 10.0, "seconds": seconds,
+              "cues": story.cues(text, 10.0, 10.0 + seconds, []), "image": "hero.png",
+              "frames": ["hero.png", "f2.png", "f3.png", "f4.png", "f5.png"]}
+        return sc
+
+    def test_beats_cover_the_section_end_to_end_and_are_shot_length(self):
+        sc = self._section()
+        bs = story.beats(sc, [])
+        assert len(bs) >= 2
+        assert bs[0]["start"] == sc["start"]
+        assert abs(sum(b["seconds"] for b in bs) - sc["seconds"]) < 0.05
+        for a, b in zip(bs, bs[1:]):
+            assert abs(a["start"] + a["seconds"] - b["start"]) < 0.02
+        assert all(b["seconds"] >= story.BEAT_MIN - 0.01 for b in bs)
+        assert bs[0]["image"] == "hero.png" and bs[1]["image"] is None
+
+    def test_the_sections_frames_are_spread_over_its_beats(self):
+        bs = story.beats(self._section(), [])
+        got = [kit.shot_sources({**b, "n": i + 1}) for i, b in enumerate(bs)]
+        flat = [p for g in got for p in g]
+        assert flat[0] == "hero.png"
+        assert len(set(flat)) == len(flat)  # no frame is shown twice
+
+    def test_a_beats_own_picture_leads(self):
+        b = {**story.beats(self._section(), [])[1], "n": 2, "picture": "own.png"}
+        assert kit.shot_sources(b)[0] == "own.png"
+
+    def test_numbers_count_but_years_do_not(self):
+        from hnfm.hyperframes import cinema
+
+        assert cinema.countable("1,009 pages") == ("", 1009.0, 0, True, " pages")
+        assert cinema.countable("$2.5B")[1] == 2.5
+        assert cinema.countable("1940") is None
+        assert cinema.countable("unified memory") is None
+
+    def test_words_are_revealed_when_said(self):
+        from hnfm.hyperframes import cinema
+
+        sc = {"seconds": 5.0, "words": [{"w": "Von", "t": 0.4}, {"w": "Plato", "t": 0.6}, {"w": "was", "t": 0.9},
+                                         {"w": "flabbergasted,", "t": 1.1}]}
+        assert cinema.spoken_times(sc, ["Von", "Plato", "was", "flabbergasted"], 0.2, 0.2) == [0.4, 0.6, 0.9, 1.1]

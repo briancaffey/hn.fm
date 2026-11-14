@@ -20,7 +20,7 @@ import time
 from datetime import datetime, timezone
 from typing import Dict, List, Optional
 
-from . import author, hermes, kit, render_client, story
+from . import author, hermes, kit, music, pictures, render_client, story
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +95,7 @@ def remove(vid: str) -> bool:
     return True
 
 
-WORKING = ("building", "directing", "rendering")
+WORKING = ("building", "drawing", "directing", "rendering")
 STALE_SECONDS = 45 * 60
 
 
@@ -148,6 +148,20 @@ def make(item_id: int, run: int, seg: int, direct: bool = True) -> Dict:
         return fail("this segment has no narration to build on")
     project = os.path.join(folder(vid), "project")
     shutil.rmtree(project, ignore_errors=True)
+
+    # Pictures and music come before the build: the kit lays the pictures
+    # into every shot. Both are asked of the agent and made on the home lab.
+    if direct and hermes.configured():
+        def say(step):
+            st.update(state="drawing", step=step)
+            _save(vid, st)
+        say("describing a picture for each shot")
+        try:
+            st["pictures"] = pictures.make(brief, folder(vid), say)
+        except Exception as e:
+            st["pictures"] = {"error": str(e)[:200]}
+        say("scoring the music")
+        st["music"] = music.make(brief, folder(vid))
     try:
         brief = kit.build(brief, project)
     except Exception as e:

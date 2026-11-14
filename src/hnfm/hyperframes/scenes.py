@@ -13,6 +13,7 @@ model returned the worked example with a number of its own invention.
 import re
 from typing import Callable, Dict, List, Optional, Tuple
 
+from . import cinema
 from .kit import esc, scene_id, wrap
 
 EASE = "power3.out"
@@ -121,16 +122,6 @@ def _soon(t: float, sc: Dict, share: float = 0.35) -> float:
     return round(min(t, max(0.4, sc["seconds"] * share)), 2)
 
 
-def _backdrop(cid: str, sc: Dict, strength: float = 0.08) -> Tuple[str, str]:
-    """The scene's still, dimmed, behind a text treatment."""
-    if not sc.get("asset"):
-        return "", ""
-    # Blurred as well as dimmed: many stills carry words of their own.
-    body = (f'  <img id="{cid}-back" class="k-img" src="{sc["asset"]}" alt="" style="opacity:{strength};filter:blur(10px)"/>')
-    js = (f'  tl.fromTo("#{cid}-back", {{ scale: 1.04 }}, {{ scale: 1.12, duration: {sc["seconds"]:.2f}, ease: "none" }}, 0);')
-    return body, js
-
-
 def _fit(text: str, steps: List[Tuple[int, int]]) -> int:
     """A font size for a string: the first (max characters, size) it fits."""
     n = len(text)
@@ -140,33 +131,38 @@ def _fit(text: str, steps: List[Tuple[int, int]]) -> int:
     return steps[-1][1]
 
 
-def figure(sc: Dict, c: Dict) -> str:
-    cid = scene_id(sc["n"])
-    value, label, kicker = str(c["value"]), str(c["label"]), str(c.get("kicker") or "")
-    size = _fit(value, [(4, 250), (6, 210), (9, 160), (13, 120), (99, 92)])
-    t = _soon(when(sc, value, 0.4), sc)
-    back, back_js = _backdrop(cid, sc)
-    body = f"""{back}
-  <div class="k-safe">
-    {f'<p id="{cid}-kick" class="k-kicker">{esc(kicker)}</p>' if kicker else ''}
-    <p id="{cid}-val" class="k-stat" style="font-size:{size}px">{esc(value)}</p>
-    <div id="{cid}-rule" class="k-rule"></div>
-    <p id="{cid}-label" class="k-body" style="font-size:40px;max-width:900px">{esc(label)}</p>
-  </div>"""
-    js = [back_js] if back_js else []
-    if kicker:
-        js.append(f'  tl.fromTo("#{cid}-kick", {{ opacity: 0.5 }}, {{ opacity: 1, duration: 0.4 }}, 0);')
-    js += [
-        f'  tl.fromTo("#{cid}-val", {{ y: 70, opacity: 0, scale: 0.92, transformOrigin: "0 100%" }}, {{ y: 0, opacity: 1, scale: 1, duration: 0.7, ease: "{EASE}" }}, {t});',
-        f'  tl.fromTo("#{cid}-rule", {{ scaleX: 0, transformOrigin: "0 50%" }}, {{ scaleX: 1, duration: 0.5, ease: "power2.out" }}, {t + 0.35:.2f});',
-        f'  tl.fromTo("#{cid}-label", {{ y: 16, opacity: 0 }}, {{ y: 0, opacity: 1, duration: 0.5, ease: "{EASE}" }}, {min(0.3, t):.2f});',
-    ]
-    return wrap(cid, "", body, "\n".join(js))
-
-
 def _num(s) -> Optional[float]:
     m = re.search(r"-?\d[\d,]*(?:\.\d+)?", str(s))
     return float(m.group(0).replace(",", "")) if m else None
+
+
+def _side(sc: Dict) -> str:
+    """Panels alternate sides so consecutive shots do not stack the same way."""
+    return "left" if sc["n"] % 2 else "right"
+
+
+def _scene(cid: str, sc: Dict, style: str, inner: str, t: float, place: str, js: List[str],
+           panel_style: str = "") -> str:
+    back, back_js = cinema.plate(cid, sc)
+    box, box_js = cinema.panel(cid, inner, t, place, panel_style)
+    return wrap(cid, style, back + "\n" + box, "\n".join(back_js + box_js + js))
+
+
+def figure(sc: Dict, c: Dict) -> str:
+    cid = scene_id(sc["n"])
+    value, label, kicker = str(c["value"]), str(c["label"]), str(c.get("kicker") or "")
+    size = _fit(value, [(4, 168), (6, 140), (9, 112), (13, 86), (99, 66)])
+    t = _soon(when(sc, value, 0.4), sc)
+    inner = (f'{f"<p id={chr(34)}{cid}-kick{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(kicker)}</p>" if kicker else ""}'
+             f'<p id="{cid}-val" class="k-stat" style="font-size:{size}px;font-variant-numeric:tabular-nums">{esc(value)}</p>'
+             f'<div id="{cid}-rule" class="k-rule"></div>'
+             f'<p id="{cid}-label" class="k-body" style="font-size:34px">{esc(label)}</p>')
+    js = [
+        f'  tl.fromTo("#{cid}-val", {{ y: 34, opacity: 0 }}, {{ y: 0, opacity: 1, duration: 0.6, ease: "expo.out" }}, {t + 0.15:.2f});',
+        f'  tl.fromTo("#{cid}-rule", {{ scaleX: 0, transformOrigin: "0 50%" }}, {{ scaleX: 1, duration: 0.5, ease: "power2.out" }}, {t + 0.5:.2f});',
+        f'  tl.fromTo("#{cid}-label", {{ opacity: 0, filter: "blur(6px)" }}, {{ opacity: 1, filter: "blur(0px)", duration: 0.25 }}, {t + 0.7:.2f});',
+    ] + cinema.count_up(cid, f"{cid}-val", value, t + 0.15, sc["seconds"])
+    return _scene(cid, sc, "", inner, max(0.1, t - 0.25), _side(sc), js)
 
 
 def compare(sc: Dict, c: Dict) -> str:
@@ -177,36 +173,32 @@ def compare(sc: Dict, c: Dict) -> str:
     tl_ = _soon(tl_, sc, 0.15)
     tr_ = max(tl_ + 0.5, _soon(tr_, sc, 0.55))
     a, b = _num(left["value"]), _num(right["value"])
-    bars = a is not None and b is not None and max(a, b) > 0
+    bars_on = a is not None and b is not None and max(a, b) > 0
     style = f"""
-#{cid}-cols{{display:flex;gap:40px;align-items:stretch}}
-#{cid}-l,#{cid}-r{{flex:1;display:flex;flex-direction:column;gap:12px;padding:30px 34px;border-radius:18px;
-  background:var(--panel);border-top:8px solid var(--accent)}}
-#{cid}-r{{border-top-color:var(--muted)}}
+#{cid}-cols{{display:flex;gap:28px;align-items:stretch}}
+#{cid}-l,#{cid}-r{{flex:1;display:flex;flex-direction:column;gap:10px;padding:6px 0 0 22px;border-left:6px solid var(--accent)}}
+#{cid}-r{{border-left-color:var(--muted)}}
 #{cid}-root .v{{font-family:var(--display);font-weight:800;line-height:1;letter-spacing:-.03em;margin:0;color:var(--ink)}}
-#{cid}-root .n{{font-family:var(--body);font-weight:600;font-size:26px;letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--muted)}}
-#{cid}-root .b{{height:16px;border-radius:8px;background:var(--accent);transform-origin:0 50%}}
+#{cid}-root .n{{font-family:var(--body);font-weight:600;font-size:21px;letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--muted)}}
+#{cid}-root .b{{height:14px;border-radius:7px;background:var(--accent);transform-origin:0 50%}}
 #{cid}-r .b{{background:var(--muted)}}
 """
-    def col(side, d, bar_pct):
+    top = max(a or 0, b or 0) or 1
+
+    def col(side, d, pct):
         v = str(d["value"])
-        size = _fit(v, [(5, 120), (9, 92), (16, 62), (99, 44)])
-        bar = (f'<div id="{cid}-{side}b" class="b" style="width:{bar_pct}%"></div>' if bars else "")
+        size = _fit(v, [(5, 92), (9, 70), (16, 50), (99, 38)])
+        bar = f'<div id="{cid}-{side}b" class="b" style="width:{pct}%"></div>' if bars_on else ""
         return (f'<div id="{cid}-{side}"><p class="n">{esc(d["name"])}</p>'
                 f'<p class="v" style="font-size:{size}px">{esc(v)}</p>{bar}</div>')
-    top = max(a or 0, b or 0) or 1
-    body = f"""  <div class="k-safe">
-    {f'<p id="{cid}-title" class="k-kicker">{esc(title)}</p>' if title else ''}
-    <div id="{cid}-cols">{col('l', left, round(100 * (a or 0) / top))}{col('r', right, round(100 * (b or 0) / top))}</div>
-  </div>"""
+    inner = (f'{f"<p id={chr(34)}{cid}-title{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(title)}</p>" if title else ""}'
+             f'<div id="{cid}-cols">{col("l", left, round(100 * (a or 0) / top))}{col("r", right, round(100 * (b or 0) / top))}</div>')
     js = []
-    if title:
-        js.append(f'  tl.fromTo("#{cid}-title", {{ opacity: 0.5 }}, {{ opacity: 1, duration: 0.4 }}, 0);')
     for side, t in (("l", tl_), ("r", tr_)):
-        js.append(f'  tl.fromTo("#{cid}-{side}", {{ y: 50, opacity: 0 }}, {{ y: 0, opacity: 1, duration: 0.6, ease: "{EASE}" }}, {t});')
-        if bars:
-            js.append(f'  tl.fromTo("#{cid}-{side}b", {{ scaleX: 0 }}, {{ scaleX: 1, duration: 0.8, ease: "power2.out" }}, {t + 0.3:.2f});')
-    return wrap(cid, style, body, "\n".join(js))
+        js.append(f'  tl.fromTo("#{cid}-{side}", {{ x: 30, opacity: 0 }}, {{ x: 0, opacity: 1, duration: 0.55, ease: "expo.out" }}, {t + 0.2:.2f});')
+        if bars_on:
+            js.append(f'  tl.fromTo("#{cid}-{side}b", {{ scaleX: 0 }}, {{ scaleX: 1, duration: 0.8, ease: "power2.out" }}, {t + 0.45:.2f});')
+    return _scene(cid, sc, style, inner, max(0.1, tl_ - 0.2), "low", js, "width:860px")
 
 
 def bars(sc: Dict, c: Dict) -> str:
@@ -217,28 +209,27 @@ def bars(sc: Dict, c: Dict) -> str:
     times = _spread(sc, [f'{r["name"]} {r["value"]}' for r in rows], 0.5)
     times[0] = _soon(times[0], sc, 0.15)
     style = f"""
-#{cid}-rows{{display:flex;flex-direction:column;gap:26px;margin-top:10px}}
-#{cid}-root .row{{display:grid;grid-template-columns:300px 1fr;align-items:center;gap:24px}}
-#{cid}-root .name{{font-family:var(--body);font-weight:600;font-size:32px;margin:0;color:var(--ink)}}
-#{cid}-root .track{{display:flex;align-items:center;gap:20px}}
-#{cid}-root .bar{{height:60px;border-radius:10px;background:var(--accent);transform-origin:0 50%}}
-#{cid}-root .val{{font-family:var(--display);font-weight:800;font-size:46px;margin:0;color:var(--ink);white-space:nowrap}}
+#{cid}-rows{{display:flex;flex-direction:column;gap:16px;margin-top:4px}}
+#{cid}-root .row{{display:grid;grid-template-columns:190px 1fr;align-items:center;gap:18px}}
+#{cid}-root .name{{font-family:var(--body);font-weight:600;font-size:24px;margin:0;color:var(--ink)}}
+#{cid}-root .track{{display:flex;align-items:center;gap:14px}}
+#{cid}-root .bar{{height:40px;border-radius:8px;background:var(--accent);transform-origin:0 50%}}
+#{cid}-root .val{{font-family:var(--display);font-weight:800;font-size:32px;margin:0;color:var(--ink);white-space:nowrap;font-variant-numeric:tabular-nums}}
 """
-    out, js = [], [f'  tl.fromTo("#{cid}-title", {{ y: 20, opacity: 0.4 }}, {{ y: 0, opacity: 1, duration: 0.5, ease: "{EASE}" }}, 0);']
+    out, js = [], []
     for i, r in enumerate(rows):
         pct = max(4, round(100 * (_num(r["value"]) or 0) / top))
         v = f'{r["value"]}{" " + unit if unit and unit.lower() not in str(r["value"]).lower() else ""}'
         out.append(f'<div class="row" id="{cid}-row{i}"><p class="name">{esc(r["name"])}</p><div class="track">'
-                   f'<div class="bar" id="{cid}-bar{i}" style="width:{pct * 0.62:.1f}%"></div>'
+                   f'<div class="bar" id="{cid}-bar{i}" style="width:{pct * 0.55:.1f}%"></div>'
                    f'<p class="val" id="{cid}-val{i}">{esc(v)}</p></div></div>')
-        js.append(f'  tl.fromTo("#{cid}-row{i}", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.3 }}, {times[i]});')
-        js.append(f'  tl.fromTo("#{cid}-bar{i}", {{ scaleX: 0 }}, {{ scaleX: 1, duration: 0.8, ease: "power2.out" }}, {times[i]});')
-        js.append(f'  tl.fromTo("#{cid}-val{i}", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.4 }}, {times[i] + 0.5:.2f});')
-    body = f"""  <div class="k-safe">
-    <p id="{cid}-title" class="k-title" style="font-size:48px">{esc(c['title'])}</p>
-    <div id="{cid}-rows">{''.join(out)}</div>
-  </div>"""
-    return wrap(cid, style, body, "\n".join(js))
+        t = times[i] + 0.2
+        js.append(f'  tl.fromTo("#{cid}-row{i}", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.25 }}, {t:.2f});')
+        js.append(f'  tl.fromTo("#{cid}-bar{i}", {{ scaleX: 0 }}, {{ scaleX: 1, duration: 0.9, ease: "power3.out" }}, {t:.2f});')
+        js += cinema.count_up(cid, f"{cid}-val{i}", v, t, sc["seconds"], 0.9)
+    inner = (f'<p id="{cid}-title" class="k-title" style="font-size:38px">{esc(c["title"])}</p>'
+             f'<div id="{cid}-rows">{"".join(out)}</div>')
+    return _scene(cid, sc, style, inner, max(0.1, times[0] - 0.2), _side(sc), js, "width:700px")
 
 
 def listing(sc: Dict, c: Dict) -> str:
@@ -247,26 +238,20 @@ def listing(sc: Dict, c: Dict) -> str:
     title = str(c.get("title") or "")
     times = _spread(sc, items, 0.5)
     times[0] = _soon(times[0], sc, 0.15)
-    size = 46 if max(len(i) for i in items) <= 26 else 38
+    size = 38 if max(len(i) for i in items) <= 22 else 32
     style = f"""
-#{cid}-items{{display:flex;flex-direction:column;gap:18px}}
-#{cid}-root .it{{display:flex;align-items:baseline;gap:24px}}
-#{cid}-root .no{{font-family:var(--body);font-weight:600;font-size:24px;letter-spacing:.1em;color:var(--accent);margin:0;min-width:44px}}
-#{cid}-root .tx{{font-family:var(--display);font-weight:800;font-size:{size}px;line-height:1.1;letter-spacing:-.02em;margin:0;color:var(--ink)}}
+#{cid}-items{{display:flex;flex-direction:column;gap:12px}}
+#{cid}-root .it{{display:flex;align-items:baseline;gap:18px}}
+#{cid}-root .no{{font-family:var(--body);font-weight:600;font-size:20px;letter-spacing:.1em;color:var(--accent);margin:0;min-width:34px}}
+#{cid}-root .tx{{font-family:var(--display);font-weight:800;font-size:{size}px;line-height:1.08;letter-spacing:-.02em;margin:0;color:var(--ink)}}
 """
-    back, back_js = _backdrop(cid, sc)
-    rows, js = [], ([back_js] if back_js else [])
-    if title:
-        js.append(f'  tl.fromTo("#{cid}-title", {{ opacity: 0.5 }}, {{ opacity: 1, duration: 0.4 }}, 0);')
+    rows, js = [], []
     for i, it in enumerate(items):
         rows.append(f'<div class="it" id="{cid}-it{i}"><p class="no">{i + 1:02d}</p><p class="tx">{esc(it)}</p></div>')
-        js.append(f'  tl.fromTo("#{cid}-it{i}", {{ x: -40, opacity: 0 }}, {{ x: 0, opacity: 1, duration: 0.55, ease: "{EASE}" }}, {times[i]});')
-    body = f"""{back}
-  <div class="k-safe">
-    {f'<p id="{cid}-title" class="k-kicker">{esc(title)}</p>' if title else ''}
-    <div id="{cid}-items">{''.join(rows)}</div>
-  </div>"""
-    return wrap(cid, style, body, "\n".join(js))
+        js.append(f'  tl.fromTo("#{cid}-it{i}", {{ opacity: 0, filter: "blur(6px)" }}, {{ opacity: 1, filter: "blur(0px)", duration: 0.2 }}, {times[i] + 0.1:.2f});')
+    inner = (f'{f"<p id={chr(34)}{cid}-title{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(title)}</p>" if title else ""}'
+             f'<div id="{cid}-items">{"".join(rows)}</div>')
+    return _scene(cid, sc, style, inner, max(0.1, times[0] - 0.3), _side(sc), js)
 
 
 def steps(sc: Dict, c: Dict) -> str:
@@ -275,110 +260,84 @@ def steps(sc: Dict, c: Dict) -> str:
     title = str(c.get("title") or "")
     times = _spread(sc, items, 0.5)
     times[0] = _soon(times[0], sc, 0.15)
-    size = 36 if max(len(i) for i in items) <= 14 else 28
+    size = 30 if max(len(i) for i in items) <= 14 else 24
     style = f"""
 #{cid}-flow{{display:flex;align-items:center;gap:0}}
-#{cid}-root .st{{flex:1;min-height:150px;display:flex;align-items:center;justify-content:center;text-align:center;
-  padding:22px 18px;border-radius:18px;border:3px solid var(--accent);background:var(--panel)}}
+#{cid}-root .st{{flex:1;min-height:110px;display:flex;align-items:center;justify-content:center;text-align:center;
+  padding:16px 14px;border-radius:16px;border:3px solid var(--accent)}}
 #{cid}-root .st p{{font-family:var(--display);font-weight:800;font-size:{size}px;line-height:1.1;margin:0;color:var(--ink)}}
-#{cid}-root .ar{{width:54px;height:6px;background:var(--accent);transform-origin:0 50%;flex:none}}
+#{cid}-root .ar{{width:40px;height:5px;background:var(--accent);transform-origin:0 50%;flex:none}}
 """
     parts, js = [], []
-    if title:
-        js.append(f'  tl.fromTo("#{cid}-title", {{ opacity: 0.5 }}, {{ opacity: 1, duration: 0.4 }}, 0);')
     for i, it in enumerate(items):
         if i:
             parts.append(f'<div class="ar" id="{cid}-ar{i}"></div>')
-            js.append(f'  tl.fromTo("#{cid}-ar{i}", {{ scaleX: 0 }}, {{ scaleX: 1, duration: 0.35, ease: "power2.out" }}, {max(0.1, times[i] - 0.3):.2f});')
+            js.append(f'  tl.fromTo("#{cid}-ar{i}", {{ scaleX: 0 }}, {{ scaleX: 1, duration: 0.3, ease: "power2.out" }}, {max(0.2, times[i] - 0.2):.2f});')
         parts.append(f'<div class="st" id="{cid}-st{i}"><p>{esc(it)}</p></div>')
-        js.append(f'  tl.fromTo("#{cid}-st{i}", {{ scale: 0.86, opacity: 0 }}, {{ scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.4)" }}, {times[i]});')
-    body = f"""  <div class="k-safe">
-    {f'<p id="{cid}-title" class="k-kicker">{esc(title)}</p>' if title else ''}
-    <div id="{cid}-flow">{''.join(parts)}</div>
-  </div>"""
-    return wrap(cid, style, body, "\n".join(js))
+        js.append(f'  tl.fromTo("#{cid}-st{i}", {{ scale: 0.9, opacity: 0 }}, {{ scale: 1, opacity: 1, duration: 0.45, ease: "back.out(1.4)" }}, {times[i] + 0.1:.2f});')
+    inner = (f'{f"<p id={chr(34)}{cid}-title{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(title)}</p>" if title else ""}'
+             f'<div id="{cid}-flow">{"".join(parts)}</div>')
+    return _scene(cid, sc, style, inner, max(0.1, times[0] - 0.3), "wide", js)
 
 
 def phrase(sc: Dict, c: Dict) -> str:
+    """The line's own words, each appearing as the narrator says it."""
     cid = scene_id(sc["n"])
     words = str(c["words"]).split()
     accent = str(c.get("accent") or "").strip(".,;:!?").lower()
     kicker = str(c.get("kicker") or "")
-    size = _fit(" ".join(words), [(14, 136), (22, 112), (34, 92), (48, 76), (99, 62)])
+    size = _fit(" ".join(words), [(14, 104), (22, 88), (34, 72), (48, 60), (99, 50)])
     t0 = _soon(when(sc, " ".join(words), 0.3), sc, 0.2)
+    at = cinema.spoken_times(sc, words, t0, 0.18)
     style = f"""
-#{cid}-line{{display:flex;flex-wrap:wrap;gap:0 {round(size * 0.26)}px;max-width:1080px}}
-#{cid}-root .w{{display:block;font-family:var(--display);font-weight:800;font-size:{size}px;line-height:1.04;
+#{cid}-line{{display:flex;flex-wrap:wrap;gap:0 {round(size * 0.24)}px}}
+#{cid}-root .w{{display:block;font-family:var(--display);font-weight:800;font-size:{size}px;line-height:1.02;
   letter-spacing:-.035em;margin:0;color:var(--ink)}}
 #{cid}-root .w.hi{{color:var(--accent)}}
 """
-    back, back_js = _backdrop(cid, sc, 0.10)
-    spans, js = [], ([back_js] if back_js else [])
-    if kicker:
-        js.append(f'  tl.fromTo("#{cid}-kick", {{ opacity: 0.5 }}, {{ opacity: 1, duration: 0.4 }}, 0);')
-    gap = min(0.22, max(0.1, (sc["seconds"] - t0 - 1.5) / max(1, len(words))))
+    spans, js = [], []
     for i, w in enumerate(words):
         hi = " hi" if accent and w.strip(".,;:!?").lower() == accent else ""
         spans.append(f'<p class="w{hi}" id="{cid}-w{i}">{esc(w)}</p>')
-        js.append(f'  tl.fromTo("#{cid}-w{i}", {{ y: 44, opacity: 0 }}, {{ y: 0, opacity: 1, duration: 0.5, ease: "{EASE}" }}, {t0 + i * gap:.2f});')
-    js.append(f'  tl.fromTo("#{cid}-rule", {{ scaleX: 0, transformOrigin: "0 50%" }}, {{ scaleX: 1, duration: 0.6, ease: "power2.out" }}, {t0 + len(words) * gap + 0.1:.2f});')
-    body = f"""{back}
-  <div class="k-safe">
-    {f'<p id="{cid}-kick" class="k-kicker">{esc(kicker)}</p>' if kicker else ''}
-    <div id="{cid}-line">{''.join(spans)}</div>
-    <div id="{cid}-rule" class="k-rule"></div>
-  </div>"""
-    return wrap(cid, style, body, "\n".join(js))
+        js.append(f'  tl.fromTo("#{cid}-w{i}", {{ opacity: 0, filter: "blur(6px)" }}, {{ opacity: 1, filter: "blur(0px)", duration: 0.13 }}, {at[i]:.2f});')
+    js.append(f'  tl.fromTo("#{cid}-rule", {{ scaleX: 0, transformOrigin: "0 50%" }}, {{ scaleX: 1, duration: 0.5, ease: "power2.out" }}, {at[-1] + 0.2:.2f});')
+    inner = (f'{f"<p id={chr(34)}{cid}-kick{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(kicker)}</p>" if kicker else ""}'
+             f'<div id="{cid}-line">{"".join(spans)}</div><div id="{cid}-rule" class="k-rule"></div>')
+    return _scene(cid, sc, style, inner, max(0.1, at[0] - 0.35), "low", js, "max-width:900px")
 
 
 def quote(sc: Dict, c: Dict) -> str:
+    """Set as a poster; each word goes from faint to ink as it is said."""
     cid = scene_id(sc["n"])
     q, by = str(c["quote"]).strip('"“” '), str(c.get("by") or "")
-    size = _fit(q, [(50, 66), (80, 54), (120, 44), (999, 38)])
+    words = q.split()
+    size = _fit(q, [(50, 50), (80, 42), (120, 36), (999, 30)])
     t0 = _soon(when(sc, q, 0.4), sc, 0.2)
+    at = cinema.spoken_times(sc, words, t0, 0.2)
     style = f"""
-#{cid}-mark{{font-family:var(--display);font-weight:800;font-size:220px;line-height:.6;color:var(--accent);margin:0;height:90px}}
-#{cid}-q{{font-family:var(--display);font-weight:600;font-size:{size}px;line-height:1.18;letter-spacing:-.02em;
-  margin:0;color:var(--ink);max-width:1040px}}
+#{cid}-mark{{font-family:var(--display);font-weight:800;font-size:150px;line-height:.55;color:var(--accent);margin:0;height:62px}}
+#{cid}-q{{font-family:var(--display);font-weight:600;font-size:{size}px;line-height:1.2;letter-spacing:-.015em;margin:0}}
+#{cid}-root .qw{{color:var(--ink)}}
 """
-    back, back_js = _backdrop(cid, sc)
-    js = ([back_js] if back_js else []) + [
-        f'  tl.fromTo("#{cid}-mark", {{ opacity: 0.35 }}, {{ opacity: 1, duration: 0.5 }}, 0);',
-        f'  tl.fromTo("#{cid}-q", {{ y: 30, opacity: 0 }}, {{ y: 0, opacity: 1, duration: 0.7, ease: "{EASE}" }}, {t0});',
-    ]
+    spans = " ".join(f'<span class="qw" id="{cid}-q{i}">{esc(w)}</span>' for i, w in enumerate(words))
+    js = [f'  tl.fromTo("#{cid}-q{i}", {{ opacity: 0.22 }}, {{ opacity: 1, duration: 0.12 }}, {at[i]:.2f});' for i in range(len(words))]
+    js.insert(0, f'  tl.fromTo("#{cid}-mark", {{ scale: 0.6, opacity: 0, transformOrigin: "0 0" }}, {{ scale: 1, opacity: 1, duration: 0.5, ease: "back.out(1.6)" }}, {max(0.1, t0 - 0.1):.2f});')
     if by:
-        js.append(f'  tl.fromTo("#{cid}-by", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.5 }}, {t0 + 0.8:.2f});')
-    body = f"""{back}
-  <div class="k-safe">
-    <p id="{cid}-mark">&ldquo;</p>
-    <p id="{cid}-q">{esc(q)}</p>
-    {f'<p id="{cid}-by" class="k-kicker">{esc(by)}</p>' if by else ''}
-  </div>"""
-    return wrap(cid, style, body, "\n".join(js))
+        js.append(f'  tl.fromTo("#{cid}-by", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.4 }}, {at[-1] + 0.3:.2f});')
+    inner = (f'<p id="{cid}-mark">&ldquo;</p><p id="{cid}-q">{spans}</p>'
+             f'{f"<p id={chr(34)}{cid}-by{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(by)}</p>" if by else ""}')
+    return _scene(cid, sc, style, inner, max(0.1, t0 - 0.35), _side(sc), js, "width:700px")
 
 
 def picture(sc: Dict, c: Dict) -> str:
+    """The picture carries it: a small caption plate, low and out of the way."""
     cid = scene_id(sc["n"])
     label, kicker = str(c["label"]), str(c.get("kicker") or "")
-    t0 = _soon(when(sc, label, 0.6), sc, 0.25)
-    style = f"""
-#{cid}-card{{align-self:flex-start;display:flex;flex-direction:column;gap:10px;max-width:820px}}
-#{cid}-label{{font-family:var(--display);font-weight:800;font-size:{_fit(label, [(24, 56), (40, 46), (99, 38)])}px;line-height:1.08;
-  letter-spacing:-.02em;margin:0;color:var(--ink)}}
-"""
-    body = f"""  <img id="{cid}-img" class="k-img" src="{sc['asset']}" alt=""/>
-  <div class="k-shade"></div>
-  <div class="k-safe" style="justify-content:flex-end">
-    <div id="{cid}-card" class="k-card">
-      {f'<p id="{cid}-kick" class="k-kicker">{esc(kicker)}</p>' if kicker else ''}
-      <p id="{cid}-label">{esc(label)}</p>
-    </div>
-  </div>"""
-    js = [
-        f'  tl.fromTo("#{cid}-img", {{ scale: 1.0 }}, {{ scale: 1.1, duration: {sc["seconds"]:.2f}, ease: "none" }}, 0);',
-        f'  tl.fromTo("#{cid}-card", {{ y: 40, opacity: 0 }}, {{ y: 0, opacity: 1, duration: 0.6, ease: "{EASE}" }}, {t0});',
-    ]
-    return wrap(cid, style, body, "\n".join(js))
+    t0 = _soon(when(sc, label, 0.6), sc, 0.3)
+    style = f"#{cid}-label{{font-family:var(--display);font-weight:800;font-size:{_fit(label, [(24, 44), (40, 36), (99, 30)])}px;line-height:1.08;letter-spacing:-.02em;margin:0;color:var(--ink)}}"
+    inner = (f'{f"<p id={chr(34)}{cid}-kick{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(kicker)}</p>" if kicker else ""}'
+             f'<p id="{cid}-label">{esc(label)}</p>')
+    return _scene(cid, sc, style, inner, t0, "low", [], "max-width:640px;padding:20px 28px")
 
 
 BUILD: Dict[str, Callable[[Dict, Dict], str]] = {

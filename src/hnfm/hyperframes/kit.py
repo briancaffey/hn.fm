@@ -70,6 +70,8 @@ def identity_for(theme: str) -> DesignIdentity:
 
 GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
 WIDTH, HEIGHT, FPS = 1280, 720, 24
+# A music bed sits well under the voice.
+MUSIC_VOLUME = 0.13
 # The bottom of the frame belongs to the captions: scenes keep out of it.
 CAPTION_BAND = 150
 SAFE = {"left": 80, "top": 64, "width": WIDTH - 160, "height": HEIGHT - CAPTION_BAND - 64}
@@ -120,12 +122,15 @@ def _css(d: DesignIdentity) -> str:
     veil = "rgba(0,0,0,.62)" if dark else "rgba(255,255,255,.82)"
     # A panel sits on the plain background; a veil sits on a picture.
     panel = "rgba(255,255,255,.08)" if dark else "rgba(0,0,0,.05)"
-    return f"""
+    h = d.bg.lstrip("#")
+    paper = "rgba({},{},{},.93)".format(*(int(h[i:i + 2], 16) for i in (0, 2, 4)))
+    from . import cinema
+    return cinema.CSS + f"""
 *{{box-sizing:border-box}}
 body{{margin:0;background:{d.bg};color:{d.fg};font-family:'{d.body_font}',system-ui,sans-serif;
   font-weight:{d.body_weight};-webkit-font-smoothing:antialiased}}
 #root{{position:relative;width:100%;height:100%;overflow:hidden;
-  --bg:{d.bg};--ink:{d.fg};--muted:{d.muted};--accent:{d.accent};--veil:{veil};--panel:{panel};
+  --bg:{d.bg};--ink:{d.fg};--muted:{d.muted};--accent:{d.accent};--veil:{veil};--panel:{panel};--paper:{paper};
   --display:'{d.display_font}',serif;--body:'{d.body_font}',system-ui,sans-serif}}
 #k-bg{{position:absolute;inset:0;background:{d.bg}}}
 .k-scene{{position:absolute;inset:0;overflow:hidden;color:var(--ink)}}
@@ -146,12 +151,12 @@ body{{margin:0;background:{d.bg};color:{d.fg};font-family:'{d.body_font}',system
 .k-card{{background:var(--veil);border-radius:18px;padding:28px 32px}}
 .k-img{{position:absolute;inset:0;width:100%;height:100%;object-fit:cover}}
 .k-shade{{position:absolute;inset:0;background:linear-gradient(180deg,transparent 30%,{d.bg} 100%)}}
-.k-cap{{position:absolute;left:0;right:0;bottom:44px;display:flex;justify-content:center;z-index:40}}
-.k-cap span{{max-width:1000px;padding:10px 24px;border-radius:12px;background:var(--veil);
-  font-family:var(--body);font-weight:600;font-size:34px;line-height:1.25;text-align:center;color:var(--ink)}}
+.k-cap{{position:absolute;left:0;right:0;bottom:40px;display:flex;justify-content:center;z-index:40}}
+.k-cap span{{max-width:980px;padding:8px 20px;border-radius:10px;background:rgba(10,10,12,.72);
+  font-family:var(--body);font-weight:600;font-size:30px;line-height:1.25;text-align:center;color:#fafafa}}
 #k-chrome{{position:absolute;inset:0;z-index:50;pointer-events:none}}
 #k-bug{{position:absolute;right:28px;top:24px;padding:6px 12px 6px 16px;border-radius:8px;background:var(--veil);
-  font-family:var(--body);font-weight:800;font-size:18px;letter-spacing:.3em;color:var(--ink)}}
+  font-family:var(--body);font-weight:800;font-size:19px;letter-spacing:.3em;color:var(--ink)}}
 #k-track{{position:absolute;left:0;right:0;bottom:0;height:8px;background:var(--veil)}}
 #k-bar{{width:100%;height:100%;background:var(--accent);transform-origin:0 50%}}
 """
@@ -171,6 +176,8 @@ def host(brief: Dict) -> str:
                 f'<div id="cap-{sc["n"]}-{i}" class="clip k-cap" data-start="{lead + c["t"]:.2f}" '
                 f'data-duration="{c["d"]:.2f}" data-track-index="5"><span>{esc(c["text"])}</span></div>')
     slots.append(_slot("outro", lead + narr, brief["tail"]))
+    music = (f'<audio id="music" src="assets/music.mp3" data-start="0" data-duration="{total:.2f}" '
+             f'data-track-index="2" data-volume="{MUSIC_VOLUME}"></audio>' if brief.get("has_music") else "")
     return f"""<!doctype html>
 <html lang="en"><head><meta charset="utf-8"/>
 <meta name="viewport" content="width={WIDTH}, height={HEIGHT}"/>
@@ -182,6 +189,7 @@ def host(brief: Dict) -> str:
 <div id="root" data-composition-id="main" data-start="0" data-width="{WIDTH}" data-height="{HEIGHT}" data-duration="{total:.2f}">
   <div id="k-bg"></div>
   <audio id="narration" src="assets/narration.mp3" data-start="{lead:.2f}" data-duration="{narr:.2f}" data-track-index="0" data-volume="1"></audio>
+  {music}
   {chr(10).join('  ' + s for s in slots)}
   {chr(10).join('  ' + c for c in caps)}
   <div id="k-chrome"><div id="k-bug">HN.FM</div><div id="k-track"><div id="k-bar"></div></div></div>
@@ -223,81 +231,71 @@ def wrap(cid: str, style: str, body: str, script: str) -> str:
 
 
 def intro(brief: Dict) -> str:
+    """The title over the story's first picture, word by word."""
+    from . import cinema
     meta = " · ".join(x for x in (
         brief.get("domain"),
         f'{brief["points"]} points' if (brief.get("points") or 0) >= 5 else "",
         f'{brief["comments"]} comments' if (brief.get("comments") or 0) >= 5 else "") if x)
-    thumb = ('<img id="intro-thumb" src="assets/thumb.jpg" alt=""/>' if brief.get("has_thumb") else "")
-    style = """
-#intro-root .k-safe{height:592px;top:64px}
-#intro-thumb{position:absolute;right:80px;top:150px;width:420px;height:262px;object-fit:cover;
-  object-position:top;border-radius:14px;border:3px solid var(--accent)}
-#intro-title{max-width:%dpx;font-size:%dpx}
-""" % (640 if thumb else 1040, 60 if len(brief["title"]) > 60 else 72)
-    body = f"""  {thumb}
-  <div class="k-safe">
-    <p id="intro-kicker" class="k-kicker">From the front page</p>
-    <h1 id="intro-title" class="k-title">{esc(brief['title'])}</h1>
-    <div id="intro-rule" class="k-rule"></div>
-    <p id="intro-meta" class="k-body k-muted">{esc(meta)}</p>
-  </div>"""
-    script = """  tl.fromTo("#intro-title", { y: 26, opacity: 0.55 }, { y: 0, opacity: 1, duration: 0.7, ease: "power3.out" }, 0);
-  tl.fromTo("#intro-rule", { scaleX: 0, transformOrigin: "0 50%" }, { scaleX: 1, duration: 0.6, ease: "power2.out" }, 0.3);
-  tl.fromTo("#intro-meta", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 0.6);""" + (
-        '\n  tl.fromTo("#intro-thumb", { scale: 0.94, opacity: 0.4 }, { scale: 1, opacity: 1, duration: 0.8, ease: "power2.out" }, 0.1);'
-        if thumb else "")
-    return wrap("intro", style, body, script)
+    first = (brief["scenes"][0].get("shots") or [None])[0] if brief.get("scenes") else None
+    sc = {"n": 0, "part": 1, "section": 3, "seconds": brief["lead"], "shots": [first] if first else [], "cues": []}
+    back, back_js = cinema.plate("intro", sc)
+    words = brief["title"].split()
+    size = 60 if len(brief["title"]) > 60 else 70
+    spans = "".join(f'<span class="tw" id="intro-w{i}">{esc(w)} </span>' for i, w in enumerate(words))
+    style = f"#intro-title{{font-size:{size}px}}"
+    inner = (f'<p id="intro-kicker" class="k-kicker">From the front page</p>'
+             f'<h1 id="intro-title" class="k-title">{spans}</h1><div id="intro-rule" class="k-rule"></div>'
+             f'<p id="intro-meta" class="k-body k-muted" style="font-size:24px">{esc(meta)}</p>')
+    box, box_js = cinema.panel("intro", inner, 0.15, "left", "width:760px;top:120px")
+    js = back_js + box_js + [f'  tl.fromTo("#intro-w{i}", {{ opacity: 0, filter: "blur(6px)" }}, {{ opacity: 1, filter: "blur(0px)", duration: 0.13 }}, {0.45 + i * 0.07:.2f});' for i in range(len(words))]
+    end = len(words) * 0.07
+    js += [f'  tl.fromTo("#intro-rule", {{ scaleX: 0, transformOrigin: "0 50%" }}, {{ scaleX: 1, duration: 0.5, ease: "power2.out" }}, {0.6 + end:.2f});',
+           f'  tl.fromTo("#intro-meta", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.4 }}, {0.8 + end:.2f});']
+    return wrap("intro", style, back + "\n" + box, "\n".join(js))
 
 
 def outro(brief: Dict, credits: str = "") -> str:
-    style = "#outro-url{font-size:40px;color:var(--accent);font-weight:600}"
-    body = f"""  <div class="k-safe" style="height:592px">
-    <p class="k-kicker">Read it, then read the comments</p>
+    from . import cinema
+    last = next((sc["shots"][-1] for sc in reversed(brief.get("scenes") or []) if sc.get("shots")), None)
+    sc = {"n": 1, "part": 1, "section": 2, "seconds": brief["tail"], "shots": [last] if last else [], "cues": []}
+    back, back_js = cinema.plate("outro", sc)
+    style = "#outro-url{font-size:36px;color:var(--accent);font-weight:600}"
+    inner = f"""<p class="k-kicker">Read it, then read the comments</p>
     <p id="outro-url" class="k-body">{esc(brief.get('domain') or '')}</p>
-    <p id="outro-hn" class="k-body">news.ycombinator.com/item?id={esc(brief['item_id'])}</p>
+    <p id="outro-hn" class="k-body" style="font-size:26px">news.ycombinator.com/item?id={esc(brief['item_id'])}</p>
     <div id="outro-rule" class="k-rule"></div>
-    <p id="outro-credit" class="k-body k-muted" style="font-size:24px">{esc(credits)}</p>
-  </div>"""
-    script = """  tl.fromTo("#outro-url", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.1);
-  tl.fromTo("#outro-hn", { y: 20, opacity: 0 }, { y: 0, opacity: 1, duration: 0.5, ease: "power3.out" }, 0.3);
-  tl.fromTo("#outro-rule", { scaleX: 0, transformOrigin: "0 50%" }, { scaleX: 1, duration: 0.5 }, 0.5);
-  tl.fromTo("#outro-credit", { opacity: 0 }, { opacity: 1, duration: 0.5 }, 0.8);"""
-    return wrap("outro", style, body, script)
+    <p id="outro-credit" class="k-body k-muted" style="font-size:20px">{esc(credits)}</p>"""
+    box, box_js = cinema.panel("outro", inner, 0.1, "left", "width:760px;top:150px")
+    js = back_js + box_js + [
+        '  tl.fromTo("#outro-url", { opacity: 0, filter: "blur(6px)" }, { opacity: 1, filter: "blur(0px)", duration: 0.2 }, 0.45);',
+        '  tl.fromTo("#outro-hn", { opacity: 0 }, { opacity: 1, duration: 0.3 }, 0.6);',
+        '  tl.fromTo("#outro-rule", { scaleX: 0, transformOrigin: "0 50%" }, { scaleX: 1, duration: 0.5 }, 0.7);',
+        '  tl.fromTo("#outro-credit", { opacity: 0 }, { opacity: 1, duration: 0.4 }, 0.9)']
+    return wrap("outro", style, back + "\n" + box, "\n".join(js) + ";")
 
 
 def plain_scene(sc: Dict) -> str:
-    """A scene nobody wrote: the still (if the story has one) drifting
-    slowly, the beat as a chip, and the figure the line turns on, if it
-    names one. It is what a scene falls back to, so it has to hold up."""
+    """A scene nobody wrote: its pictures moving, and the figure the line
+    turns on on a panel, if it names one. It is what a scene falls back
+    to, so it has to hold up."""
+    from . import cinema
     cid = scene_id(sc["n"])
-    secs = sc["seconds"]
     m = _NUMBER.search(sc["text"])
     figure = m.group(1).strip() if m and any(ch.isdigit() for ch in m.group(1)) and len(m.group(1).strip()) > 1 else ""
-    beat = (sc.get("beat") or "").replace("_", " ").strip()
-    img = sc.get("asset")
-    parts, script = [], []
-    if img:
-        parts.append(f'  <img id="{cid}-img" class="k-img" src="{img}" alt=""/>\n  <div class="k-shade"></div>')
-        script.append(f'  tl.fromTo("#{cid}-img", {{ scale: 1.0 }}, {{ scale: 1.08, duration: {secs:.2f}, ease: "none" }}, 0);')
-    inner = []
-    if beat:
-        inner.append(f'<span id="{cid}-chip" class="k-chip">{esc(beat)}</span>')
-        script.append(f'  tl.fromTo("#{cid}-chip", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.4 }}, 0.2);')
+    back, js = cinema.plate(cid, sc)
+    body = back
     if figure:
-        inner.append(f'<p id="{cid}-fig" class="k-stat" style="font-size:150px">{esc(figure)}</p>')
-        script.append(f'  tl.fromTo("#{cid}-fig", {{ y: 40, opacity: 0 }}, {{ y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }}, 0.4);')
-    if not img and not figure:
+        box, box_js = cinema.panel(cid, f'<p id="{cid}-fig" class="k-stat" style="font-size:120px">{esc(figure)}</p>',
+                                   0.5, "left" if sc["n"] % 2 else "right", "width:auto")
+        body += "\n" + box
+        js += box_js
+    elif not sc.get("shots"):
         lead_words = " ".join(sc["text"].split()[:9])
-        inner.append(f'<p id="{cid}-line" class="k-title" style="font-size:60px">{esc(lead_words)}</p>')
-        script.append(f'  tl.fromTo("#{cid}-line", {{ y: 30, opacity: 0 }}, {{ y: 0, opacity: 1, duration: 0.6, ease: "power3.out" }}, 0.2);')
-    if inner:
-        box = ('<div class="k-card" style="align-self:flex-start;display:flex;flex-direction:column;gap:14px">'
-               if img else '<div style="display:flex;flex-direction:column;gap:18px;align-items:flex-start">')
-        # Over a picture the words sit low, clear of a two-line caption;
-        # with nothing behind them they take the middle of the frame.
-        place = "justify-content:flex-end;padding-bottom:40px;box-sizing:border-box" if img else "justify-content:center"
-        parts.append(f'  <div class="k-safe" style="{place}">' + box + "".join(inner) + "</div></div>")
-    return wrap(cid, "", "\n".join(parts), "\n".join(script))
+        box, box_js = cinema.panel(cid, f'<p id="{cid}-line" class="k-title" style="font-size:56px">{esc(lead_words)}</p>', 0.2, "low")
+        body += "\n" + box
+        js += box_js
+    return wrap(cid, "", body, "\n".join(js))
 
 
 def build(brief: Dict, project: str) -> Dict:
@@ -310,9 +308,22 @@ def build(brief: Dict, project: str) -> Dict:
                     "-b:a", "96k", os.path.join(assets, "narration.mp3")], check=True, timeout=300)
     brief = dict(brief)
     brief["has_thumb"] = bool(brief.get("thumb")) and _picture(brief["thumb"], os.path.join(assets, "thumb.jpg"), 840)
+    copied: Dict[str, str] = {}
+
+    def asset(src: Optional[str]) -> Optional[str]:
+        if not src:
+            return None
+        if src not in copied:
+            name = f"pic-{len(copied) + 1:03d}.jpg"
+            copied[src] = f"assets/{name}" if _picture(src, os.path.join(assets, name), WIDTH) else ""
+        return copied[src] or None
+
     for sc in brief["scenes"]:
-        name = f"still-{sc['n']:02d}.jpg"
-        sc["asset"] = f"assets/{name}" if sc.get("image") and _picture(sc["image"], os.path.join(assets, name), WIDTH) else None
+        sc["shots"] = [a for a in (asset(p) for p in shot_sources(sc)) if a]
+        sc["asset"] = sc["shots"][0] if sc["shots"] else None
+    if brief.get("music_path") and os.path.exists(brief["music_path"]):
+        shutil.copy(brief["music_path"], os.path.join(assets, "music.mp3"))
+        brief["has_music"] = True
     _write(project, "index.html", host(brief))
     _write(project, "compositions/intro.html", intro(brief))
     _write(project, "compositions/outro.html", outro(brief))
@@ -321,6 +332,20 @@ def build(brief: Dict, project: str) -> Dict:
     with open(os.path.join(project, "brief.json"), "w") as f:
         json.dump(brief, f, indent=1)
     return brief
+
+
+def shot_sources(sc: Dict) -> List[str]:
+    """The pictures for a beat: its own picture first (drawn for its line),
+    then its share of the section's frames, so a section's frames are spread
+    over its beats instead of all landing on the first."""
+    frames = sc.get("frames") or ([sc["image"]] if sc.get("image") else [])
+    k, parts = sc.get("part", 1) - 1, max(1, sc.get("parts", 1))
+    mine = [f for j, f in enumerate(frames) if j % parts == k]
+    out = ([sc["picture"]] if sc.get("picture") else []) + mine
+    if not out and frames:
+        out = [frames[k % len(frames)]]
+    # Three pictures at most: one every second or so is a montage.
+    return out[:3 if sc["seconds"] >= 5.5 else 2]
 
 
 def _picture(src: str, dst: str, width: int) -> bool:

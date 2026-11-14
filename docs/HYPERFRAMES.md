@@ -5,18 +5,21 @@ composition: HTML and GSAP rendered to MP4 by headless Chrome. The narration
 is the spine. Everything on screen is timed against it.
 
 ```
-narrated segment ──▶ brief ──▶ project (plain scenes) ──▶ direct ──▶ review ──▶ render
- script, audio,       story.py     kit.py                 author.py   sidecar    sidecar
- word timings                                             ▲
-                                                          └─ Hermes: one card per scene
+narrated segment ──▶ brief ──▶ pictures + music ──▶ project ──▶ direct ──▶ review ──▶ render
+ script, audio,      story.py   pictures.py          kit.py       author.py   sidecar    sidecar
+ word timings        (beats)    music.py             cinema.py    ▲
+                                ▲                                 └─ Hermes: one card per shot
+                                └─ Hermes describes, FLUX draws, ACE-Step plays
 ```
 
 | Step | Module | What it does |
 |---|---|---|
-| Brief | `hyperframes/story.py` | Turns a narrated segment into one dictionary: scenes with their text, start, length, caption cues and still. No model. |
-| Build | `hyperframes/kit.py` | Writes the project: `index.html` (canvas, palette, narration, captions, progress line, one slot per scene), a title card, a sign-off, and a plain version of every scene. |
-| Direct | `hyperframes/author.py` | Asks Hermes for a card per scene, checks it, builds the scene from the card, has the renderer review it, sends findings back (three rounds at most). |
-| Treatments | `hyperframes/scenes.py` | The eight layouts a card can ask for, each with its motion. |
+| Brief | `hyperframes/story.py` | Turns a narrated segment into one dictionary. Each section is cut into **beats** of about 4-6 s at its caption phrases; every beat is a scene (a shot) with its text, cues, word times and the section's frames. No model. |
+| Pictures | `hyperframes/pictures.py` | Every beat after a section's first gets a picture of its own: Hermes describes it from the line (no style words), FLUX on the 4090 draws it in the story's art direction. Kept by the beat's words, so a remake reuses them. |
+| Music | `hyperframes/music.py` | Hermes names the mood in a tag line; ACE-Step on the spark plays an instrumental bed of the video's length, laid at 13% under the voice. |
+| Build | `hyperframes/kit.py`, `cinema.py` | Writes the project. Every shot is a picture first: one to three pictures with camera moves (push, pull, pan, rise), cut or dissolved inside the beat, entering through a transition chosen by where the beat sits (whip, iris, dip for a new section; blur swap, push or a cut inside one). Words sit on a paper panel wiped into the picture. |
+| Direct | `hyperframes/author.py` | Asks Hermes for a card per shot, checks it, builds the shot from the card, has the renderer review it, sends findings back (three rounds at most). |
+| Treatments | `hyperframes/scenes.py` | The eight layouts a card can ask for. Numbers count up to themselves; a `phrase` reveals each word when the narrator says it; a `quote` turns each word from faint to ink as it is said. |
 | Run | `hyperframes/videos.py` | The whole job and its status file; what the desk and the API read. |
 | Render | `services/hyperframes/` | The sidecar: `POST /render`, `/check`, `/frames`, plus the screenshot endpoints it already had. |
 

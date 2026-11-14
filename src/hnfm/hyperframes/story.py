@@ -20,6 +20,11 @@ LEAD = 3.0
 TAIL = 4.0
 # A caption is a breath, not a sentence.
 CAPTION_WORDS = 7
+# A shot. HyperFrames' measured films average 1.8-3 s a shot with motion
+# inside it, and keep a narrated scene near 19 spoken words; one card held
+# for a whole 15-second section read as a slide. A section is cut into beats
+# of about this length, each its own scene with its own picture.
+BEAT_MIN, BEAT_TARGET, BEAT_MAX = 2.6, 4.6, 7.0
 
 _SPEAKER = re.compile(r"^\s*\[(S\d)\]\s*")
 _SPACES = re.compile(r"\s+")
@@ -85,6 +90,46 @@ def cues(text: str, start: float, end: float, heard: List[dict]) -> List[dict]:
     return out
 
 
+def beats(sc: Dict, heard: List[dict]) -> List[Dict]:
+    """A section cut into shots at its caption phrases: each beat runs from
+    one phrase to a later one, close to BEAT_TARGET seconds, preferring to
+    end where a sentence ends."""
+    cs = sc["cues"]
+    end = sc["start"] + sc["seconds"]
+    groups, cur = [], []
+    for i, c in enumerate(cs):
+        cur.append(c)
+        span = (cs[i + 1]["t"] if i + 1 < len(cs) else end) - cur[0]["t"]
+        left = end - (cs[i + 1]["t"] if i + 1 < len(cs) else end)
+        sentence = c["text"].rstrip()[-1:] in ".!?"
+        if i + 1 < len(cs) and left >= BEAT_MIN and (
+                span >= BEAT_MAX or (span >= BEAT_TARGET) or (sentence and span >= BEAT_MIN)):
+            groups.append(cur)
+            cur = []
+    if cur:
+        if groups and (end - cur[0]["t"]) < BEAT_MIN:
+            groups[-1] += cur
+        else:
+            groups.append(cur)
+    out = []
+    for k, g in enumerate(groups):
+        t0 = sc["start"] if k == 0 else g[0]["t"]
+        t1 = groups[k + 1][0]["t"] if k + 1 < len(groups) else end
+        text = " ".join(c["text"] for c in g)
+        out.append({
+            **{key: sc[key] for key in ("section", "speaker", "beat")},
+            "part": k + 1, "parts": len(groups),
+            "text": text, "start": round(t0, 2), "seconds": round(t1 - t0, 2),
+            "cues": g,
+            "words": [{"w": w.get("word", ""), "t": round(float(w["start"]) - t0, 2)}
+                      for w in heard if t0 - 0.05 <= float(w.get("start", 0)) < t1],
+            "section_text": sc["text"],
+            "image": sc.get("image") if k == 0 else None,
+            "frames": sc.get("frames") or [],
+        })
+    return out
+
+
 def _load(path: str) -> Optional[dict]:
     try:
         with open(path) as f:
@@ -93,7 +138,7 @@ def _load(path: str) -> Optional[dict]:
         return None
 
 
-def brief(item_id: int, run: int, seg: int) -> Optional[Dict]:
+def brief(item_id: int, run: int, seg: int, split: bool = True) -> Optional[Dict]:
     """The brief for one narrated segment, or None if it has no narration."""
     from ..db import repo
 
@@ -117,6 +162,8 @@ def brief(item_id: int, run: int, seg: int) -> Optional[Dict]:
         seconds = sec.duration_ms / 1000.0
         text = clean(sec.text)
         still = os.path.join(seg_dir, "images", str(n), "image.png")
+        frames = [p for p in [still] + [os.path.join(seg_dir, "images", str(n), f"frame_{i}.png") for i in range(2, 9)]
+                  if os.path.exists(p)]
         scenes.append({
             "n": len(scenes) + 1,
             "section": n,
@@ -127,10 +174,17 @@ def brief(item_id: int, run: int, seg: int) -> Optional[Dict]:
             "seconds": round(seconds, 2),
             "cues": cues(text, t, t + seconds, heard),
             "image": still if os.path.exists(still) else None,
+            "frames": frames,
         })
         t += seconds
     if not scenes:
         return None
+    if split:
+        shots = []
+        for sc in scenes:
+            for b in beats(sc, heard):
+                shots.append({**b, "n": len(shots) + 1})
+        scenes = shots
 
     url = (item.url if item else None) or f"https://news.ycombinator.com/item?id={item_id}"
     thumb = os.path.join(os.path.dirname(os.path.dirname(run_dir)), "thumb.jpg")
