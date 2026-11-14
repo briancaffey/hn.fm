@@ -19,9 +19,54 @@ import os
 import re
 import shutil
 import subprocess
+from dataclasses import replace
 from typing import Dict, List, Optional
 
-from .design_identity import DesignIdentity, identity_for
+from .design_identity import DesignIdentity, identity_for as _theme_identity
+
+# The renderer's review refuses text under 4.5:1 against the canvas (WCAG AA).
+# Several themes put their accent on text at far less (claymation's orange on
+# cream is 2.1:1), which failed every directed scene in that theme. So the
+# accent and muted colours are moved toward black or white, keeping their hue,
+# until they read. Fills (rules, bars) use the same colour, slightly deeper.
+READABLE = 4.6
+
+
+def _luminance(hex_colour: str) -> float:
+    h = hex_colour.lstrip("#")
+    out = []
+    for i in (0, 2, 4):
+        c = int(h[i:i + 2], 16) / 255
+        out.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * out[0] + 0.7152 * out[1] + 0.0722 * out[2]
+
+
+def contrast(a: str, b: str) -> float:
+    la, lb = sorted((_luminance(a), _luminance(b)), reverse=True)
+    return (la + 0.05) / (lb + 0.05)
+
+
+def readable(colour: str, bg: str, minimum: float = READABLE) -> str:
+    """`colour`, moved toward black on a light canvas or white on a dark
+    one, just far enough to reach `minimum` contrast against `bg`."""
+    if contrast(colour, bg) >= minimum:
+        return colour
+    target = 0 if _luminance(bg) > 0.18 else 255
+    h = colour.lstrip("#")
+    rgb = [int(h[i:i + 2], 16) for i in (0, 2, 4)]
+    for step in range(1, 21):
+        t = step / 20
+        mixed = "#" + "".join(f"{round(c + (target - c) * t):02x}" for c in rgb)
+        if contrast(mixed, bg) >= minimum:
+            return mixed
+    return "#000000" if target == 0 else "#ffffff"
+
+
+def identity_for(theme: str) -> DesignIdentity:
+    """The theme, with its accent and muted colours made readable on its
+    own background."""
+    d = _theme_identity(theme)
+    return replace(d, accent=readable(d.accent, d.bg), muted=readable(d.muted, d.bg))
 
 GSAP = "https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"
 WIDTH, HEIGHT, FPS = 1280, 720, 24

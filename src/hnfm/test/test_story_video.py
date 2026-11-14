@@ -225,3 +225,46 @@ class TestAgentClient:
         assert not hermes.configured()
         with pytest.raises(hermes.AgentError):
             hermes.ask("hello")
+
+
+class TestLocalOnlyAgent:
+    """The profile that directs videos must run on the home lab's own model.
+    These read the profile script itself, so a change that points it at a
+    cloud provider fails here before anyone runs it."""
+
+    SCRIPT = __import__("pathlib").Path(__file__).resolve().parents[3] / "deploy" / "hermes-profile.sh"
+
+    def test_the_profile_model_is_the_local_gateway_route(self):
+        text = self.SCRIPT.read_text()
+        assert 'MODEL = "nemotron-lightning"' in text
+        assert "api: http://litellm.observability.svc.cluster.local:4000/v1" in text
+        assert "fallback_providers: []" in text
+
+    def test_the_profile_names_no_cloud_endpoint_or_key(self):
+        text = self.SCRIPT.read_text()
+        for cloud in ("integrate.api.nvidia.com", "openrouter.ai", "api.groq.com", "api.openai.com"):
+            assert cloud not in text
+        assert 'mine["NVIDIA_API_KEY"]' not in text
+
+    def test_each_round_keeps_its_hermes_run(self, monkeypatch, tmp_path):
+        from hnfm.hyperframes import hermes
+
+        reply = {"text": "no card here", "seconds": 1.0, "tokens": 5, "model": "", "run_id": "run_abc"}
+        monkeypatch.setattr(hermes, "ask", lambda *a, **k: reply)
+        monkeypatch.setattr(kit, "keep_plain", lambda *a, **k: None)
+        monkeypatch.setattr(author, "ROUNDS", 1)
+        rec = author.direct_scene(str(tmp_path), BRIEF, BRIEF["scenes"][0], [], job="t")
+        assert rec["rounds"][0]["run_id"] == "run_abc"
+        assert not rec["accepted"]
+
+
+class TestThemesRead:
+    @pytest.mark.parametrize("theme", sorted(__import__("hnfm.hyperframes.design_identity",
+                                                         fromlist=["_"])._IDENTITIES))
+    def test_accent_and_muted_text_pass_the_renderers_contrast_review(self, theme):
+        d = kit.identity_for(theme)
+        assert kit.contrast(d.accent, d.bg) >= 4.5
+        assert kit.contrast(d.muted, d.bg) >= 4.5
+
+    def test_a_readable_colour_is_left_alone(self):
+        assert kit.readable("#2563eb", "#ffffff") == "#2563eb"
