@@ -1,6 +1,7 @@
 """Utilities for managing script segments"""
 
 import json
+import logging
 import os
 import re
 import shutil
@@ -219,7 +220,7 @@ def generate_script(
         # fuller of the two — the same shape of fix as the speaker-run and
         # teaser-grounding guards, for the same reason.
         if len(script.sections) < MIN_SECTIONS and len(content_clean or "") > 3000:
-            logger.info(
+            logging.getLogger(__name__).info(
                 f"script came back with {len(script.sections)} sections from "
                 f"{len(content_clean)} chars of source; retrying once"
             )

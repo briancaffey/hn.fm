@@ -345,3 +345,67 @@ class TestPicturesAndMusic:
 
         assert music.FALLBACK in music.MOODS.values()
         assert all("vocal" not in v for v in music.MOODS.values())
+
+
+class TestShotPlan:
+    """The menu of forms changes as the film goes; the model chooses from it."""
+
+    def _sc(self, n=2, part=2, seconds=5.0):
+        return {"n": n, "part": part, "seconds": seconds, "text": "the blades slow and stop", "start": 0.0}
+
+    def test_the_last_form_is_not_offered_again_and_a_pan_is_rationed(self):
+        from hnfm.hyperframes import shots
+
+        hist = [{"form": "pan", "seconds": 4}, {"form": "still", "seconds": 4}]
+        got = shots.allowed(self._sc(), hist)
+        assert "still" not in got and "pan" not in got and "sequence" in got
+
+    def test_a_section_opens_on_a_picture_not_type_or_continue(self):
+        from hnfm.hyperframes import shots
+
+        got = shots.allowed(self._sc(part=1), [{"form": "drift", "seconds": 4}])
+        assert "type" not in got and "continue" not in got and "split" not in got
+
+    def test_continue_cannot_hold_a_shot_past_ten_seconds(self):
+        from hnfm.hyperframes import shots
+
+        assert "continue" not in shots.allowed(self._sc(seconds=6), [{"form": "drift", "seconds": 5}])
+        assert "continue" in shots.allowed(self._sc(seconds=3), [{"form": "drift", "seconds": 4}])
+
+    def test_a_sequence_needs_its_changes(self):
+        from hnfm.hyperframes import shots
+
+        d = {"form": "sequence", "subject": "a wind turbine on a hill", "doing": "its blades slowing",
+             "where": "a grey coastal wind farm"}
+        assert shots.check_shot(d, self._sc(), ["sequence"], [])
+        d["changes"] = ["the blades slow down", "the blades stop", "a red warning light blinks on"]
+        assert shots.check_shot(d, self._sc(), ["sequence"], []) == []
+
+    def test_continue_merges_the_beat_into_the_shot_before(self):
+        from hnfm.hyperframes import shots
+
+        a = {"text": "one", "cues": [1], "words": [{"w": "one", "t": 0.2}], "start": 10.0, "seconds": 4.0}
+        b = {"text": "two", "cues": [2], "words": [{"w": "two", "t": 0.1}], "start": 14.0, "seconds": 3.0}
+        shots._merge(a, b)
+        assert a["seconds"] == 7.0 and a["text"] == "one two" and a["words"][1]["t"] == 4.1
+
+
+class TestLayout:
+    def test_words_go_where_the_picture_is_calm(self, tmp_path):
+        from PIL import Image, ImageDraw
+
+        from hnfm.hyperframes import layout
+
+        img = Image.new("RGB", (1280, 720), (200, 200, 200))
+        d = ImageDraw.Draw(img)
+        for x in range(700, 1240, 12):  # busy stripes on the right half
+            d.line([(x, 80), (x, 560)], fill=(0, 0, 0), width=3)
+        p = tmp_path / "pic.png"
+        img.save(p)
+        order = layout.calm_order(str(p))
+        assert order.index("left") < order.index("right")
+        assert layout.focus(str(p))[0] > 50
+
+    def test_type_shots_take_the_whole_frame(self):
+        assert scenes._place({"n": 1, "form": "type", "shots": []}, ["left", "right"]) == "type"
+        assert scenes._place({"n": 1, "form": "still", "shots": ["a"], "calm": ["top", "left"]}, ["left", "right"]) == "left"

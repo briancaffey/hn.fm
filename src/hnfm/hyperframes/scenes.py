@@ -67,6 +67,10 @@ TREATMENTS: Dict[str, Dict] = {
                    "by": "who says it, if the line says"},
         "need": ["quote"], "words": {"quote": 16, "by": 5},
     },
+    "none": {
+        "for": "the picture says it; no words on screen (only when the scene has an image)",
+        "fields": {}, "need": [], "words": {},
+    },
     "picture": {
         "for": "the line describes a thing better seen than read (only when the scene has an image)",
         "fields": {"label": "what the picture shows, two to six words",
@@ -136,14 +140,25 @@ def _num(s) -> Optional[float]:
     return float(m.group(0).replace(",", "")) if m else None
 
 
-def _side(sc: Dict) -> str:
-    """Panels alternate sides so consecutive shots do not stack the same way."""
-    return "left" if sc["n"] % 2 else "right"
+def _place(sc: Dict, fits: List[str]) -> str:
+    """Where the words go: on a `type` shot, the whole frame; otherwise the
+    calmest part of the picture (measured, see layout.py) among the places
+    this treatment fits, so the words land on empty ground, not on the
+    subject. With no measurement, the zone the picture was drawn to leave."""
+    if sc.get("form") == "type" or not sc.get("shots"):
+        return "type"
+    for z in sc.get("calm") or []:
+        if z in fits:
+            return z
+    z = sc.get("zone")
+    return z if z in fits else fits[sc["n"] % len(fits)]
 
 
 def _scene(cid: str, sc: Dict, style: str, inner: str, t: float, place: str, js: List[str],
            panel_style: str = "") -> str:
     back, back_js = cinema.plate(cid, sc)
+    if place == "type":
+        panel_style = ""
     box, box_js = cinema.panel(cid, inner, t, place, panel_style)
     return wrap(cid, style, back + "\n" + box, "\n".join(back_js + box_js + js))
 
@@ -162,7 +177,7 @@ def figure(sc: Dict, c: Dict) -> str:
         f'  tl.fromTo("#{cid}-rule", {{ scaleX: 0, transformOrigin: "0 50%" }}, {{ scaleX: 1, duration: 0.5, ease: "power2.out" }}, {t + 0.5:.2f});',
         f'  tl.fromTo("#{cid}-label", {{ opacity: 0, filter: "blur(6px)" }}, {{ opacity: 1, filter: "blur(0px)", duration: 0.25 }}, {t + 0.7:.2f});',
     ] + cinema.count_up(cid, f"{cid}-val", value, t + 0.15, sc["seconds"])
-    return _scene(cid, sc, "", inner, max(0.1, t - 0.25), _side(sc), js)
+    return _scene(cid, sc, "", inner, max(0.1, t - 0.25), _place(sc, ["left", "right", "top"]), js)
 
 
 def compare(sc: Dict, c: Dict) -> str:
@@ -198,7 +213,7 @@ def compare(sc: Dict, c: Dict) -> str:
         js.append(f'  tl.fromTo("#{cid}-{side}", {{ x: 30, opacity: 0 }}, {{ x: 0, opacity: 1, duration: 0.55, ease: "expo.out" }}, {t + 0.2:.2f});')
         if bars_on:
             js.append(f'  tl.fromTo("#{cid}-{side}b", {{ scaleX: 0 }}, {{ scaleX: 1, duration: 0.8, ease: "power2.out" }}, {t + 0.45:.2f});')
-    return _scene(cid, sc, style, inner, max(0.1, tl_ - 0.2), "low", js, "width:860px")
+    return _scene(cid, sc, style, inner, max(0.1, tl_ - 0.2), _place(sc, ["low", "top"]), js, "width:860px")
 
 
 def bars(sc: Dict, c: Dict) -> str:
@@ -229,7 +244,7 @@ def bars(sc: Dict, c: Dict) -> str:
         js += cinema.count_up(cid, f"{cid}-val{i}", v, t, sc["seconds"], 0.9)
     inner = (f'<p id="{cid}-title" class="k-title" style="font-size:38px">{esc(c["title"])}</p>'
              f'<div id="{cid}-rows">{"".join(out)}</div>')
-    return _scene(cid, sc, style, inner, max(0.1, times[0] - 0.2), _side(sc), js, "width:700px")
+    return _scene(cid, sc, style, inner, max(0.1, times[0] - 0.2), _place(sc, ["left", "right"]), js, "width:700px")
 
 
 def listing(sc: Dict, c: Dict) -> str:
@@ -251,7 +266,7 @@ def listing(sc: Dict, c: Dict) -> str:
         js.append(f'  tl.fromTo("#{cid}-it{i}", {{ opacity: 0, filter: "blur(6px)" }}, {{ opacity: 1, filter: "blur(0px)", duration: 0.2 }}, {times[i] + 0.1:.2f});')
     inner = (f'{f"<p id={chr(34)}{cid}-title{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(title)}</p>" if title else ""}'
              f'<div id="{cid}-items">{"".join(rows)}</div>')
-    return _scene(cid, sc, style, inner, max(0.1, times[0] - 0.3), _side(sc), js)
+    return _scene(cid, sc, style, inner, max(0.1, times[0] - 0.3), _place(sc, ["left", "right"]), js)
 
 
 def steps(sc: Dict, c: Dict) -> str:
@@ -277,7 +292,7 @@ def steps(sc: Dict, c: Dict) -> str:
         js.append(f'  tl.fromTo("#{cid}-st{i}", {{ scale: 0.9, opacity: 0 }}, {{ scale: 1, opacity: 1, duration: 0.45, ease: "back.out(1.4)" }}, {times[i] + 0.1:.2f});')
     inner = (f'{f"<p id={chr(34)}{cid}-title{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(title)}</p>" if title else ""}'
              f'<div id="{cid}-flow">{"".join(parts)}</div>')
-    return _scene(cid, sc, style, inner, max(0.1, times[0] - 0.3), "wide", js)
+    return _scene(cid, sc, style, inner, max(0.1, times[0] - 0.3), _place(sc, ["low", "top"]), js, "width:1100px;max-width:none")
 
 
 def phrase(sc: Dict, c: Dict) -> str:
@@ -303,7 +318,7 @@ def phrase(sc: Dict, c: Dict) -> str:
     js.append(f'  tl.fromTo("#{cid}-rule", {{ scaleX: 0, transformOrigin: "0 50%" }}, {{ scaleX: 1, duration: 0.5, ease: "power2.out" }}, {at[-1] + 0.2:.2f});')
     inner = (f'{f"<p id={chr(34)}{cid}-kick{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(kicker)}</p>" if kicker else ""}'
              f'<div id="{cid}-line">{"".join(spans)}</div><div id="{cid}-rule" class="k-rule"></div>')
-    return _scene(cid, sc, style, inner, max(0.1, at[0] - 0.35), "low", js, "max-width:900px")
+    return _scene(cid, sc, style, inner, max(0.1, at[0] - 0.35), _place(sc, ["low", "top", "left", "right"]), js, "max-width:900px")
 
 
 def quote(sc: Dict, c: Dict) -> str:
@@ -326,7 +341,7 @@ def quote(sc: Dict, c: Dict) -> str:
         js.append(f'  tl.fromTo("#{cid}-by", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.4 }}, {at[-1] + 0.3:.2f});')
     inner = (f'<p id="{cid}-mark">&ldquo;</p><p id="{cid}-q">{spans}</p>'
              f'{f"<p id={chr(34)}{cid}-by{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(by)}</p>" if by else ""}')
-    return _scene(cid, sc, style, inner, max(0.1, t0 - 0.35), _side(sc), js, "width:700px")
+    return _scene(cid, sc, style, inner, max(0.1, t0 - 0.35), _place(sc, ["left", "right", "top"]), js, "width:700px")
 
 
 def picture(sc: Dict, c: Dict) -> str:
@@ -337,12 +352,19 @@ def picture(sc: Dict, c: Dict) -> str:
     style = f"#{cid}-label{{font-family:var(--display);font-weight:800;font-size:{_fit(label, [(24, 44), (40, 36), (99, 30)])}px;line-height:1.08;letter-spacing:-.02em;margin:0;color:var(--ink)}}"
     inner = (f'{f"<p id={chr(34)}{cid}-kick{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(kicker)}</p>" if kicker else ""}'
              f'<p id="{cid}-label">{esc(label)}</p>')
-    return _scene(cid, sc, style, inner, t0, "low", [], "max-width:640px;padding:20px 28px")
+    return _scene(cid, sc, style, inner, t0, _place(sc, ["low", "top"]), [], "max-width:640px;padding:20px 28px")
+
+
+def nothing(sc: Dict, c: Dict) -> str:
+    """The pictures alone."""
+    cid = scene_id(sc["n"])
+    back, js = cinema.plate(cid, sc)
+    return wrap(cid, "", back, "\n".join(js))
 
 
 BUILD: Dict[str, Callable[[Dict, Dict], str]] = {
     "figure": figure, "compare": compare, "bars": bars, "list": listing,
-    "steps": steps, "phrase": phrase, "quote": quote, "picture": picture,
+    "steps": steps, "phrase": phrase, "quote": quote, "picture": picture, "none": nothing,
 }
 
 
@@ -351,11 +373,12 @@ def build(sc: Dict, card: Dict) -> str:
     return BUILD[card["treatment"]](sc, card)
 
 
-def menu(has_image: bool) -> str:
-    """The treatments as the author is shown them."""
+def menu(has_image: bool, form: Optional[str] = None) -> str:
+    """The treatments as the author is shown them. A `type` shot has no
+    picture, so it needs words; a sequence or a punch-in often needs none."""
     lines = []
     for name, t in TREATMENTS.items():
-        if name == "picture" and not has_image:
+        if name in ("picture", "none") and (not has_image or form == "type"):
             continue
         fields = "; ".join(f"`{k}`: {v}" for k, v in t["fields"].items())
         lines.append(f"- `{name}`: {t['for']}. Fields: {fields}.")

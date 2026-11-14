@@ -17,7 +17,7 @@ import shutil
 import time
 from typing import Dict, List, Optional, Tuple
 
-from . import hermes, kit, render_client, scenes
+from . import shots, hermes, kit, render_client, scenes
 
 logger = logging.getLogger(__name__)
 
@@ -327,8 +327,8 @@ def check_card(card: Dict, sc: Dict, brief: Dict, previous: Optional[str] = None
     spec = scenes.TREATMENTS.get(name)
     if not spec:
         return [f"treatment must be one of: {', '.join(scenes.TREATMENTS)}"]
-    if name == "picture" and not sc.get("asset"):
-        return ["this scene has no image, so picture cannot be used; choose another treatment"]
+    if name in ("picture", "none") and (not sc.get("asset") or sc.get("form") == "type"):
+        return [f"this shot has no picture, so {name} cannot be used; choose a treatment with words"]
     notes = []
     for f in spec["need"]:
         if card.get(f) in (None, "", [], {}):
@@ -414,7 +414,8 @@ def direct_scene(project: str, brief: Dict, sc: Dict, before: List[str], previou
     record = {"scene": cid, "rounds": [], "accepted": False, "seconds": 0.0, "tokens": 0}
     session = f"hnfm-{job or 'job'}-{cid}-{int(time.time())}"
     ask = card_brief(brief, sc, before)
-    ask["treatments"] = scenes.menu(bool(sc.get("asset"))).splitlines()
+    ask["treatments"] = scenes.menu(bool(sc.get("asset")), sc.get("form")).splitlines()
+    ask["shot"] = f'{sc.get("form", "drift")}: {shots.FORMS.get(sc.get("form", ""), "")}' 
     message = "Direct this scene.\n\n```json\n" + json.dumps(ask, indent=1) + "\n```"
     work = os.path.join(project, "work", cid)
     started = time.time()

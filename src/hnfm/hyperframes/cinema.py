@@ -52,30 +52,67 @@ def entrance(sc: Dict) -> str:
 
 
 def plate(cid: str, sc: Dict) -> Tuple[str, List[str]]:
-    """The pictures behind a scene, their moves and the scene's entrance.
-    Returns (markup, timeline lines)."""
+    """The pictures behind a scene, moved the way its form says, and the
+    scene's entrance. Returns (markup, timeline lines)."""
+    form = sc.get("form") or ("drift" if len(sc.get("shots") or []) > 1 else "drift")
     shots = [s for s in (sc.get("shots") or []) if s] or ([sc["asset"]] if sc.get("asset") else [])
     secs = float(sc["seconds"])
     html, js = [f'  <div id="{cid}-plate" class="k-plate" data-layout-allow-overflow>'], []
-    if shots:
+    if form == "type" or not shots:
+        html.append(f'    <div id="{cid}-ground" class="k-ground"></div>')
+        js.append(f'  tl.fromTo("#{cid}-ground", {{ scaleX: 0 }}, {{ scaleX: 1, duration: 0.45, ease: "power3.inOut" }}, 0);')
+    elif form == "split" and len(shots) >= 2:
+        for i, src in enumerate(shots[:2]):
+            side = "l" if i == 0 else "r"
+            html.append(f'    <div id="{cid}-h{side}" class="k-half k-half-{side}"><img id="{cid}-s{i}" class="k-shot" style="opacity:1" src="{src}" alt=""/></div>')
+            js.append(f'  tl.fromTo("#{cid}-h{side}", {{ xPercent: {-100 if i == 0 else 100} }}, {{ xPercent: 0, duration: 0.6, ease: "expo.out" }}, {0.05 + 0.18 * i:.2f});')
+            js.append(f'  tl.fromTo("#{cid}-s{i}", {{ scale: 1.12 }}, {{ scale: 1.03, duration: {secs:.2f}, ease: "sine.out" }}, 0);')
+    elif form == "sequence" and len(shots) >= 2:
+        # Stop-motion: hard cuts between frames of one scene, the camera dead still.
+        n = len(shots)
+        step = secs / n
+        for i, src in enumerate(shots):
+            html.append(f'    <img id="{cid}-s{i}" class="k-shot" src="{src}" alt=""/>')
+            js.append(f'  tl.set("#{cid}-s{i}", {{ opacity: 1, scale: 1.02 }}, {i * step:.2f});')
+            if i + 1 < n:
+                js.append(f'  tl.set("#{cid}-s{i}", {{ opacity: 0 }}, {(i + 1) * step:.2f});')
+    elif form == "punch":
+        fx, fy = sc.get("focus") or (50, 50)
+        cut = round(min(max(1.2, secs * 0.45), secs - 1.0), 2)
+        html.append(f'    <img id="{cid}-s0" class="k-shot" src="{shots[0]}" alt=""/>')
+        js += [f'  tl.set("#{cid}-s0", {{ opacity: 1, scale: 1.0, transformOrigin: "{fx}% {fy}%" }}, 0);',
+               f'  tl.set("#{cid}-s0", {{ scale: 1.85 }}, {cut:.2f});',
+               f'  tl.fromTo("#{cid}-s0", {{ scale: 1.85 }}, {{ scale: 1.95, duration: {secs - cut + 0.3:.2f}, ease: "none", immediateRender: false }}, {cut:.2f});']
+    else:
+        if form in ("still", "drift", "pan"):
+            shots = shots[:1]
         cuts = _cuts(sc, len(shots))
         for i, src in enumerate(shots):
             a = cuts[i]
             b = cuts[i + 1] if i + 1 < len(shots) else secs
             html.append(f'    <img id="{cid}-s{i}" class="k-shot" src="{src}" alt=""/>')
-            frm, to = MOVES[(sc["n"] * 2 + i) % len(MOVES)]
-            js.append(f'  tl.fromTo("#{cid}-s{i}", {_vars(frm)}, {{ ...{_vars(to)}, duration: {b - a + 0.5:.2f}, ease: "sine.inOut" }}, {a:.2f});')
+            frm, to = _move(form, sc["n"] + i)
+            if form == "still":
+                js.append(f'  tl.fromTo("#{cid}-s{i}", {_vars(frm)}, {{ ...{_vars(to)}, duration: 0.9, ease: "expo.out" }}, {a:.2f});')
+            else:
+                js.append(f'  tl.fromTo("#{cid}-s{i}", {_vars(frm)}, {{ ...{_vars(to)}, duration: {b - a + 0.5:.2f}, ease: "sine.inOut" }}, {a:.2f});')
             if i == 0:
                 js.append(f'  tl.set("#{cid}-s{i}", {{ opacity: 1 }}, 0);')
-            elif i % 2:
-                # a dissolve on the odd picture, a cut on the even one
-                js.append(f'  tl.fromTo("#{cid}-s{i}", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.45, ease: "power1.inOut" }}, {a - 0.2:.2f});')
             else:
-                js.append(f'  tl.set("#{cid}-s{i}", {{ opacity: 1 }}, {a:.2f});')
+                js.append(f'  tl.fromTo("#{cid}-s{i}", {{ opacity: 0 }}, {{ opacity: 1, duration: 0.45, ease: "power1.inOut" }}, {a - 0.2:.2f});')
     html.append(f'    <div class="k-grade"></div>\n  </div>')
     html.append(f'  <div id="{cid}-dip" class="k-dip"></div>')
-    js += _arrive(cid, entrance(sc))
+    js += _arrive(cid, "cut" if form in ("split", "type") else entrance(sc))
     return "\n".join(html), js
+
+
+def _move(form: str, k: int) -> Tuple[Dict, Dict]:
+    """The camera for one picture. Pans only when the form is a pan."""
+    if form == "still":
+        return {"scale": 1.04}, {"scale": 1.0}           # lands, then holds dead still
+    if form == "pan":
+        return MOVES[2 + k % 2]
+    return [MOVES[0], MOVES[1], MOVES[4], MOVES[5]][k % 4]   # push, pull, rise, drift
 
 
 def _cuts(sc: Dict, n: int) -> List[float]:
@@ -184,6 +221,10 @@ CSS = """
 .k-shot{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;opacity:0;transform-origin:50% 50%}
 .k-grade{position:absolute;inset:0;background:radial-gradient(ellipse at 50% 45%,transparent 52%,rgba(0,0,0,.38) 100%)}
 .k-dip{position:absolute;inset:0;background:#000;opacity:0;pointer-events:none}
+.k-ground{position:absolute;inset:0;background:var(--accent);opacity:.14;transform-origin:0 50%}
+.k-half{position:absolute;top:0;bottom:0;width:50%;overflow:hidden}
+.k-half-l{left:0;border-right:4px solid var(--bg)}
+.k-half-r{right:0;border-left:4px solid var(--bg)}
 .k-panel{position:absolute;background:var(--paper);border-radius:22px;padding:30px 38px;
   box-shadow:0 24px 70px rgba(0,0,0,.30);display:flex;flex-direction:column;gap:14px}
 .k-panel .k-kicker{font-size:19px}
@@ -192,4 +233,6 @@ CSS = """
 .k-low{left:72px;bottom:168px;max-width:820px}
 .k-wide{left:72px;right:72px;bottom:168px}
 .k-mid{left:50%;top:50%;transform:translate(-50%,-62%);width:980px}
+.k-top{left:72px;top:72px;max-width:900px}
+.k-type{left:96px;right:96px;top:50%;transform:translateY(-62%);background:transparent;box-shadow:none;padding:0;zoom:1.45}
 """

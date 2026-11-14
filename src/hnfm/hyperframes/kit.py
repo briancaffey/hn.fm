@@ -318,9 +318,19 @@ def build(brief: Dict, project: str) -> Dict:
             copied[src] = f"assets/{name}" if _picture(src, os.path.join(assets, name), WIDTH) else ""
         return copied[src] or None
 
+    from . import layout
     for sc in brief["scenes"]:
-        sc["shots"] = [a for a in (asset(p) for p in shot_sources(sc)) if a]
+        srcs = [p for p in shot_sources(sc) if p]
+        sc["shots"] = [a for a in (asset(p) for p in srcs) if a]
         sc["asset"] = sc["shots"][0] if sc["shots"] else None
+        # Measure the first picture: where words can sit, and its detail.
+        if sc["shots"]:
+            try:
+                first = os.path.join(project, sc["shots"][0])
+                sc["calm"] = layout.calm_order(first)
+                sc["focus"] = list(layout.focus(first))
+            except Exception:
+                pass
     if brief.get("music_path") and os.path.exists(brief["music_path"]):
         shutil.copy(brief["music_path"], os.path.join(assets, "music.mp3"))
         brief["has_music"] = True
@@ -335,11 +345,25 @@ def build(brief: Dict, project: str) -> Dict:
 
 
 def shot_sources(sc: Dict) -> List[str]:
-    """The pictures for a beat: its own picture first (drawn for its line),
-    then its share of the section's frames, so a section's frames are spread
-    over its beats instead of all landing on the first."""
+    """The pictures a shot shows, by its form. A shot with no plan (no agent)
+    spreads the section's frames over its beats, as before."""
+    form = sc.get("form")
     frames = sc.get("frames") or ([sc["image"]] if sc.get("image") else [])
     k, parts = sc.get("part", 1) - 1, max(1, sc.get("parts", 1))
+    if form == "type":
+        return []
+    if form == "sequence":
+        if sc.get("sequence"):
+            return sc["sequence"][:4]
+        if sc.get("part", 1) == 1:
+            return frames[:4]
+    if form == "split":
+        if sc.get("picture") and sc.get("picture2"):
+            return [sc["picture"], sc["picture2"]]
+    if form in ("still", "drift", "pan", "punch", "split", "sequence"):
+        own = sc.get("picture") or (frames[0] if sc.get("part", 1) == 1 and frames else None)
+        if own:
+            return [own]
     mine = [f for j, f in enumerate(frames) if j % parts == k]
     out = ([sc["picture"]] if sc.get("picture") else []) + mine
     if not out and frames:

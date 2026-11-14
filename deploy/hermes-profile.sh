@@ -99,13 +99,15 @@ os.chmod(p + "/.env", 0o600)
 print("  written; keys held:", ", ".join(mine))
 PY
 
-echo "3/5 skill"
+echo "3/5 skills (hnfm-video: the text card; hnfm-shots: the shot plan)"
 for dest in "$P/skills" /opt/data/skills; do
   $IN sh -c "mkdir -p $dest/hnfm-video && chmod -R u+w $dest/hnfm-video && cat > $dest/hnfm-video/SKILL.md" \
     < "$HERE/src/hnfm/hyperframes/skill/SKILL.md"
+  $IN sh -c "mkdir -p $dest/hnfm-shots && chmod -R u+w $dest/hnfm-shots && cat > $dest/hnfm-shots/SKILL.md" \
+    < "$HERE/src/hnfm/hyperframes/skill/SHOTS.md"
 done
 # The profile cannot change its own skill: owned by root, not writable.
-$IN sh -c "chown -R root:root $P/skills && chmod -R a-w,a+rX $P/skills && chown -R hermes:hermes /opt/data/skills/hnfm-video"
+$IN sh -c "chown -R root:root $P/skills && chmod -R a-w,a+rX $P/skills && chown -R hermes:hermes /opt/data/skills/hnfm-video /opt/data/skills/hnfm-shots"
 
 echo "4/5 secret in $HNFM_NS"
 $IN sh -c "grep ^API_SERVER_KEY= $P/.env | cut -d= -f2 | tr -d '\n'" \
