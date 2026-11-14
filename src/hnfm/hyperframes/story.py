@@ -130,6 +130,16 @@ def beats(sc: Dict, heard: List[dict]) -> List[Dict]:
     return out
 
 
+_GENERIC_TITLES = {"", "hn.fm", "hnfm", "hn fm", "untitled", "title", "script"}
+
+
+def title_of(script_title: Optional[str], hn_title: str) -> str:
+    """The script's own title, unless the model left a placeholder (the
+    4-bit training story came back titled "hn.fm"): then the HN headline."""
+    t = (script_title or "").strip()
+    return t if t.lower().strip(" .") not in _GENERIC_TITLES else (hn_title or t)
+
+
 def _load(path: str) -> Optional[dict]:
     try:
         with open(path) as f:
@@ -190,7 +200,7 @@ def brief(item_id: int, run: int, seg: int, split: bool = True) -> Optional[Dict
     thumb = os.path.join(os.path.dirname(os.path.dirname(run_dir)), "thumb.jpg")
     return {
         "item_id": item_id, "run": run, "seg": seg,
-        "title": (getattr(segment, "script_json", None) or {}).get("title") or (item.title if item else ""),
+        "title": title_of((getattr(segment, "script_json", None) or {}).get("title"), item.title if item else ""),
         "hn_title": item.title if item else "",
         "url": url,
         "domain": (urlparse(url).netloc or "").replace("www.", ""),

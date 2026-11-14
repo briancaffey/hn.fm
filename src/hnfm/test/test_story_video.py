@@ -419,3 +419,8 @@ class TestLayout:
     def test_type_shots_take_the_whole_frame(self):
         assert scenes._place({"n": 1, "form": "type", "shots": []}, ["left", "right"]) == "type"
         assert scenes._place({"n": 1, "form": "still", "shots": ["a"], "calm": ["top", "left"]}, ["left", "right"]) == "left"
+
+
+def test_a_placeholder_script_title_gives_way_to_the_headline():
+    assert story.title_of("hn.fm", "Thinking Machines: 4-Bit Training") == "Thinking Machines: 4-Bit Training"
+    assert story.title_of("Gödel's Hidden Theorems", "AI unlocks Gödel's notebooks") == "Gödel's Hidden Theorems"
