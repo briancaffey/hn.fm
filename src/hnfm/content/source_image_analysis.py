@@ -32,6 +32,27 @@ def image_b64_for_vision(path: str, dim: int = VISION_DIM) -> str:
     return base64.b64encode(buf.getvalue()).decode()
 
 
+# When the vision route answers "not a multimodal model", every image after
+# it will get the same answer: 1,800+ error rows piled up that way after the
+# spark slot moved to a text-only model (#58). The answer is remembered for a
+# few hours and the analysis is skipped, not failed, until it is asked again.
+BLIND_FOR_SECONDS = 6 * 3600
+_blind_until = 0.0
+
+
+def vision_available() -> bool:
+    return time.time() >= _blind_until
+
+
+def _note_blind(err: str) -> bool:
+    global _blind_until
+    if "not a multimodal model" in err or "does not support image" in err.lower():
+        _blind_until = time.time() + BLIND_FOR_SECONDS
+        logger.warning("source images: the vision model cannot read images; skipping analysis for 6 h")
+        return True
+    return False
+
+
 def analyze(path: str, *, title: str, summary: str, alt: str = "",
             origin: str = "") -> dict:
     """The analysis as a flat dict of row fields, or an `analysis_error`.
@@ -55,6 +76,7 @@ def analyze(path: str, *, title: str, summary: str, alt: str = "",
             prompt, SourceImageAnalysis, image_b64=image_b64_for_vision(path),
         )
     except Exception as e:
+        _note_blind(str(e))
         logger.warning(f"source image analysis failed for {path}: {e}")
         return {
             "analysis_error": str(e)[:500],

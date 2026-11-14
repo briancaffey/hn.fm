@@ -2,9 +2,10 @@
 
 import os
 import random
+import subprocess
 import time
 import logging
-from typing import Dict
+from typing import Dict, List
 from datetime import datetime
 
 from .celery_app import celery_app
@@ -428,7 +429,11 @@ def generate_segment(
             {"summary": summary, "content_chars": len(content_clean)},
         ) as st:
             script_notes = {}
-            script_obj = generate_script(content_clean, summary, notes=script_notes)
+            try:
+                _brief = (repo.get_latest_story_brief(item_id) or {}).get("brief")
+            except Exception:
+                _brief = None
+            script_obj = generate_script(content_clean, summary, notes=script_notes, brief=_brief)
             script = script_obj.to_script_text()
             flags = script_quality_flags(script_obj)
             if flags:
@@ -1133,7 +1138,7 @@ def build_segment_images(
                     title=run_summary[:120] if run_summary else None,
                     prompt=prompt, style_key=theme.key,
                     style_label=theme.name, technique="art-direction theme",
-                    model="flux2-klein", width=_w, height=_h,
+                    model="flux3-klein", width=_w, height=_h,
                     path=out,
                 )
             except Exception as _e:
@@ -1384,8 +1389,13 @@ def collect_source_images(item_id: int, run: int, force: bool = False,
         )
 
     analysed, usable = 0, 0
+    if analyze and rows and not _analysis.vision_available():
+        logger.info(f"📸 Source images {item_id}:{run}: analysis skipped (the vision model cannot read images)")
+        analyze = False
     if analyze and rows:
         for row in rows[:_src.ANALYZE_N]:
+            if not _analysis.vision_available():
+                break
             with steps.step(
                 item_id, run, None, "source_images",
                 f"source_images/{row['index']}/analyze",
@@ -2701,6 +2711,7 @@ def build_digest(
         # disables, for a deliberate re-run of the same material.
         exclude_recent_days=int(exclude_recent_days) or None,
         source=source,
+        shape=shape,
         title=_edition_title(shape, source, edition),
     )
     if not digest.stories:
@@ -2943,6 +2954,11 @@ def build_digest(
                 voice_seed=int(digest.generated_at.strftime("%j")),
             )
             result["audio_path"] = info["path"]
+            # An mp3 beside it for the podcast feed (#55); the wav stays the master.
+            mp3 = audio_out[:-4] + ".mp3"
+            subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", info["path"], "-ac", "1", "-b:a", "96k", mp3],
+                           check=True, timeout=600)
+            result["audio_mp3"] = mp3
             result["audio_marks"] = info["marks"]
             result["audio_seconds"] = round(info["duration_ms"] / 1000, 1)
             logger.info(
@@ -3278,6 +3294,11 @@ def radio_fill_bank(max_new: int = 4) -> Dict[str, any]:
 
     if not radio.enabled():
         return {"status": "skipped", "reason": "radio is off"}
+    # Production off means off (#56): no TTS or music calls on a timer. The
+    # station plays what it has; the desk can still ask for more.
+    from ..radio.director import produce_mode
+    if produce_mode() == "off":
+        return {"status": "skipped", "reason": "radio production is off"}
     made = bank.fill(max_new=max_new)
     return {"status": "ok", "made": made, "have": bank_counts()}
 
@@ -3394,9 +3415,44 @@ def probe_hn_churn() -> Dict[str, any]:
 
 @celery_app.task(name="hnfm.web.tasks.score_backlog", time_limit=3600, soft_time_limit=3300)
 def score_backlog(limit: int = 10) -> Dict[str, any]:
-    """Triage stories that have a run but no Story Brief."""
+    """Triage stories that have a run but no Story Brief, and rescue stories
+    that were stored but never processed (#53)."""
+    rescued = _rescue_orphans(int(limit))
     scored = _score_unbriefed(int(limit))
-    return {"status": "ok", "scored": scored}
+    return {"status": "ok", "scored": scored, "rescued": rescued}
+
+
+def orphan_ids(limit: int, max_age_hours: int = 36, min_age_minutes: int = 15) -> List[int]:
+    """Stories stored in the last day and a half with no run at all.
+
+    A story is stored before its summary is asked for. When the LLM is down
+    the summary fails, no run is saved, and the next fetch skips the story
+    because it exists: it was lost for good. Old enough not to race a fetch
+    still in flight; young enough that a story nobody can process stops
+    being retried."""
+    from sqlalchemy import text
+
+    from ..db.engine import db_session
+
+    with db_session() as s:
+        rows = s.execute(text(
+            "select i.id from hn_items i "
+            "where (i.type is null or i.type = 'story') "
+            "and i.fetched_at > now() - make_interval(hours => :old) "
+            "and i.fetched_at < now() - make_interval(mins => :young) "
+            "and not exists (select 1 from runs r where r.item_id = i.id) "
+            "order by i.fetched_at desc limit :n"),
+            {"old": max_age_hours, "young": min_age_minutes, "n": limit}).fetchall()
+    return [r[0] for r in rows]
+
+
+def _rescue_orphans(limit: int) -> int:
+    ids = orphan_ids(limit)
+    for item_id in ids:
+        process_hn_item_run.apply_async(args=[item_id, None, False], kwargs={"continue_to_triage": True})
+    if ids:
+        logger.info(f"backlog: re-queued {len(ids)} stories that were stored but never processed: {ids}")
+    return len(ids)
 
 
 @celery_app.task(name="hnfm.web.tasks.produce_top_story", time_limit=300, soft_time_limit=240)

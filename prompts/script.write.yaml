@@ -1,5 +1,5 @@
 name: script.write
-version: 5
+version: 6
 task: script.write
 description: >
   Article + summary -> structured two-host script. v2 replaced the freeform
@@ -98,6 +98,9 @@ template: |
 
   Article summary:
   {summary}
+
+  Story brief (checked against the article: lead with its angle, use its numbers as spoken):
+  {brief}
 
   Article content:
   {content}

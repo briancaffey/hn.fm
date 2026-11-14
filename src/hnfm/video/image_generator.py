@@ -73,7 +73,7 @@ class ImageGenerationService:
         steps = steps or self.default_steps
         samples = samples or self.default_samples
 
-        # flux2-klein (inference-club) exposes an OpenAI-compatible image API:
+        # FLUX 3 Klein (the flux3-klein services) exposes an OpenAI-compatible image API:
         # POST /v1/images/generations -> {"data": [{"b64_json": ...}]}
         payload = {
             "prompt": prompt,
@@ -200,7 +200,7 @@ class ImageGenerationService:
     ) -> Dict[str, any]:
         """Image-to-image edit: evolve a reference image with a new prompt.
 
-        Uses flux2-klein's OpenAI-style POST /v1/images/edits (multipart). The
+        Uses the FLUX 3 Klein service's OpenAI-style POST /v1/images/edits (multipart). The
         reference PNG carries the scene/subject forward (continuity); the prompt
         nudges the change. Returns {"artifacts": [{"base64": ...}]}.
         """

@@ -1,7 +1,7 @@
 """Tests for segment Celery tasks (called directly against the test DB)."""
 
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import ANY, patch
 
 import pytest
 
@@ -88,7 +88,7 @@ class TestGenerateSegmentTask:
         # `notes` is an out-param: generate_script reports the raw speaker
         # switch rate through it so a model regression stays visible.
         mock_llm.assert_called_once_with(
-            "Clean content for script generation", "Article summary", notes={}
+            "Clean content for script generation", "Article summary", notes={}, brief=ANY
         )
 
         segment = repo.get_segment(123, 1, 1)

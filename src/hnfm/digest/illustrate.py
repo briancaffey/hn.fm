@@ -309,7 +309,7 @@ def _catalogue(illo: "Illustration", kind: str, item_id=None,
             kind=kind, item_id=item_id, slug=slug, title=title,
             prompt=illo.prompt, style_key=illo.style.key,
             style_label=illo.style.label, technique=illo.style.technique,
-            model="flux2-klein", width=RENDER_W, height=RENDER_H,
+            model="flux3-klein", width=RENDER_W, height=RENDER_H,
             ink=illo.ink, seconds=illo.seconds, thumb=illo.data_uri,
         )
     except Exception as e:

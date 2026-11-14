@@ -62,6 +62,7 @@ def select_stories(
     exclude_recent_days: Optional[int] = None,
     exclude_ids: Optional[set] = None,
     source: Optional[str] = None,
+    shape: Optional[str] = None,
 ) -> Digest:
     """Top `limit` stories by effective rank, newest scores first.
 
@@ -120,7 +121,7 @@ def select_stories(
     # after ranking, rather than by penalising the score.
     excluded = set(exclude_ids or ())
     if exclude_recent_days:
-        excluded |= repo.recently_published_item_ids(days=exclude_recent_days)
+        excluded |= repo.recently_published_item_ids(days=exclude_recent_days, shape=shape)
 
     stories: List[DigestStory] = []
     skipped_no_brief = 0

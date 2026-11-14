@@ -104,6 +104,8 @@ def get_service_specs() -> List[ServiceSpec]:
             role="ASR",
             base_url=os.getenv("ASR_BASE_URL", "").rstrip("/"),
             health_path="/healthz",
+            # ASR_ENABLED only changes how this page shows the service: the
+            # audio build always asks for word timings (#59).
             enabled=_bool("ASR_ENABLED", True),
             optional=True,  # subtitles/QA degrade gracefully without it
             note="word timing + QA",

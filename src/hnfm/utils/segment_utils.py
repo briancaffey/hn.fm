@@ -181,8 +181,24 @@ def generate_script_v1(content_clean: str, summary: str) -> str:
     return generate_script(content_clean, summary).to_script_text()
 
 
+def brief_text(brief: Optional[dict]) -> str:
+    """A Story Brief as a few lines the script writer can use (#60): the
+    angle, who it matters to, and the numbers with how to say them."""
+    if not brief:
+        return "(none)"
+    lines = []
+    for key, label in (("angle", "Angle"), ("thesis", "Thesis"), ("stakes", "Who it matters to")):
+        if brief.get(key):
+            lines.append(f"{label}: {str(brief[key]).strip()}")
+    for n in (brief.get("numbers") or [])[:8]:
+        if isinstance(n, dict) and n.get("value"):
+            said = f' (say "{n["spoken"]}")' if n.get("spoken") else ""
+            lines.append(f"Number: {n['value']}{said}, {n.get('of') or ''}".rstrip(", "))
+    return "\n".join(lines)[:1500] or "(none)"
+
+
 def generate_script(
-    content_clean: str, summary: str, notes: Optional[dict] = None
+    content_clean: str, summary: str, notes: Optional[dict] = None, brief: Optional[dict] = None
 ) -> "Script":
     """Generate the structured script for a segment (plans/08, plans/11).
 
@@ -205,6 +221,7 @@ def generate_script(
         "script.write",
         show_name=show.get("name") or "hn.fm",
         summary=summary or "",
+        brief=brief_text(brief),
         content=content_clean or "",
     )
 

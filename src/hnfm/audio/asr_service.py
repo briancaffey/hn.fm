@@ -101,7 +101,7 @@ def asr_qa_report(transcript: str, script: str) -> dict:
 
 
 class ASRService:
-    """Service for processing audio through WhisperX ASR."""
+    """Word timings for narration from the ASR service (nemotron-asr in the cluster)."""
 
     def __init__(self):
         """Initialize the ASR service."""

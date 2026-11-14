@@ -206,13 +206,13 @@ def send_digest(
     to: Optional[str] = None,
     filename: Optional[str] = None,
 ) -> str:
-    """`filename` overrides the attached name.
+    """Email `file_path` to the Kindle address. Returns the provider message id.
 
-    It matters more than it looks: Amazon takes the shelf title from the
-    attachment filename on the HTML path, so sending
-    `hnfm-digest-2026-09-05-illustrated.html` puts exactly that on the device.
+    `filename` overrides the attached name. It matters more than it looks:
+    Amazon takes the shelf title from the attachment filename on the HTML
+    path, so sending `hnfm-digest-2026-09-05-illustrated.html` puts exactly
+    that on the device.
     """
-    """Email `file_path` to the Kindle address. Returns the provider message id."""
     ready, reason = delivery_config()
     if not ready:
         raise DeliveryError(f"email delivery is not configured: {reason}")

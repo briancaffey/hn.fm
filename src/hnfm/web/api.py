@@ -561,6 +561,21 @@ async def podcast_episode_mp3(item_id: int, run: int, seg: int, request: Request
                         public_base=_request_public_base(request))
 
 
+def digest_episodes(limit: int = 30) -> list:
+    """Narrated digest editions on disk, newest first."""
+    import glob as _glob
+
+    out_dir = os.path.join(os.getenv("OUTPUTS_ROOT", "/app/outputs"), "digests")
+    files = sorted(_glob.glob(os.path.join(out_dir, "*.mp3")), key=os.path.getmtime, reverse=True)[:limit]
+    out = []
+    for f in files:
+        slug = os.path.basename(f)[:-4]
+        words = slug.replace("hnfm-", "").replace("-", " ").strip()
+        out.append({"slug": slug, "title": f"hn.fm {words}", "mtime": os.path.getmtime(f),
+                    "bytes": os.path.getsize(f)})
+    return out
+
+
 @app.get("/api/podcast/feed.xml", tags=["podcast"])
 async def podcast_feed():
     """Podcast RSS feed. Point Audiobookshelf (Add Podcast → RSS feed URL)
@@ -594,6 +609,17 @@ async def podcast_feed():
       <guid isPermaLink="false">hnfm-{ep['item_id']}-{ep['run']}-{ep['seg']}</guid>
       <pubDate>{pub_rfc}</pubDate>
       <enclosure url="{escape(url)}" length="{length}" type="audio/mpeg"/>
+    </item>""")
+
+    # Narrated digest editions are episodes too (#55): the morning listen.
+    for d in digest_episodes(30):
+        url = f"{base}/api/digests/{d['slug']}.mp3"
+        items_xml.append(f"""    <item>
+      <title>{escape(d['title'])}</title>
+      <description>{escape('The hn.fm digest, read aloud.')}</description>
+      <guid isPermaLink="false">hnfm-digest-{escape(d['slug'])}</guid>
+      <pubDate>{formatdate(d['mtime'])}</pubDate>
+      <enclosure url="{escape(url)}" length="{d['bytes']}" type="audio/mpeg"/>
     </item>""")
 
     xml = f"""<?xml version="1.0" encoding="UTF-8"?>
@@ -2762,8 +2788,9 @@ async def list_digests():
 
 @app.get("/api/digests/{slug}.{ext}", tags=["digest"])
 async def get_digest_file(slug: str, ext: str):
-    """Serve a rendered digest. HTML renders inline; EPUB downloads."""
-    if ext not in ("html", "epub"):
+    """Serve a rendered digest. HTML renders inline; EPUB downloads; MP3 is
+    the narrated edition (the podcast feed links here)."""
+    if ext not in ("html", "epub", "mp3"):
         raise HTTPException(status_code=404, detail="Unsupported format")
     # `slug` is path-joined below, so reject anything that could escape the
     # digests directory rather than trusting the route pattern.
@@ -2777,6 +2804,8 @@ async def get_digest_file(slug: str, ext: str):
         raise HTTPException(status_code=404, detail="Digest not found")
     if ext == "html":
         return FileResponse(path, media_type="text/html")
+    if ext == "mp3":
+        return FileResponse(path, media_type="audio/mpeg")
     return FileResponse(
         path, media_type="application/epub+zip", filename=f"{slug}.epub"
     )

@@ -60,7 +60,10 @@ class TestRunUtils:
         # Test basic cleaning
         text = "  Hello   world  \n\n  This is   a test  "
         cleaned = clean_content(text)
-        assert cleaned == "Hello world This is a test"
+        # A blank line is a paragraph break and survives (#57).
+        assert cleaned == "Hello world\n\nThis is a test"
+        assert clean_content("one\n\n\n\ntwo") == "one\n\ntwo"
+        assert clean_content("- a\n- b") == "- a\n- b"
 
         # Test empty string
         assert clean_content("") == ""
@@ -69,7 +72,7 @@ class TestRunUtils:
         # Test with multiple newlines
         text2 = "Line 1\n\n\nLine 2\n\nLine 3"
         cleaned2 = clean_content(text2)
-        assert cleaned2 == "Line 1 Line 2 Line 3"
+        assert cleaned2 == "Line 1\n\nLine 2\n\nLine 3"
 
     def test_scrape_url_firecrawl_raises_when_the_backend_is_unreachable(self):
         """A scrape failure must surface as RuntimeError.

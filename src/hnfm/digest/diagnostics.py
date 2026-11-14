@@ -110,7 +110,7 @@ def collect(digest, illustrations=None, cover=None, edition_seconds=0.0,
             counts[p.style.label] = counts.get(p.style.label, 0) + 1
         images = {
             "count": len(pics),
-            "model": config_manager.get("image_generation.model", "flux2-klein"),
+            "model": config_manager.get("image_generation.model", "flux3-klein"),
             "dimensions": f"{RENDER_W}x{RENDER_H} rendered, {EMBED_W}px embedded, greyscale",
             "seconds": round(sum(p.seconds for p in pics), 1),
             "styles": [f"{n}x {label}" for label, n in

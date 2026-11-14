@@ -65,23 +65,23 @@ def scrape_url_with_source(url: str, submitted_hours_ago: float = None) -> tuple
 
 
 def clean_content(text: str) -> str:
-    """
-    Simple deterministic cleanup:
-    - Strip leading/trailing whitespace
-    - Collapse consecutive whitespace/newlines
-    Return cleaned string.
+    """Deterministic cleanup that keeps the article's shape.
+
+    - spaces and tabs inside a line collapse to one space;
+    - lines lose their leading/trailing spaces;
+    - any run of blank lines becomes one blank line (a paragraph break);
+    - single line breaks stay (lists, headings).
+
+    It used to collapse ALL whitespace, newlines included, first, so the
+    paragraph-keeping step after it never matched (#57).
     """
     if not text:
         return ""
-
-    # Strip leading/trailing whitespace
-    text = text.strip()
-
-    # Collapse consecutive whitespace/newlines
-    text = re.sub(r"\s+", " ", text)  # Replace multiple whitespace with single space
-    text = re.sub(r"\n\s*\n", "\n\n", text)  # Preserve paragraph breaks
-
-    return text
+    text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = re.sub(r"[ \t\f\v\u00a0]+", " ", text)
+    text = "\n".join(line.strip() for line in text.split("\n"))
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
 
 
 def summarize_text_v1(text: str) -> str:

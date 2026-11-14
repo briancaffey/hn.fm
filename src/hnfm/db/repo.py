@@ -1400,11 +1400,15 @@ def digest_edition_states() -> dict:
         }
 
 
-def recently_published_item_ids(days: int = 7) -> set:
-    """Item ids carried by any edition in the last `days`.
+def recently_published_item_ids(days: int = 7, shape: Optional[str] = None) -> set:
+    """Item ids carried by any edition in the last `days`, or, with `shape`,
+    by editions of that shape only.
 
     Time-boxed rather than forever: a story worth re-reading a month later is
     fine, and an unbounded exclusion list would eventually starve the digest.
+    Per shape (#54): the 03:30 punchline takes the top ~60 stories, and when
+    every edition counted, the 04:00 daily was left with stories ranked 61 and
+    below. A daily should not repeat a daily; it may share a punchline's.
     """
     from datetime import datetime as _dt, timedelta as _td
 
@@ -1414,8 +1418,10 @@ def recently_published_item_ids(days: int = 7) -> set:
             s.query(DigestEditionStoryRow.item_id)
             .join(DigestEditionRow, DigestEditionRow.slug == DigestEditionStoryRow.slug)
             .filter(DigestEditionRow.created_at >= cutoff)
-            .all()
         )
+        if shape:
+            rows = rows.filter(DigestEditionRow.shape == shape)
+        rows = rows.all()
     return {r[0] for r in rows}
 
 

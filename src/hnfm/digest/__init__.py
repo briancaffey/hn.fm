@@ -2,8 +2,9 @@
 
 The pipeline's product is a video; this is the other half. Nothing here
 re-derives content: a digest is a *rendering* of Story Briefs that triage and
-`build_story_brief` already produced, so generating one costs no LLM calls and
-cannot invent a claim the brief does not contain.
+`build_story_brief` already produced, so it cannot invent a claim the brief
+does not contain. Writing an edition's own prose (compose.py) does call the
+LLM a few times; selecting and rendering do not.
 
     select.py   which stories go in (ranked, same order as the triage queue)
     compose.py  the edition's own prose — and the punchline edition, which

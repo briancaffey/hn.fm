@@ -17,7 +17,9 @@ tts:
 
 # Studio Voice Configuration (NVIDIA NIM)
 studio_voice:
-  enabled: true
+  # Not read by the code: STUDIO_VOICE_ENABLED (default false) decides, and
+  # the k8s chart sets it to "false" (the cleanup pass is off in the cluster).
+  enabled: false
   target: "${STUDIO_VOICE_TARGET}"
   model_type: "${STUDIO_VOICE_MODEL_TYPE}"
   http_health_url: "${STUDIO_VOICE_HTTP_HEALTH_URL}"
@@ -214,6 +216,8 @@ triage:
   # text arrive there as [GIVEN_NAME_1]. That is tolerable for scoring, which
   # reads topics and stakes rather than who did the thing — but it is the
   # reason the fallback is kept here and deliberately absent from script.write.
+  # The default for a laptop run (LM Studio). In the cluster TRIAGE_LLM_MODEL
+  # overrides it with the local `nemotron-lightning` route.
   model: "nvidia/nemotron-3-nano-omni"
   # No fallback. The earlier note here said "while the gateway is down"; that
   # is stale — the gateway answers on both node IPs. The actual blocker is that
@@ -440,7 +444,7 @@ schedule:
       every: 1h
       gate: scraping
       kwargs: { limit: 10 }
-      why: "Scores stories that were fetched but never triaged (a worker died, or scraping ran while the LLM was down)."
+      why: "Scores stories that have a run but no brief, and re-queues stories stored in the last 36 h that never got a run (the LLM was down when they arrived)."
     # --- overnight: the morning editions, done before 05:30 ---------------
     morning-score:
       task: hnfm.web.tasks.score_backlog
