@@ -198,7 +198,8 @@ def brief_text(brief: Optional[dict]) -> str:
 
 
 def generate_script(
-    content_clean: str, summary: str, notes: Optional[dict] = None, brief: Optional[dict] = None
+    content_clean: str, summary: str, notes: Optional[dict] = None, brief: Optional[dict] = None,
+    _retried: bool = False,
 ) -> "Script":
     """Generate the structured script for a segment (plans/08, plans/11).
 
@@ -268,6 +269,11 @@ def generate_script(
     # fatal rather than repaired: the line is not narration, and dropping it
     # silently would leave a hole in a piece whose timing is already built.
     leaked = preamble_sections(script)
+    if leaked and not _retried:
+        # A fresh sample almost always comes back clean; one slip should not
+        # cost the story (the same retry-once shape as the section-count guard).
+        logging.getLogger(__name__).info(f"script carried model preamble in {leaked}; retrying once")
+        return generate_script(content_clean, summary, notes=notes, brief=brief, _retried=True)
     if leaked:
         raise RuntimeError(
             f"Failed to generate script: model preamble in section(s) {leaked} — "
