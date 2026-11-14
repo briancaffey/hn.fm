@@ -69,9 +69,14 @@ whole client.
   The `hnfm` profile can do nothing but answer.
 - **Its key is its own.** The main key is refused on `/p/hnfm`, and the
   profile's key is refused everywhere else. hn.fm holds only the profile's.
-- **Thinking is off.** With it on, a card takes three minutes; off, four
-  seconds. The profile uses a provider entry that sends
-  `chat_template_kwargs: {enable_thinking: false}`.
+- **The model is local.** The profile's only provider is the in-cluster
+  LiteLLM gateway's `nemotron-lightning` route: Nemotron 3.5 Lightning on
+  the spark box's vLLM. That route has no fallbacks, the profile has no
+  fallback providers, and it holds no cloud key. (Until 2026-11-14 it
+  called NVIDIA's hosted copy of the same model.)
+- **Thinking is off.** With it on, a card takes minutes; off, seconds. The
+  provider entry sends `chat_template_kwargs: {enable_thinking: false}`,
+  which the gateway passes through to vLLM.
 - **The skill travels with the request.** `skill/SKILL.md` is sent as the
   run's instructions. Given a tool to read skills, the model spent its turns
   trying to save its answer as a new skill. The same file is installed in
@@ -79,6 +84,31 @@ whole client.
 
 `deploy/hermes-profile.sh` creates the profile and the secret. Read the
 warning at the top of it before running it.
+
+`deploy/check-local-inference.sh` proves the whole chain is local: hn.fm's
+service URLs and model routes, the gateway's deployments and fallbacks for
+those routes, the profile's provider, model and keys, and one live turn that
+must move the spark vLLM's completed-request counter. It exits non-zero on
+any failure. `TestLocalOnlyAgent` in the tests reads the profile script so a
+cloud provider can't be reintroduced unnoticed.
+
+Each round in a video's `status.json` keeps the Hermes `run_id`, so any
+scene can be traced to the agent run that directed it.
+
+### Why Hermes directs and does not render
+
+Hermes answers with a card; hn.fm builds, reviews and renders the scene
+itself. Nothing has to come back from the agent but text. The other shape,
+an agent with the HyperFrames CLI that renders and uploads the MP4, was
+rejected on three counts:
+
+- **Untrusted input.** Scene text comes from pages written by strangers. A
+  profile that can run a renderer can be talked into running other things.
+- **The model.** Lightning makes a good card in a few seconds. Driving a
+  render, checking frames and uploading over many tool turns is where the
+  local model is weakest.
+- **The file.** The renderer already writes to hn.fm's own volume. Sending
+  a large MP4 back across services adds a failure with no benefit.
 
 Settings (chart `hermes:` block):
 

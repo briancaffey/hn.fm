@@ -5,8 +5,8 @@
 #   deploy/hermes-profile.sh [hermes-namespace] [hnfm-namespace]
 #
 # What it makes:
-#   - a Hermes profile `hnfm` with NO tools, its own API key, the same model
-#     as the default profile with thinking turned off;
+#   - a Hermes profile `hnfm` with NO tools, its own API key, and the LOCAL
+#     Nemotron 3.5 Lightning (spark, via LiteLLM) with thinking turned off;
 #   - the `hnfm-video` skill, read-only, in that profile and in the default
 #     one (for use by hand);
 #   - a secret `hnfm-hermes` (key HERMES_API_KEY) in the hn.fm namespace.
@@ -36,24 +36,27 @@ p = "/opt/data/profiles/hnfm"
 OFF = ["skills", "web", "browser", "terminal", "file", "code_execution", "vision", "video", "image_gen",
        "video_gen", "x_search", "tts", "stt", "todo", "kanban", "memory", "context_engine", "session_search",
        "connections", "clarify", "delegation", "cronjob", "discord", "discord_admin", "yuanbao", "computer_use", "a2a"]
-MODEL = "nvidia/nemotron-3.5-lightning-30b-a3b"
+MODEL = "nemotron-lightning"
 cfg = f"""model:
   default: {MODEL}
-  provider: custom:nim-direct
+  provider: custom:local-lightning
 providers:
-  # The model the default profile uses, asked not to think first: with
-  # thinking on a card takes three minutes, off it takes four seconds.
-  nim-direct:
-    api: https://integrate.api.nvidia.com/v1
-    key_env: NVIDIA_API_KEY
+  # Nemotron 3.5 Lightning on the spark box, through the LiteLLM gateway's
+  # local-only route (no fallbacks there, so it cannot quietly become a cloud
+  # model). Nothing this profile does leaves the home lab. Asked not to think:
+  # with thinking on a card takes minutes, off it takes seconds.
+  local-lightning:
+    api: http://litellm.observability.svc.cluster.local:4000/v1
+    key_env: LITELLM_API_KEY
     transport: chat_completions
     default_model: {MODEL}
     models:
       {MODEL}:
-        context_length: 131072
+        context_length: 81920
     extra_body:
       chat_template_kwargs:
         enable_thinking: false
+fallback_providers: []
 platform_toolsets:
   api_server: []
   cli: []
@@ -78,9 +81,15 @@ def read(path):
         pass
     return out
 
-main, mine = read("/opt/data/.env"), read(p + "/.env")
-if "NVIDIA_API_KEY" in main:
-    mine["NVIDIA_API_KEY"] = main["NVIDIA_API_KEY"]
+mine = read(p + "/.env")
+# No cloud key in this profile: drop one left by an older version. A profile
+# reads keys only from its own .env, so the gateway key the pod already holds
+# (LITELLM_API_KEY, from the hermes secret) is copied in.
+mine.pop("NVIDIA_API_KEY", None)
+if os.environ.get("LITELLM_API_KEY"):
+    mine["LITELLM_API_KEY"] = os.environ["LITELLM_API_KEY"]
+else:
+    raise SystemExit("LITELLM_API_KEY is not in the hermes pod's environment")
 mine.setdefault("API_SERVER_KEY", secrets.token_urlsafe(36))
 with open(p + "/.env", "w") as f:
     f.write("# Per-profile secrets for the hnfm profile.\n")

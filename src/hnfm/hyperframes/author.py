@@ -209,6 +209,7 @@ def write_scene(project: str, brief: Dict, sc: Dict, before: str, job: str = "")
             break
         record["tokens"] += got["tokens"]
         entry["seconds"] = got["seconds"]
+        entry["run_id"] = got.get("run_id")  # the Hermes run, for tracing a scene back
         parts = extract(got["text"])
         if not parts:
             notes = ["the reply held no html block"]
@@ -427,6 +428,7 @@ def direct_scene(project: str, brief: Dict, sc: Dict, before: List[str], previou
             break
         record["tokens"] += got["tokens"]
         entry["seconds"] = got["seconds"]
+        entry["run_id"] = got.get("run_id")  # the Hermes run, for tracing a scene back
         card = parse_card(got["text"])
         # Variety is asked for once; a second card of the same kind is
         # better than no card.
