@@ -360,11 +360,21 @@ class TestShotPlan:
         got = shots.allowed(self._sc(), hist)
         assert "still" not in got and "pan" not in got and "sequence" in got
 
-    def test_a_section_opens_on_a_picture_not_type_or_continue(self):
+    def test_a_section_opener_cannot_continue_and_the_film_opens_on_a_picture(self):
         from hnfm.hyperframes import shots
 
         got = shots.allowed(self._sc(part=1), [{"form": "drift", "seconds": 4}])
-        assert "type" not in got and "continue" not in got and "split" not in got
+        assert "continue" not in got and "type" in got
+        first = shots.allowed(self._sc(n=1, part=1), [])
+        assert "type" not in first and "split" not in first
+
+    def test_drift_cannot_repeat_and_the_least_used_form_comes_first(self):
+        from hnfm.hyperframes import shots
+
+        hist = [{"form": "drift", "seconds": 4}, {"form": "still", "seconds": 4}, {"form": "drift", "seconds": 4}]
+        got = shots.allowed(self._sc(), hist)
+        assert "drift" not in got
+        assert got[0] not in ("drift", "still")
 
     def test_continue_cannot_hold_a_shot_past_ten_seconds(self):
         from hnfm.hyperframes import shots

@@ -57,19 +57,23 @@ MERGE_MAX = 10.0  # seconds: a shot held longer than this stops being a shot
 def allowed(sc: Dict, history: List[Dict]) -> List[str]:
     """The forms this beat may take, given the shots before it."""
     recent = [h["form"] for h in history[-6:]]
+    used = [h["form"] for h in history]
     last = recent[-1] if recent else None
     first_in_section = sc.get("part", 1) == 1
+    first_in_film = not history
     out = []
     for f in FORMS:
-        if f == last and f != "drift":
+        if f == last:
+            continue
+        if f == "drift" and recent[-3:].count("drift") >= 2:
             continue
         if f == "pan" and "pan" in recent[-5:]:
             continue
         if f == "sequence" and (sc["seconds"] < 3.0 or "sequence" in recent[-2:]):
             continue
-        if f == "type" and (first_in_section or "type" in recent[-4:]):
+        if f == "type" and (first_in_film or "type" in recent[-4:]):
             continue
-        if f == "split" and ("split" in recent[-5:] or first_in_section):
+        if f == "split" and ("split" in recent[-5:] or first_in_film):
             continue
         if f == "punch" and sc["seconds"] < 3.4:
             continue
@@ -79,8 +83,9 @@ def allowed(sc: Dict, history: List[Dict]) -> List[str]:
                     or prev["seconds"] + sc["seconds"] > MERGE_MAX):
                 continue
         out.append(f)
-    # A section opens on its own drawn picture: no new picture, no split.
-    return out
+    # Least used first: the model leans on whatever it is shown first, and
+    # left alone it drifts every shot.
+    return sorted(out, key=lambda f: (used.count(f), list(FORMS).index(f)))
 
 
 def _parse(text: str) -> Dict:
@@ -103,7 +108,12 @@ def check_shot(d: Dict, sc: Dict, forms: List[str], already: List[str]) -> List[
     form = d.get("form")
     if form not in forms:
         return [f"form must be one of: {', '.join(forms)}"]
-    if form in ("type", "continue") or sc.get("part", 1) == 1:
+    if form in ("type", "continue"):
+        return []
+    if sc.get("part", 1) == 1:
+        # The section's own picture is the shot; a split also needs its partner.
+        if form == "split" and not _picture(d.get("second") if isinstance(d.get("second"), dict) else {}, sc["n"] + 1):
+            return ["a split needs `second`: {subject, doing, where} for the right-hand picture"]
         return []
     notes = []
     desc = _picture(d, sc["n"])
@@ -136,7 +146,8 @@ def ask(brief: Dict, sc: Dict, nxt: Optional[Dict], forms: List[str], already: L
         "avoid": avoid(already) or ["nothing yet"],
     }
     if sc.get("part", 1) == 1:
-        msg["note"] = "this line opens a section and already has its picture: choose only `form`"
+        msg["note"] = ("this line opens a section and already has its picture: choose `form` "
+                       "(and for `split`, `second` for the right-hand picture)")
     message = "Plan this shot.\n\n```json\n" + json.dumps(msg, indent=1) + "\n```"
     session = f"hnfm-shot-{brief['item_id']}-{brief['run']}-{sc['n']}-{int(time.time())}"
     for _ in range(3):
@@ -184,6 +195,9 @@ def plan(brief: Dict, status=None) -> Dict:
                 sc["draw2"] = _picture(d.get("second") or {}, sc["n"] + 1)
         elif form == "sequence":
             sc["changes"] = []  # a section's own frames are its sequence
+        elif form == "split":
+            sc["picture"] = (sc.get("frames") or [None])[0]
+            sc["draw2"] = _picture(d.get("second") or {}, sc["n"] + 1)
         out.append(sc)
         history.append({"form": form, "seconds": sc["seconds"]})
     for k, sc in enumerate(out):
@@ -245,13 +259,17 @@ def draw(brief: Dict, folder: str, status=None) -> Dict:
             missed += 1
             return None
 
-    todo = [s for s in brief["scenes"] if s.get("draw")]
+    todo = [s for s in brief["scenes"] if s.get("draw") or s.get("draw2")]
     for i, sc in enumerate(todo):
         if status:
             status(f"drawing shot {i + 1} of {len(todo)} ({sc['form']})")
         zone = None if sc["form"] in ("split",) else sc["zone"]
-        key = _key(brief["title"] + "|" + sc["draw"] + "|" + str(zone))
-        base = one(_compose(sc["draw"], zone, theme), key)
+        base = sc.get("picture")
+        if sc.get("draw"):
+            key = _key(brief["title"] + "|" + sc["draw"] + "|" + str(zone))
+            base = one(_compose(sc["draw"], zone, theme), key)
+        else:
+            key = _key(brief["title"] + "|" + sc["draw2"])
         if not base:
             continue
         sc["picture"] = base
