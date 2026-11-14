@@ -317,3 +317,31 @@ class TestShots:
         sc = {"seconds": 5.0, "words": [{"w": "Von", "t": 0.4}, {"w": "Plato", "t": 0.6}, {"w": "was", "t": 0.9},
                                          {"w": "flabbergasted,", "t": 1.1}]}
         assert cinema.spoken_times(sc, ["Von", "Plato", "was", "flabbergasted"], 0.2, 0.2) == [0.4, 0.6, 0.9, 1.1]
+
+
+class TestPicturesAndMusic:
+    def test_subjects_used_twice_are_to_be_avoided(self):
+        from hnfm.hyperframes import pictures
+
+        seen = ["a handwritten ledger on a wooden desk", "a ledger spread open on a wooden table", "a train at dusk"]
+        got = pictures.avoid(seen)
+        assert "ledger" in got and "wooden" in got and "train" not in got
+
+    def test_a_near_copy_is_similar_and_a_new_scene_is_not(self):
+        from hnfm.hyperframes import pictures
+
+        a = "a handwritten ledger spread open on a desk, pages of dense notation"
+        assert pictures._similar(a, a + " under a lamp") > 0.4
+        assert pictures._similar(a, "a lone mathematician walks across a snowy campus") < 0.2
+
+    def test_a_picture_with_words_in_it_is_refused(self):
+        from hnfm.hyperframes import pictures
+
+        assert pictures.check("a shop sign that says open hangs over a quiet street at night in the rain")
+        assert not pictures.check("a lone mathematician walks across a snowy campus at dusk, carrying notebooks")
+
+    def test_the_music_is_one_of_the_moods(self):
+        from hnfm.hyperframes import music
+
+        assert music.FALLBACK in music.MOODS.values()
+        assert all("vocal" not in v for v in music.MOODS.values())

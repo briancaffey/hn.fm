@@ -150,7 +150,7 @@ def _scene(cid: str, sc: Dict, style: str, inner: str, t: float, place: str, js:
 
 def figure(sc: Dict, c: Dict) -> str:
     cid = scene_id(sc["n"])
-    value, label, kicker = str(c["value"]), str(c["label"]), str(c.get("kicker") or "")
+    value, label, kicker = str(c["value"]).strip(" ,.;:"), str(c["label"]), str(c.get("kicker") or "")
     size = _fit(value, [(4, 168), (6, 140), (9, 112), (13, 86), (99, 66)])
     t = _soon(when(sc, value, 0.4), sc)
     inner = (f'{f"<p id={chr(34)}{cid}-kick{chr(34)} class={chr(34)}k-kicker{chr(34)}>{esc(kicker)}</p>" if kicker else ""}'
