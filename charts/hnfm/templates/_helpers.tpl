@@ -105,6 +105,12 @@ envFrom:
       name: {{ .Values.hermes.secretName }}
       optional: true
   {{- end }}
+  {{- if .Values.club.enabled }}
+  # The Inference Club API token (INFERENCE_CLUB_API_KEY), made out of band.
+  - secretRef:
+      name: {{ .Values.club.secretName }}
+      optional: true
+  {{- end }}
 {{- end -}}
 
 {{/* Roll pods when the ConfigMap changes. */}}

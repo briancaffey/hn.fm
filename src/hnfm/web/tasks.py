@@ -1662,6 +1662,18 @@ def full_pipeline(
     item_id: int, aspect_format: str = None, style_theme: str = None,
     mode: str = "video",
 ) -> Dict[str, any]:
+    """The whole pipeline for one story; every image and voice clip it makes
+    through Inference Club is filed in the story's collection."""
+    from .. import club
+
+    with club.filing(item_id):
+        return _full_pipeline(item_id, aspect_format, style_theme, mode)
+
+
+def _full_pipeline(
+    item_id: int, aspect_format: str = None, style_theme: str = None,
+    mode: str = "video",
+) -> Dict[str, any]:
     """
     Run the entire pipeline in a single task for an item.
 
@@ -3270,9 +3282,11 @@ def radio_edition_video(edition_id: str) -> Dict[str, any]:
 def story_video(item_id: int, run: int, seg: int, direct: bool = True) -> Dict[str, any]:
     """The story video for a narrated segment: one HyperFrames composition,
     its scenes directed by Hermes (hyperframes/videos.py)."""
+    from .. import club
     from ..hyperframes import videos
 
-    st = videos.make(item_id, run, seg, direct=direct)
+    with club.filing(item_id):
+        st = videos.make(item_id, run, seg, direct=direct)
     return {k: st.get(k) for k in ("id", "state", "directed", "plain", "seconds", "error")}
 
 

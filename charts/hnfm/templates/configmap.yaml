@@ -69,6 +69,13 @@ data:
   STUDIO_VOICE_ENABLED: "false"
   HYPERFRAMES_BASE_URL: {{ printf "http://%s-hyperframes:8088" (include "hnfm.fullname" .) | quote }}
   HYPERFRAMES_ENABLED: {{ and .Values.hyperframes.enabled .Values.features.hyperframes | quote }}
+  INFERENCE_CLUB_ENABLED: {{ .Values.club.enabled | quote }}
+  {{- if .Values.club.enabled }}
+  INFERENCE_CLUB_BASE_URL: {{ .Values.club.baseUrl | quote }}
+  INFERENCE_CLUB_HOST: {{ .Values.club.host | quote }}
+  CLUB_IMAGE_MODEL: {{ .Values.club.imageModel | quote }}
+  CLUB_TTS_MODEL: {{ .Values.club.ttsModel | quote }}
+  {{- end }}
   {{- if .Values.hermes.enabled }}
   HERMES_BASE_URL: {{ .Values.hermes.baseUrl | quote }}
   HERMES_PROFILE: {{ .Values.hermes.profile | quote }}

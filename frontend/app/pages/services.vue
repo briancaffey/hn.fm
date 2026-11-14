@@ -31,6 +31,15 @@ const apiBase = config.public.apiBase
 const { data, pending, refresh } = await useAsyncData<ServicesResponse>('services', () =>
   $fetch(`${apiBase}/api/services/status`))
 
+// What Inference Club says is reachable right now (GET /v1/catalog through
+// /api/club/catalog). Shown only when hn.fm is routed through the club.
+interface ClubModel { id: string; name?: string }
+interface ClubService { type: string; name: string; node?: string; ready?: boolean; models: ClubModel[] }
+interface ClubNode { name: string; online?: boolean; gpus?: { name: string; memory_gb?: number }[] }
+interface ClubCatalog { enabled: boolean; nodes?: ClubNode[]; services?: ClubService[] }
+const { data: club } = await useAsyncData<ClubCatalog>('club-catalog', () =>
+  $fetch(`${apiBase}/api/club/catalog`).catch(() => ({ enabled: false })))
+
 onMounted(() => {
   const t = setInterval(refresh, 30000)
   onUnmounted(() => clearInterval(t))
@@ -191,6 +200,26 @@ function when(ts?: string) {
             </div>
           </article>
         </div>
+      </section>
+
+      <section v-if="club?.enabled && club?.services?.length" class="mt-8">
+        <h2 class="mb-1 text-sm font-semibold">Through Inference Club</h2>
+        <p class="mb-3 text-xs text-muted-foreground">
+          Images and voice go through the club and are filed per story (collection hn.fm/story-&lt;id&gt;).
+          This is everything the club can reach right now.
+        </p>
+        <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          <article v-for="cs in club.services" :key="`${cs.node}-${cs.name}`" class="rounded-lg border bg-card p-3 text-xs">
+            <div class="flex items-center justify-between gap-2">
+              <span class="font-medium">{{ cs.name }}</span>
+              <span class="rounded px-1.5 py-0.5 uppercase tracking-wide" :class="cs.ready ? 'bg-emerald-500/10 text-emerald-600' : 'bg-muted text-muted-foreground'">{{ cs.type }}</span>
+            </div>
+            <p class="mt-1 text-muted-foreground">on {{ cs.node || '?' }} · {{ cs.models.map(m => m.id).join(', ') }}</p>
+          </article>
+        </div>
+        <p v-if="club.nodes?.length" class="mt-3 text-xs text-muted-foreground">
+          Nodes: <span v-for="(n, i) in club.nodes" :key="n.name">{{ i ? ' · ' : '' }}{{ n.name }}<template v-if="n.gpus?.length"> ({{ n.gpus.map(g => g.name).join(', ') }})</template></span>
+        </p>
       </section>
     </div>
   </PageShell>

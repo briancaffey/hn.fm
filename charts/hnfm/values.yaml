@@ -200,6 +200,19 @@ hyperframes:
 # HTTP API. The profile's key lives in a secret made out of band:
 #   kubectl -n <ns> create secret generic hnfm-hermes --from-literal=HERMES_API_KEY=...
 # Without it, or with enabled false, every scene is the plain version.
+# Inference Club (src/hnfm/club.py): images and voice go through the club's
+# API, recorded and filed into a collection per story (hn.fm/story-<id>),
+# private. Falls back to the direct services if the club fails. The token is
+# a secret made out of band:
+#   kubectl -n <ns> create secret generic hnfm-club --from-literal=INFERENCE_CLUB_API_KEY=...
+club:
+  enabled: false
+  baseUrl: http://backend.inference-club-web.svc.cluster.local:8001
+  host: club.lan
+  secretName: hnfm-club
+  imageModel: flux-3-image-klein-fp8
+  ttsModel: magpie-tts-multilingual
+
 hermes:
   enabled: false
   baseUrl: http://hermes.hermes.svc.cluster.local:8642

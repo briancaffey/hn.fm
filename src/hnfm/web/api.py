@@ -144,6 +144,17 @@ async def health_check():
     )
 
 
+@app.get("/api/club/catalog", tags=["services"])
+async def club_catalog():
+    """What Inference Club says exists right now: nodes, their GPUs, and
+    every service with its models (the club's GET /v1/catalog). Empty when
+    hn.fm is not routed through the club."""
+    from .. import club
+
+    data = club.catalog()
+    return {"enabled": club.enabled(), "collection_root": "hn.fm", **(data or {})}
+
+
 @app.get(
     "/api/services/status", response_model=ServicesStatusResponse, tags=["services"]
 )

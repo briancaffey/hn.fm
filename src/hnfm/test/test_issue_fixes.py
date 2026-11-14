@@ -64,3 +64,43 @@ def test_60_the_brief_reaches_the_script_prompt():
     t = brief_text(b)
     assert "Angle: AI lowers the bar" in t and 'say "sixty-six minutes"' in t
     assert brief_text(None) == "(none)"
+
+
+def test_61_media_files_into_the_story_collection_and_falls_back(monkeypatch):
+    from hnfm import club
+
+    monkeypatch.setenv("INFERENCE_CLUB_ENABLED", "true")
+    monkeypatch.setenv("INFERENCE_CLUB_BASE_URL", "http://club")
+    monkeypatch.setenv("INFERENCE_CLUB_API_KEY", "k")
+    monkeypatch.setattr(club, "_down_until", 0.0)
+    sent = {}
+
+    class R:
+        status_code = 200
+        headers = {"content-type": "application/json"}
+
+        def json(self):
+            return {"data": [{"b64_json": "aW1n"}]}
+
+    def post(url, json, headers, timeout):
+        sent.update(url=url, body=json, headers=headers)
+        return R()
+
+    monkeypatch.setattr(club.requests, "post", post)
+    with club.filing(42):
+        assert club.image("a cat", 1280, 720) == "aW1n"
+    assert sent["url"] == "http://club/v1/images/generations"
+    assert sent["body"]["collection"] == "hn.fm/story-42" and sent["body"]["visibility"] == "PRIVATE"
+    assert club.collection() == "hn.fm"
+
+    class Bad(R):
+        status_code = 503
+        text = "down"
+
+    monkeypatch.setattr(club.requests, "post", lambda *a, **k: Bad())
+    try:
+        club.image("a cat", 1280, 720)
+        raise AssertionError("expected ClubError")
+    except club.ClubError:
+        pass
+    assert not club.usable()  # cools down instead of timing out on every image

@@ -315,6 +315,39 @@ now, so the film keeps changing.
   remake only redraws what changed.
 
 
+## Inference Club
+
+In short: Inference Club is how hn.fm reaches the home lab's media models.
+Every image and voice clip goes through the club's API, so it is recorded,
+private, and filed in a folder per story.
+
+```mermaid
+flowchart LR
+  H[hn.fm] -->|images, voice<br/>collection hn.fm/story-id| C[Inference Club<br/>club.lan]
+  C --> A[club agent]
+  A --> F[FLUX 3 Klein<br/>a1 4090]
+  A --> M[Magpie TTS<br/>blade]
+  H -->|text| L[LiteLLM] --> S[Lightning<br/>spark]
+  H -->|what exists?| K[club /v1/catalog]
+```
+
+- **Images and voice** go to the club (`src/hnfm/club.py`). Text stays on LiteLLM:
+  triage alone makes hundreds of calls a day and would bury everything else.
+- **Collections are projects.** Each request says `collection: hn.fm/story-<id>`
+  and `visibility: PRIVATE`. In the club's gallery, pick the collection to see
+  one story's pictures.
+- **If the club fails,** hn.fm uses the service directly and logs it, then
+  skips the club for 2 minutes. Production never stops because of the club.
+- **What exists right now:** the club's `GET /v1/catalog` lists nodes, GPUs,
+  services and models. hn.fm shows it on the Services page.
+- **Switch:** `club.enabled` in the chart values; the token is the
+  `hnfm-club` secret (`INFERENCE_CLUB_API_KEY`).
+
+**Why the club and not the services directly?**
+- One place that records what was made, by which model, on which GPU.
+- Outputs are found by project instead of being scattered in folders.
+- New projects reuse the same models without knowing each service's address.
+
 ## The digest (Kindle / email)
 
 In short: on a schedule, it takes the highest-interest stories it hasn't sent lately, writes an edition from their Story Briefs, saves HTML + DOCX, and emails the DOCX to a Kindle through Brevo.

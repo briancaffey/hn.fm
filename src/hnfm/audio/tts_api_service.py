@@ -171,6 +171,17 @@ class TtsApiService:
         return self._concat_wavs(clips, gap_ms=TURN_GAP_MS) if clips else None
 
     def _magpie_one(self, text: str, voice: str) -> Optional[bytes]:
+        # Through Inference Club first (recorded, filed by story); straight
+        # to Magpie if the club is off or fails.
+        from .. import club
+        if club.usable():
+            try:
+                from .levels import match
+
+                return match(club.speech(text, voice, MAGPIE_LANGUAGE, MAGPIE_SAMPLE_RATE,
+                                         timeout=self.timeout_seconds))
+            except club.ClubError as e:
+                logger.warning(f"Inference Club speech failed, using Magpie directly: {e}")
         form = {
             "text": text,
             "voice": voice,

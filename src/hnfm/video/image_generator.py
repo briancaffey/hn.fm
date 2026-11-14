@@ -73,6 +73,17 @@ class ImageGenerationService:
         steps = steps or self.default_steps
         samples = samples or self.default_samples
 
+        # Through Inference Club first (recorded, filed by story, private);
+        # straight to the image service if the club is off or fails.
+        from .. import club
+        if club.usable():
+            try:
+                b64 = club.image(prompt, width, height, timeout=self.timeout_seconds)
+                logger.info(f"✅ image via Inference Club ({club.collection()})")
+                return {"artifacts": [{"base64": b64}], "via": "club"}
+            except club.ClubError as e:
+                logger.warning(f"Inference Club image failed, using the service directly: {e}")
+
         # FLUX 3 Klein (the flux3-klein services) exposes an OpenAI-compatible image API:
         # POST /v1/images/generations -> {"data": [{"b64_json": ...}]}
         payload = {
